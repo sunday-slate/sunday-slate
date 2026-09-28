@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT league_id AS \"league_id!: i64\" FROM fantasy_teams WHERE id = ?1",
+  "describe": {
+    "columns": [
+      {
+        "name": "league_id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "fantasy_teams",
+            "name": "league_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "246bff3a73385ed783eeb9e305ef64ce669f2e6cb5067ba8cdaaec982af3f89a"
+}

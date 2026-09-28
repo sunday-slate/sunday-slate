@@ -1,0 +1,20 @@
+{% extends "app.html" %}
+{% block page_action %}
+<a href="/invites/new" class="btn btn-ghost btn-sm">Invite</a>
+{% endblock %}
+{% block content %}
+{% if !rows.is_empty() %}
+<ul class="list list-card">
+  {% for row in rows %}
+  {% include "invites/_row.html" %}
+  {% endfor %}
+</ul>
+{% else %}
+<div class="card border border-base-300 bg-base-100">
+  <div class="card-body items-center gap-2 py-10 text-center text-base-content/60">
+    <i class="ph ph-envelope-simple text-3xl"></i>
+    <p>No invites yet.</p>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

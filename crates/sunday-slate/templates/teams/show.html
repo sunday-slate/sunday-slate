@@ -1,0 +1,77 @@
+{% extends "app.html" %}
+{% import "partials/team_header.html" as header %}
+{% block page_action %}
+{% if let Some(team_id) = edit_team_id %}
+<a href="/teams/{{ team_id }}/edit" class="btn btn-ghost -mr-2 text-primary">Edit</a>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+{% call header::team_header(name, owner_name, logo, self.monogram(), season.total_str(), season.total_label(), edit_team_id) %}{% endcall %}
+
+{% if !open.is_empty() %}
+<h2 class="mt-4 mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-base-content/50">Open Contests</h2>
+<ul class="list list-card">
+  {% for row in open %}
+  <li>
+    {% match row.action %}
+    {% when OpenAction::ViewEntry with (entry) %}
+    <a href="/entries/{{ entry.0 }}" class="list-row items-center hover:bg-base-200">
+      <div class="list-col-grow">
+        <div class="font-medium">{{ row.name }}</div>
+        {% if let Some(status) = row.status %}
+        <div class="text-xs text-base-content/50">{{ status }}</div>
+        {% endif %}
+      </div>
+      <i class="ph ph-caret-right self-center text-base-content/40"></i>
+    </a>
+    {% when OpenAction::Draft with (resume) %}
+    <div class="list-row items-center">
+      <div class="list-col-grow">
+        <div class="font-medium">{{ row.name }}</div>
+        {% if let Some(status) = row.status %}
+        <div class="text-xs text-base-content/50">{{ status }}</div>
+        {% endif %}
+      </div>
+      <a href="/contests/{{ row.contest.0 }}/draft-entry" class="btn btn-primary btn-sm self-center">{% if resume %}Resume lineup{% else %}Enter lineup{% endif %}</a>
+    </div>
+    {% when OpenAction::Live %}
+    <a href="/contests/{{ row.contest.0 }}" class="list-row items-center hover:bg-base-200">
+      <div class="list-col-grow">
+        <div class="font-medium">{{ row.name }}</div>
+      </div>
+    </a>
+    {% endmatch %}
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+{% if !season.rows.is_empty() %}
+<ul class="list list-card mt-4">
+  {% for row in season.rows %}
+  <li class="{% if row.score_to_beat %}bg-primary/10{% endif %}{% if !row.counts %} opacity-50{% endif %}">
+    <a href="/contests/{{ row.contest.0 }}" class="list-row items-center {% if row.score_to_beat %}hover:bg-primary/20{% else %}hover:bg-base-200{% endif %}">
+      <div class="list-col-grow">
+        <div class="font-medium">{{ row.name }}</div>
+        {% if row.score_to_beat %}
+        <div class="text-xs text-primary">Score to beat</div>
+        {% endif %}
+        {% if !row.counts %}
+        <div class="text-xs text-base-content/50">Does not count</div>
+        {% endif %}
+      </div>
+      <div class="self-center text-lg font-semibold tnum">{{ row.points_str() }}</div>
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<div class="card mt-4 border border-base-300 bg-base-100">
+  <div class="card-body items-center gap-2 py-10 text-center text-base-content/60">
+    <i class="ph ph-calendar-blank text-3xl"></i>
+    <p>No scored contests yet.</p>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,122 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n               season AS \"season: Season\",\n               week AS \"week: Week\",\n               team AS \"team: TeamAbbr\",\n               gsis_id,\n               espn_id,\n               full_name,\n               last_name,\n               position,\n               status\n           FROM weekly_roster_entries\n           WHERE season = ? AND week = ? AND team = ?\n           ORDER BY last_name, full_name, id",
+  "describe": {
+    "columns": [
+      {
+        "name": "season: Season",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "weekly_roster_entries",
+            "name": "season"
+          }
+        }
+      },
+      {
+        "name": "week: Week",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "weekly_roster_entries",
+            "name": "week"
+          }
+        }
+      },
+      {
+        "name": "team: TeamAbbr",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "weekly_roster_entries",
+            "name": "team"
+          }
+        }
+      },
+      {
+        "name": "gsis_id",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "weekly_roster_entries",
+            "name": "gsis_id"
+          }
+        }
+      },
+      {
+        "name": "espn_id",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "weekly_roster_entries",
+            "name": "espn_id"
+          }
+        }
+      },
+      {
+        "name": "full_name",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "weekly_roster_entries",
+            "name": "full_name"
+          }
+        }
+      },
+      {
+        "name": "last_name",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "weekly_roster_entries",
+            "name": "last_name"
+          }
+        }
+      },
+      {
+        "name": "position",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "weekly_roster_entries",
+            "name": "position"
+          }
+        }
+      },
+      {
+        "name": "status",
+        "ordinal": 8,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "weekly_roster_entries",
+            "name": "status"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "ec6d3791bf57fae5a22a90bd4259a8e1045eb4b27c6759d34ed6658ea7974e91"
+}

@@ -1,0 +1,49 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n             COALESCE(SUM(state = 'matched'), 0)   AS \"matched!: i64\",\n             COALESCE(SUM(state = 'dst'), 0)       AS \"dst!: i64\",\n             COALESCE(SUM(state = 'unmatched'), 0) AS \"unmatched!: i64\",\n             COALESCE(SUM(state = 'resolved'), 0)  AS \"resolved!: i64\",\n             COALESCE(SUM(state = 'skipped'), 0)   AS \"skipped!: i64\"\n           FROM salary_import_rows WHERE import_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "matched!: i64",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": "Expression"
+      },
+      {
+        "name": "dst!: i64",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": "Expression"
+      },
+      {
+        "name": "unmatched!: i64",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": "Expression"
+      },
+      {
+        "name": "resolved!: i64",
+        "ordinal": 3,
+        "type_info": "Integer",
+        "origin": "Expression"
+      },
+      {
+        "name": "skipped!: i64",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "5a175c273b87d1f63ba4065ba0eaebce669d000fa976385d760cf6f9f50b6a9e"
+}

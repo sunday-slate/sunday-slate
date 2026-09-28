@@ -1,0 +1,40 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT release_tag AS \"release_tag!: String\",\n                  COUNT(*) AS \"assets!: u32\",\n                  strftime('%Y-%m-%dT%H:%M:%SZ', MAX(synced_at))\n                      AS \"last_synced_at!: OffsetDateTime\"\n           FROM sync_state\n           GROUP BY release_tag",
+  "describe": {
+    "columns": [
+      {
+        "name": "release_tag!: String",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sync_state",
+            "name": "release_tag"
+          }
+        }
+      },
+      {
+        "name": "assets!: u32",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": "Expression"
+      },
+      {
+        "name": "last_synced_at!: OffsetDateTime",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "e046294542088a01a7f637d7106b734d564c4ff8f05a51fd47d4232f41a7a5cf"
+}

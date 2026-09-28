@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT upstream_updated_at FROM sync_state WHERE release_tag = ? AND asset_name = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "upstream_updated_at",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sync_state",
+            "name": "upstream_updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "828dedd4b0af5b43e57d5e8845cdb56cb2aad5396b067cb13b685ef1ebaf8ca9"
+}

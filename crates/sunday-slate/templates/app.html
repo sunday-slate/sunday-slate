@@ -1,0 +1,124 @@
+{% extends "layout.html" %}
+
+{% block title %}{{ chrome.title }}{% endblock %}
+{% block title_suffix %}{% if let Some(name) = crate::context::league_name() %}{% if chrome.title == name.as_str() %}{% else %} – {{ name }}{% endif %}{% else %} – Sunday Slate{% endif %}{% endblock %}
+
+{# Same condition the tab bar renders under: lift toasts above the bar. #}
+{% block flash_offset %}{% if chrome.close.is_none() && crate::context::current_user().is_some() %}mb-[calc(6rem+env(safe-area-inset-bottom))]{% else %}mb-4{% endif %}{% endblock %}
+
+{% block navbar_start %}
+{% if let Some(close) = chrome.close %}
+<a href="{{ close }}" class="btn btn-ghost btn-square -ml-2" aria-label="Close">
+  <i class="ph ph-x text-2xl"></i>
+</a>
+{% else %}
+<div class="min-w-0">
+  <div class="truncate text-lg font-semibold leading-tight tracking-tight">{{ chrome.title }}</div>
+  {% if chrome.is_current() || chrome.is_standings() || chrome.is_contests() %}
+  {% if let Some(name) = crate::context::league_name() %}
+  {% if chrome.title == name.as_str() %}{% else %}
+  <div class="truncate text-xs leading-tight text-base-content/50">{{ name }}</div>
+  {% endif %}
+  {% endif %}
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block navbar_center %}
+{% if chrome.close.is_some() %}
+<span class="whitespace-nowrap text-lg font-semibold tracking-tight">{{ chrome.title }}</span>
+{% endif %}
+{% endblock %}
+
+{% block navbar_end %}
+{% block live_indicator %}{% endblock %}
+{% block page_action %}{% endblock %}
+{% endblock %}
+
+{% block pre_main %}
+{% if let Some(banner) = crate::context::admin_banner() %}
+<div class="mx-auto w-full max-w-md px-4 pt-5">
+  <div class="alert alert-warning flex flex-wrap items-center gap-x-3 gap-y-2">
+    <i class="ph ph-wrench text-lg"></i>
+    <span class="font-medium">Get {{ banner.name }} ready</span>
+    <div class="ms-auto flex gap-2">
+      {% if banner.needs_salaries %}
+      <a href="/admin/salary-imports" class="btn btn-warning btn-xs">Upload salaries</a>
+      {% endif %}
+      {% if banner.needs_slate %}
+      <a href="/admin/contests/{{ banner.contest.0 }}/slate" class="btn btn-outline btn-xs">Set slate</a>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block shell %}
+{{ super() }}
+{% if chrome.close.is_none() %}
+{% if let Some(user) = crate::context::current_user() %}
+<div class="h-[calc(5rem+env(safe-area-inset-bottom))]" aria-hidden="true"></div>
+<nav class="fixed inset-x-0 bottom-0 z-40 border-t border-base-300 bg-base-100 pb-[env(safe-area-inset-bottom)]" aria-label="Primary">
+  <div class="mx-auto flex w-full max-w-md px-3">
+    <a href="/standings" class="flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] {% if chrome.is_standings() %}font-semibold text-primary{% else %}text-base-content/60{% endif %}"{% if chrome.is_standings() %} aria-current="page"{% endif %}>
+      <i class="{% if chrome.is_standings() %}ph-fill{% else %}ph{% endif %} ph-ranking text-2xl"></i>Standings
+    </a>
+    <a href="/contests" class="flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] {% if chrome.is_contests() %}font-semibold text-primary{% else %}text-base-content/60{% endif %}"{% if chrome.is_contests() %} aria-current="page"{% endif %}>
+      <i class="{% if chrome.is_contests() %}ph-fill{% else %}ph{% endif %} ph-trophy text-2xl"></i>Contests
+    </a>
+    {% if crate::context::current_contest().is_some() %}
+    <a href="/" class="flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] {% if chrome.is_current() %}font-semibold text-primary{% else %}text-base-content/60{% endif %}"{% if chrome.is_current() %} aria-current="page"{% endif %}>
+      <span class="-mt-3 grid size-9 shrink-0 place-items-center rounded-full {% if chrome.is_current() %}bg-primary text-primary-content{% else %}border border-base-content/25 bg-base-100 text-base-content/60{% endif %}">
+        <i class="{% if chrome.is_current() %}ph-fill{% else %}ph{% endif %} ph-football text-xl"></i>
+      </span>
+      Current
+    </a>
+    {% endif %}
+    {% if let Some(team) = crate::context::current_team() %}
+    <a href="/teams/{{ team }}" class="flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] {% if chrome.is_my_team() %}font-semibold text-primary{% else %}text-base-content/60{% endif %}"{% if chrome.is_my_team() %} aria-current="page"{% endif %}>
+      <i class="{% if chrome.is_my_team() %}ph-fill{% else %}ph{% endif %} ph-user text-2xl"></i>My Team
+    </a>
+    {% endif %}
+    <details class="dropdown dropdown-top dropdown-end flex flex-1">
+      <summary class="flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] text-base-content/60" aria-label="Menu">
+        <i class="ph ph-dots-three-outline text-2xl"></i>More
+      </summary>
+      <ul tabindex="0" class="dropdown-content menu z-50 mb-1 w-60 gap-1 rounded-box border border-base-300 bg-base-100 p-2 shadow-lg">
+        {% let switcher = crate::context::league_switcher() %}
+        {% if !switcher.is_empty() %}
+        <li class="menu-title">Leagues</li>
+        {% for l in switcher %}
+        <li>
+          <button type="button" hx-post="/leagues/switch" hx-vals='{"league_id": {{ l.id }}}' class="font-medium{% if l.active %} menu-active{% endif %}"{% if l.active %} aria-current="true"{% endif %}>
+            <i class="{% if l.active %}ph-fill ph-check-circle{% else %}ph ph-circle{% endif %} text-xl"></i>{{ l.name }}
+          </button>
+        </li>
+        {% endfor %}
+        {% endif %}
+        {% if user.is_commissioner %}
+        <li>
+          <a href="/invites" class="font-medium"><i class="ph ph-envelope-simple text-xl"></i>Invites</a>
+        </li>
+        {% endif %}
+        {% if user.is_admin %}
+        <li>
+          <a href="/admin" class="font-medium"><i class="ph ph-wrench text-xl"></i>Admin Tools</a>
+        </li>
+        {% endif %}
+        <li>
+          <a href="/rules" class="font-medium"><i class="ph ph-scroll text-xl"></i>Rules &amp; Scoring</a>
+        </li>
+        <li>
+          <button type="button" hx-post="/logout" class="font-medium">
+            <i class="ph ph-sign-out text-xl"></i>Sign out
+          </button>
+        </li>
+      </ul>
+    </details>
+  </div>
+</nav>
+{% endif %}
+{% endif %}
+{% endblock %}

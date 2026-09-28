@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE invites\n           SET token_hash = ?3,\n               expires_at = datetime('now','subsec','+14 days')\n           WHERE id = ?1 AND league_id = ?2 AND accepted_at IS NULL\n           RETURNING email AS \"email!: String\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "email!: String",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "invites",
+            "name": "email"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "1d4e9b93e34ceb0bb857e4f069fc42270f69f393557b815505f9123c58b6bcc7"
+}

@@ -1,0 +1,24 @@
+{% extends "app.html" %}
+{% block content %}
+<p class="mb-5 text-sm text-base-content/60">
+  Weeks 1–18 main slates are always included. Choose the extra contests below.
+  This runs once — the contest list is fixed for the season after you save.
+</p>
+
+<div class="card border border-base-300 bg-base-100 shadow-sm">
+  <div class="card-body">
+    <form method="post" action="/admin/contests/setup"
+          hx-post="/admin/contests/setup" hx-swap="none" class="flex flex-col gap-3">
+      {% for opt in options %}
+      <label class="flex items-center gap-3">
+        <input type="checkbox" name="{{ opt.field }}" value="on"
+               class="toggle toggle-primary"
+               {% if opt.checked %}checked{% endif %}>
+        <span>{{ opt.name }}</span>
+      </label>
+      {% endfor %}
+      <button type="submit" class="btn btn-primary mt-2">Save contests</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,26 @@
+{% macro name_fields(name, owner_name, errors) %}
+<fieldset class="fieldset">
+  <legend class="fieldset-legend">Team name</legend>
+  <input type="text" name="name" required maxlength="60"
+         value="{{ name }}"
+         class="input w-full" placeholder="Gridiron Giants">
+  <p class="label text-xs text-base-content/60">
+    Letters, numbers, spaces, and ' - . , &amp; only.
+  </p>
+  {% for msg in errors.field("name") %}
+  <p class="label text-xs text-error">{{ msg }}</p>
+  {% endfor %}
+</fieldset>
+<fieldset class="fieldset">
+  <legend class="fieldset-legend">Your display name</legend>
+  <input type="text" name="owner_name" required maxlength="40"
+         value="{{ owner_name }}"
+         class="input w-full" placeholder="Mike">
+  <p class="label text-xs text-base-content/60">
+    Shown next to your team in the standings.
+  </p>
+  {% for msg in errors.field("owner_name") %}
+  <p class="label text-xs text-error">{{ msg }}</p>
+  {% endfor %}
+</fieldset>
+{% endmacro %}

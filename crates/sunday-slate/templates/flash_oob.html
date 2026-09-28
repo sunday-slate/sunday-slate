@@ -1,0 +1,13 @@
+<div id="flash" hx-swap-oob="beforeend">
+  {% for f in flashes %}
+  <div role="alert" class="alert alert-{{ f.level }} pointer-events-auto whitespace-normal shadow-lg"
+       x-data="{ open: true }" x-show="open" x-transition.opacity.duration.300ms
+       {% if let Some(ms) = f.dismiss_ms %}x-init="setTimeout(() => open = false, {{ ms }})"{% endif %}>
+    <i class="ph ph-{{ f.icon }} text-lg"></i>
+    <span>{{ f.text }}</span>
+    <button type="button" class="btn btn-ghost btn-circle btn-xs" @click="open = false" aria-label="Dismiss">
+      <i class="ph ph-x"></i>
+    </button>
+  </div>
+  {% endfor %}
+</div>

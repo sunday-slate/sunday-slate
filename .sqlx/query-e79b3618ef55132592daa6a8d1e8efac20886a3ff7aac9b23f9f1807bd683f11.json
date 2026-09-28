@@ -1,0 +1,110 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id!: i64\", season AS \"season!: i64\",\n                  week AS \"week: i64\", status,\n                  games AS \"games!: i64\", created_by AS \"created_by: i64\",\n                  created_at, committed_at AS \"committed_at: String\"\n           FROM salary_imports ORDER BY id DESC LIMIT ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "salary_imports",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "season!: i64",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "salary_imports",
+            "name": "season"
+          }
+        }
+      },
+      {
+        "name": "week: i64",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "salary_imports",
+            "name": "week"
+          }
+        }
+      },
+      {
+        "name": "status",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "salary_imports",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "name": "games!: i64",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "salary_imports",
+            "name": "games"
+          }
+        }
+      },
+      {
+        "name": "created_by: i64",
+        "ordinal": 5,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "salary_imports",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "name": "created_at",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "salary_imports",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "name": "committed_at: String",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "salary_imports",
+            "name": "committed_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "e79b3618ef55132592daa6a8d1e8efac20886a3ff7aac9b23f9f1807bd683f11"
+}

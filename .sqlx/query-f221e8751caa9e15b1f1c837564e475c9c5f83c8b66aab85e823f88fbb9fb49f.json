@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE fantasy_teams SET logo_media_id = ?2 WHERE id = ?1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "f221e8751caa9e15b1f1c837564e475c9c5f83c8b66aab85e823f88fbb9fb49f"
+}

@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO invites (league_id, email, token_hash, expires_at) VALUES (?1, ?2, ?3, datetime('now','subsec','+14 days')) ON CONFLICT (league_id, email) WHERE accepted_at IS NULL DO UPDATE SET token_hash = excluded.token_hash, expires_at = excluded.expires_at, created_at = datetime('now','subsec') RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "invites",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c3b9003d3e70ce167ba420cf9940a923946ca03c993a54bb473a219c3c8950b1"
+}

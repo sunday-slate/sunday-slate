@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id!: i64\",\n                  name AS \"name!: String\",\n                  created_at AS \"created_at!: PrimitiveDateTime\",\n                  updated_at AS \"updated_at!: PrimitiveDateTime\"\n           FROM leagues\n           ORDER BY id\n           LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "leagues",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "name!: String",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "leagues",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "name": "created_at!: PrimitiveDateTime",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "leagues",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "name": "updated_at!: PrimitiveDateTime",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "leagues",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ca6682cb60dbf1021c6895c13076120d9f72979e5d2a73e189194c9fc14348fb"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO entry_slots (entry_id, roster_slot, gsis_player_id)\n                       VALUES (?1, ?2, ?3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "54d097988b48371391bf34602058abf7346d3a6233210074db90ac19c6669a67"
+}

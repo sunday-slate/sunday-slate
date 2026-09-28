@@ -1,0 +1,206 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT e.id            AS \"id!: EntryId\",\n                  ft.league_id    AS \"league_id!: i64\",\n                  c.id            AS \"contest_id!: ContestId\",\n                  c.name          AS \"contest_name!: String\",\n                  ft.id           AS \"team_id!: FantasyTeamId\",\n                  ft.user_id      AS \"user_id!: i64\",\n                  ft.name         AS \"team_name!: String\",\n                  ft.owner_name   AS \"owner_name!: String\",\n                  m.id            AS \"media_id?: MediaId\",\n                  m.path          AS \"media_path?: String\",\n                  m.content_type  AS \"media_content_type?: String\",\n                  m.byte_size     AS \"media_byte_size?: i64\",\n                  m.width         AS \"media_width?: i64\",\n                  m.height        AS \"media_height?: i64\",\n                  m.created_at    AS \"media_created_at?: PrimitiveDateTime\",\n                  m.updated_at    AS \"media_updated_at?: PrimitiveDateTime\"\n           FROM entries e\n           JOIN contests c ON c.id = e.contest_id\n           JOIN fantasy_teams ft ON ft.id = e.fantasy_team_id\n           LEFT JOIN media m ON m.id = ft.logo_media_id\n           WHERE e.id = ?1",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: EntryId",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "entries",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "league_id!: i64",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "fantasy_teams",
+            "name": "league_id"
+          }
+        }
+      },
+      {
+        "name": "contest_id!: ContestId",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "contests",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "contest_name!: String",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "contests",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "name": "team_id!: FantasyTeamId",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "fantasy_teams",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "user_id!: i64",
+        "ordinal": 5,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "fantasy_teams",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "name": "team_name!: String",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fantasy_teams",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "name": "owner_name!: String",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fantasy_teams",
+            "name": "owner_name"
+          }
+        }
+      },
+      {
+        "name": "media_id?: MediaId",
+        "ordinal": 8,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "media_path?: String",
+        "ordinal": 9,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "path"
+          }
+        }
+      },
+      {
+        "name": "media_content_type?: String",
+        "ordinal": 10,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "content_type"
+          }
+        }
+      },
+      {
+        "name": "media_byte_size?: i64",
+        "ordinal": 11,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "byte_size"
+          }
+        }
+      },
+      {
+        "name": "media_width?: i64",
+        "ordinal": 12,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "width"
+          }
+        }
+      },
+      {
+        "name": "media_height?: i64",
+        "ordinal": 13,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "height"
+          }
+        }
+      },
+      {
+        "name": "media_created_at?: PrimitiveDateTime",
+        "ordinal": 14,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "name": "media_updated_at?: PrimitiveDateTime",
+        "ordinal": 15,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "f93185f23c0e0697712f478a4f300c286885af7f18c229bdf44a692f87b437a8"
+}

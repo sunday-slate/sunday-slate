@@ -1,0 +1,110 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id!: MediaId\",\n                  path AS \"path!: String\",\n                  content_type AS \"content_type!: String\",\n                  byte_size AS \"byte_size!: i64\",\n                  width AS \"width!: i64\",\n                  height AS \"height!: i64\",\n                  created_at AS \"created_at!: PrimitiveDateTime\",\n                  updated_at AS \"updated_at!: PrimitiveDateTime\"\n           FROM media WHERE id = ?1",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: MediaId",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "path!: String",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "path"
+          }
+        }
+      },
+      {
+        "name": "content_type!: String",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "content_type"
+          }
+        }
+      },
+      {
+        "name": "byte_size!: i64",
+        "ordinal": 3,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "byte_size"
+          }
+        }
+      },
+      {
+        "name": "width!: i64",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "width"
+          }
+        }
+      },
+      {
+        "name": "height!: i64",
+        "ordinal": 5,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "height"
+          }
+        }
+      },
+      {
+        "name": "created_at!: PrimitiveDateTime",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "name": "updated_at!: PrimitiveDateTime",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "1451677722a6b7b30e490332b193324ad12031d8ff57fb496398c65ab9758928"
+}

@@ -1,0 +1,78 @@
+{% extends "app.html" %}
+
+{% block content %}
+<div class="mx-auto max-w-2xl">
+  <p class="mb-4 text-sm text-base-content/60">
+    Refresh the local nflverse cache and see when each dataset last synced.
+  </p>
+
+  {% block panel %}
+  <div id="nfl-sync-panel"{% if running %} hx-get="/admin/nfl-sync" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+    <div class="card border border-base-300 bg-base-100">
+      <div class="card-body gap-4">
+        {% if running %}
+        <div class="flex items-center gap-2">
+          <span class="loading loading-spinner loading-sm"></span>
+          <span class="font-medium">Sync in progress</span>
+        </div>
+        <p class="text-sm text-base-content/60">Running for {{ elapsed }}</p>
+        {% else %}
+        <div>
+          <p class="font-medium">NFL data cache</p>
+          <p class="text-sm text-base-content/60">Start a full refresh of all datasets.</p>
+        </div>
+        {% if let Some(line) = scheduler_line %}
+        <p class="text-sm text-base-content/60">{{ line }}</p>
+        {% endif %}
+        {% endif %}
+
+        <div class="overflow-x-auto">
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th>Dataset</th>
+                <th>Assets</th>
+                <th>Last synced</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in rows %}
+              <tr>
+                <td>{{ row.dataset }}</td>
+                <td>{{ row.assets }}</td>
+                <td>
+                  {% match row.last_synced_at %}
+                  {% when Some with (timestamp) %}{{ timestamp }}
+                  {% when None %}Never synced
+                  {% endmatch %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        {% if running %}
+        <button type="button" class="btn btn-primary" disabled>Sync now</button>
+        {% else %}
+        <form method="post" action="/admin/nfl-sync"
+              hx-post="/admin/nfl-sync" hx-target="#nfl-sync-panel" hx-swap="outerHTML">
+          <button type="submit" class="btn btn-primary">Sync now</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if let Some(last) = last_run %}
+    <div class="alert {% if last.ok %}alert-success{% else %}alert-error{% endif %} mt-4">
+      <div>
+        <p class="font-medium">{% if last.ok %}Last sync completed{% else %}Last sync failed{% endif %}</p>
+        <p class="text-xs">{{ last.finished_at }}</p>
+        <pre class="whitespace-pre-wrap break-words text-xs">{{ last.text }}</pre>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+  {% endblock %}
+</div>
+{% endblock %}

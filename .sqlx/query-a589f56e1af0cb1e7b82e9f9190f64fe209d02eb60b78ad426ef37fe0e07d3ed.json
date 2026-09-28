@@ -1,0 +1,74 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT e.fantasy_team_id AS \"fantasy_team_id!: FantasyTeamId\",\n                  e.contest_id      AS \"contest_id!: ContestId\",\n                  s.roster_slot     AS \"roster_slot!: RosterSlot\",\n                  s.gsis_player_id  AS \"gsis_player_id?: NflPlayerId\",\n                  s.team_abbr       AS \"team_abbr?: NflTeamAbbr\"\n           FROM entry_slots s\n           JOIN entries e ON e.id = s.entry_id\n           JOIN fantasy_teams ft ON ft.id = e.fantasy_team_id\n           WHERE ft.league_id = ?1\n           ORDER BY e.fantasy_team_id, e.contest_id",
+  "describe": {
+    "columns": [
+      {
+        "name": "fantasy_team_id!: FantasyTeamId",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "entries",
+            "name": "fantasy_team_id"
+          }
+        }
+      },
+      {
+        "name": "contest_id!: ContestId",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "entries",
+            "name": "contest_id"
+          }
+        }
+      },
+      {
+        "name": "roster_slot!: RosterSlot",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "entry_slots",
+            "name": "roster_slot"
+          }
+        }
+      },
+      {
+        "name": "gsis_player_id?: NflPlayerId",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "entry_slots",
+            "name": "gsis_player_id"
+          }
+        }
+      },
+      {
+        "name": "team_abbr?: NflTeamAbbr",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "entry_slots",
+            "name": "team_abbr"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "a589f56e1af0cb1e7b82e9f9190f64fe209d02eb60b78ad426ef37fe0e07d3ed"
+}

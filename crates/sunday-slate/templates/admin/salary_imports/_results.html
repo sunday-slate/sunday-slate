@@ -1,0 +1,50 @@
+{% if too_short %}
+{# Nothing was searched, so nothing failed to match. Saying "no players match"
+   here sent the admin looking for a player the search had never looked for. #}
+<p class="px-1 py-2 text-sm text-base-content/60">
+  Type at least two characters to search all teams and weeks.
+</p>
+{% else if candidates.is_empty() %}
+<p class="px-1 py-2 text-sm text-base-content/60">No players match that search.</p>
+{% else %}
+{# Candidates are only ever offered to rows that still need a decision, so the
+   group this pick is made from is always `unmatched`. Picking one moves the row
+   out of that group, so the swap has to be the whole group, not the row. #}
+<form hx-post="/admin/salary-imports/{{ import_id }}/rows/{{ row_id }}?group=unmatched"
+      hx-target="#triage" hx-swap="outerHTML"
+      class="max-h-56 overflow-y-auto rounded-box border border-base-300 bg-base-200/40 p-1">
+  {% for c in candidates %}
+  <button type="submit" name="gsis_player_id" value="{{ c.gsis_id }}"
+          class="btn btn-ghost btn-sm w-full justify-start font-normal">{{ c.label }}</button>
+  {% endfor %}
+</form>
+{% endif %}
+
+{% if !too_short %}
+{# Outside the emptiness check on purpose: a filter that matched nothing still
+   has to say what it searched. Suppressed only when no search ran, where
+   "0 of 0" would report an empty result that was never looked for. #}
+<p class="px-1 pt-1 text-xs text-base-content/60">
+  {% if total > candidates.len() %}Showing {{ candidates.len() }} of {{ total }}{% else %}{{ candidates.len() }} of {{ total }}{% endif %}
+  {{ scope_label }}.
+</p>
+{% endif %}
+
+{# `closest li` is the row; htmx includes the inputs inside it, which is just
+   this row's search box, so either request carries the typed text. #}
+{% if widened %}
+{# The widened state is not a dead end: it always offers the way back to the
+   row's own list, which is where a short query or a wrong guess leaves the
+   admin with nothing to pick from. #}
+<button type="button" class="btn btn-ghost btn-xs px-1 text-xs"
+        hx-get="{{ narrow_url }}" hx-include="closest li"
+        hx-target="#row-{{ row_id }}-results" hx-swap="innerHTML">
+  Back to this row&#39;s roster
+</button>
+{% else %}
+<button type="button" class="btn btn-ghost btn-xs px-1 text-xs"
+        hx-get="{{ widen_url }}" hx-include="closest li"
+        hx-target="#row-{{ row_id }}-results" hx-swap="innerHTML">
+  Search all teams &amp; weeks
+</button>
+{% endif %}

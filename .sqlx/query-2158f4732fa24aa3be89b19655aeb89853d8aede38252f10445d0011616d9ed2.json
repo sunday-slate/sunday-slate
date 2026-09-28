@@ -1,0 +1,158 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id              AS \"id!: DraftEntryId\",\n                  contest_id      AS \"contest_id!: ContestId\",\n                  fantasy_team_id AS \"fantasy_team_id!: FantasyTeamId\",\n                  qb_gsis_id      AS \"qb_gsis_id?: NflPlayerId\",\n                  rb1_gsis_id     AS \"rb1_gsis_id?: NflPlayerId\",\n                  rb2_gsis_id     AS \"rb2_gsis_id?: NflPlayerId\",\n                  wr1_gsis_id     AS \"wr1_gsis_id?: NflPlayerId\",\n                  wr2_gsis_id     AS \"wr2_gsis_id?: NflPlayerId\",\n                  wr3_gsis_id     AS \"wr3_gsis_id?: NflPlayerId\",\n                  te_gsis_id      AS \"te_gsis_id?: NflPlayerId\",\n                  flex_gsis_id    AS \"flex_gsis_id?: NflPlayerId\",\n                  def_team_abbr   AS \"def_team_abbr?: nfl_data::TeamAbbr\"\n           FROM draft_entries\n           WHERE contest_id = ?1 AND fantasy_team_id = ?2",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: DraftEntryId",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "draft_entries",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "contest_id!: ContestId",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "draft_entries",
+            "name": "contest_id"
+          }
+        }
+      },
+      {
+        "name": "fantasy_team_id!: FantasyTeamId",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "draft_entries",
+            "name": "fantasy_team_id"
+          }
+        }
+      },
+      {
+        "name": "qb_gsis_id?: NflPlayerId",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "draft_entries",
+            "name": "qb_gsis_id"
+          }
+        }
+      },
+      {
+        "name": "rb1_gsis_id?: NflPlayerId",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "draft_entries",
+            "name": "rb1_gsis_id"
+          }
+        }
+      },
+      {
+        "name": "rb2_gsis_id?: NflPlayerId",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "draft_entries",
+            "name": "rb2_gsis_id"
+          }
+        }
+      },
+      {
+        "name": "wr1_gsis_id?: NflPlayerId",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "draft_entries",
+            "name": "wr1_gsis_id"
+          }
+        }
+      },
+      {
+        "name": "wr2_gsis_id?: NflPlayerId",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "draft_entries",
+            "name": "wr2_gsis_id"
+          }
+        }
+      },
+      {
+        "name": "wr3_gsis_id?: NflPlayerId",
+        "ordinal": 8,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "draft_entries",
+            "name": "wr3_gsis_id"
+          }
+        }
+      },
+      {
+        "name": "te_gsis_id?: NflPlayerId",
+        "ordinal": 9,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "draft_entries",
+            "name": "te_gsis_id"
+          }
+        }
+      },
+      {
+        "name": "flex_gsis_id?: NflPlayerId",
+        "ordinal": 10,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "draft_entries",
+            "name": "flex_gsis_id"
+          }
+        }
+      },
+      {
+        "name": "def_team_abbr?: nfl_data::TeamAbbr",
+        "ordinal": 11,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "draft_entries",
+            "name": "def_team_abbr"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "2158f4732fa24aa3be89b19655aeb89853d8aede38252f10445d0011616d9ed2"
+}

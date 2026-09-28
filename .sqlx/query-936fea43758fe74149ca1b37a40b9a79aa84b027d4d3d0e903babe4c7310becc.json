@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE invites SET accepted_at = datetime('now','subsec') WHERE id = ?1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "936fea43758fe74149ca1b37a40b9a79aa84b027d4d3d0e903babe4c7310becc"
+}

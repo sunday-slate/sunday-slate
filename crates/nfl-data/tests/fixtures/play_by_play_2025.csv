@@ -1,0 +1,5 @@
+game_id,season,week,season_type,home_team,away_team,posteam,defteam,td_team,fumbled_1_team,fumble_recovery_1_team,sack,interception,touchdown,return_touchdown,own_kickoff_recovery,own_kickoff_recovery_td,safety,punt_blocked,field_goal_result,extra_point_result,two_point_conv_result,defensive_extra_point_conv,defensive_two_point_conv
+2025_01_ARI_NO,2025,1,REG,NO,ARI,ARI,NO,ARI,,,0,0,1,0,0,0,0,0,,good,,0,0
+2025_01_ARI_NO,2025,1,REG,NO,ARI,ARI,NO,,,,0,0,0,0,0,0,0,0,made,,,0,0
+2025_01_ARI_NO,2025,1,REG,NO,ARI,NO,ARI,NO,,,0,0,1,0,0,0,0,0,,,,0,0
+2025_01_ARI_NO,2025,1,REG,NO,ARI,NO,ARI,,,,1,0,0,0,0,0,0,0,,,,0,0

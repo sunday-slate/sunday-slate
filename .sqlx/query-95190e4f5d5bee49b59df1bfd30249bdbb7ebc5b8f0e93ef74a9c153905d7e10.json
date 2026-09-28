@@ -1,0 +1,122 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n               gsis_game_id,\n               season AS \"season: Season\",\n               week AS \"week: Week\",\n               season_type AS \"season_type: SeasonType\",\n               kickoff AS \"kickoff: OffsetDateTime\",\n               home_team AS \"home_team: TeamAbbr\",\n               away_team AS \"away_team: TeamAbbr\",\n               home_score AS \"home_score: i32\",\n               away_score AS \"away_score: i32\"\n           FROM games\n           WHERE season = ?\n           ORDER BY week, gsis_game_id",
+  "describe": {
+    "columns": [
+      {
+        "name": "gsis_game_id",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "games",
+            "name": "gsis_game_id"
+          }
+        }
+      },
+      {
+        "name": "season: Season",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "games",
+            "name": "season"
+          }
+        }
+      },
+      {
+        "name": "week: Week",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "games",
+            "name": "week"
+          }
+        }
+      },
+      {
+        "name": "season_type: SeasonType",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "games",
+            "name": "season_type"
+          }
+        }
+      },
+      {
+        "name": "kickoff: OffsetDateTime",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "games",
+            "name": "kickoff"
+          }
+        }
+      },
+      {
+        "name": "home_team: TeamAbbr",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "games",
+            "name": "home_team"
+          }
+        }
+      },
+      {
+        "name": "away_team: TeamAbbr",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "games",
+            "name": "away_team"
+          }
+        }
+      },
+      {
+        "name": "home_score: i32",
+        "ordinal": 7,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "games",
+            "name": "home_score"
+          }
+        }
+      },
+      {
+        "name": "away_score: i32",
+        "ordinal": 8,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "games",
+            "name": "away_score"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "95190e4f5d5bee49b59df1bfd30249bdbb7ebc5b8f0e93ef74a9c153905d7e10"
+}

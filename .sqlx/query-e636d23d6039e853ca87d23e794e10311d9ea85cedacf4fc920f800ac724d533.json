@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT s.gsis_player_id AS \"gsis_player_id?: NflPlayerId\",\n                  s.team_abbr      AS \"team_abbr!: NflTeamAbbr\",\n                  s.dfs_position   AS \"dfs_position!: String\",\n                  s.salary         AS \"salary!: i64\"\n           FROM nfl_player_salaries s\n           JOIN contest_games cg ON cg.gsis_game_id = s.gsis_game_id\n           WHERE cg.contest_id = ?1",
+  "describe": {
+    "columns": [
+      {
+        "name": "gsis_player_id?: NflPlayerId",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "nfl_player_salaries",
+            "name": "gsis_player_id"
+          }
+        }
+      },
+      {
+        "name": "team_abbr!: NflTeamAbbr",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "nfl_player_salaries",
+            "name": "team_abbr"
+          }
+        }
+      },
+      {
+        "name": "dfs_position!: String",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "nfl_player_salaries",
+            "name": "dfs_position"
+          }
+        }
+      },
+      {
+        "name": "salary!: i64",
+        "ordinal": 3,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "nfl_player_salaries",
+            "name": "salary"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "e636d23d6039e853ca87d23e794e10311d9ea85cedacf4fc920f800ac724d533"
+}

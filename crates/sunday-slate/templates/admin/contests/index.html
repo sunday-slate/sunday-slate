@@ -1,0 +1,40 @@
+{% extends "app.html" %}
+{% block page_action %}
+{% if rows.is_empty() %}
+<a href="/admin/contests/setup" class="btn btn-ghost btn-sm">Set up</a>
+{% endif %}
+{% endblock %}
+{% block content %}
+{% if rows.is_empty() %}
+<p class="text-sm text-base-content/60">
+  No contests yet. <a class="link" href="/admin/contests/setup">Set up the season</a>.
+</p>
+{% else %}
+<div class="flex flex-col gap-3">
+  {% for row in rows %}
+  <div class="card border border-base-300 bg-base-100 shadow-sm">
+    <div class="card-body p-4">
+      <div class="flex items-center justify-between">
+        <span class="font-medium">{{ row.name }}</span>
+        {% if let Some(start) = row.start %}
+        <span class="text-xs text-base-content/60">{{ start }}</span>
+        {% endif %}
+      </div>
+      <p class="text-xs text-base-content/50">{{ row.group }}</p>
+      {% if row.matchups.is_empty() %}
+      <p class="text-xs text-base-content/60">
+        Slate not set yet.
+        <a class="link" href="/admin/contests/{{ row.id }}/slate">Set the slate</a>.
+      </p>
+      {% else %}
+      <ul class="text-xs text-base-content/70">
+        {% for m in row.matchups %}<li>{{ m }}</li>{% endfor %}
+      </ul>
+      <a class="link text-xs" href="/admin/contests/{{ row.id }}/slate">Edit slate</a>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

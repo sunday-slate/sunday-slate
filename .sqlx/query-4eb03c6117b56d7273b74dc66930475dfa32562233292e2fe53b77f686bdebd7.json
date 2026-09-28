@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM draft_entries WHERE contest_id = ?1 AND fantasy_team_id = ?2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "4eb03c6117b56d7273b74dc66930475dfa32562233292e2fe53b77f686bdebd7"
+}

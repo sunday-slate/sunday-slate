@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO salary_import_rows\n                     (import_id, fd_player_id, fd_name, fd_team, dfs_position,\n                      salary, gsis_game_id, gsis_player_id, state,\n                      suggested_gsis_player_id)\n                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 10
+    },
+    "nullable": []
+  },
+  "hash": "a933a09d9d0d1871c8affa6893f5d9d434f5fe01c6bb6476f7d32d5242b8fef7"
+}

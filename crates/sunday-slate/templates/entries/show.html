@@ -1,0 +1,153 @@
+{% extends "app.html" %}
+{% import "draft_entry/info_columns.html" as info %}
+{% import "partials/injury_badge.html" as injuries %}
+{% import "partials/live_indicator.html" as live %}
+
+{% macro row_game(entry_id, row) %}
+<div id="entry-{{ entry_id }}-{{ row.dom_id() }}-game" class="mt-1 text-sm text-base-content/70 tabular-nums">
+  {% if let Some(g) = row.game() %}
+    {% if g.home_is_pick %}
+      {{ g.away_str() }} @ <b class="font-bold text-base-content">{{ g.home_str() }}</b>
+    {% else %}
+      <b class="font-bold text-base-content">{{ g.away_str() }}</b> @ {{ g.home_str() }}
+    {% endif %}
+  {% else %}
+    {{ row.matchup_str() }}
+  {% endif %}
+  {% if let Some(period_clock) = row.period_clock() %}
+  <span class="ml-1 text-[11px] text-base-content/50">{{ period_clock }}</span>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{% macro row_stats(entry_id, row) %}
+<div id="entry-{{ entry_id }}-{{ row.dom_id() }}-stats" class="mt-0.5 text-[13px] text-base-content/50">{{ row.top_stats() }}</div>
+{% endmacro %}
+
+{% macro row_status(entry_id, row) %}
+<div id="entry-{{ entry_id }}-{{ row.dom_id() }}-status" class="mt-0.5 text-[11px] font-medium text-base-content/50">{% if row.has_status() %}{{ row.status() }}{% endif %}</div>
+{% endmacro %}
+
+{% macro row_points(entry_id, row) %}
+<div id="entry-{{ entry_id }}-{{ row.dom_id() }}-points" class="pick-pts {% if row.has_points() %}text-base-content{% else %}text-base-content/50{% endif %}"><span class="pick-pts-text{{ row.score_flash_class() }}"><span class="pick-pts-whole">{{ row.points_whole() }}</span><span class="pick-pts-dec">{{ row.points_dec() }}</span></span><span class="pick-pts-delta{{ row.score_flash_class() }}">{{ row.score_delta() }}</span></div>
+{% endmacro %}
+
+{% macro row_summary(entry_id, row) %}
+{% call info::pick_media(row) %}{% endcall %}
+<div class="pick-body">
+  <div class="pick-header">
+    {% call info::pick_name("bg-base-300 text-base-content/70", row.slot, row) %}{% endcall %}
+    <span id="entry-{{ entry_id }}-{{ row.dom_id() }}-injury" class="inline-flex shrink-0">{% match row.injury() %}{% when Some with (c) %}{% call injuries::chip(c) %}{% endcall %}{% when None %}{% endmatch %}</span>
+  </div>
+  {% call row_game(entry_id, row) %}{% endcall %}
+  {% call row_stats(entry_id, row) %}{% endcall %}
+  {% call row_status(entry_id, row) %}{% endcall %}
+</div>
+{% call row_points(entry_id, row) %}{% endcall %}
+{% endmacro %}
+
+{% macro row_breakdown(entry_id, row) %}
+<div id="entry-{{ entry_id }}-{{ row.dom_id() }}-breakdown">
+  {% for line in row.breakdown() %}
+  <div class="flex justify-between gap-4 py-0.5 text-[13.5px] text-base-content/70 tabular-nums">
+    <span>{{ line.label() }}</span><span class="font-semibold text-base-content">{{ line.points_str() }}</span>
+  </div>
+  {% endfor %}
+</div>
+{% endmacro %}
+
+{% macro row_panel(entry_id, row) %}
+<div>
+  <div class="text-[10.5px] font-semibold uppercase tracking-wide text-base-content/50">Salary</div>
+  <div class="mt-1 text-base font-bold tabular-nums">{{ row.salary_str() }}</div>
+</div>
+<div>
+  <div class="text-[10.5px] font-semibold uppercase tracking-wide text-base-content/50">Drafted</div>
+  <div class="mt-1 text-base font-bold tabular-nums">{{ row.ownership_str() }}</div>
+</div>
+<div class="score-breakdown">
+  <div class="mb-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-base-content/50">Score breakdown</div>
+  {% call row_breakdown(entry_id, row) %}{% endcall %}
+</div>
+{% endmacro %}
+
+{% block live_indicator %}
+{% call live::live_indicator("entry-" ~ entry_id ~ "-live-indicator", page.score.events_url.is_some(), page.score.active && !page.score.delayed && page.score.coverage.is_complete(), page.score.delayed, page.score.coverage.is_complete(), page.score.official, fragment) %}{% endcall %}
+{% endblock %}
+{% block navbar_start %}
+<div class="min-w-0">
+  <a href="/contests/{{ page.contest_id.0 }}" class="-ml-1 flex min-w-0 items-center gap-1 text-lg font-semibold leading-tight tracking-tight">
+    <i class="ph ph-caret-left text-xl text-base-content/60"></i><span class="truncate">{{ page.contest_name }}</span>
+  </a>
+  {% if let Some(name) = crate::context::league_name() %}
+  <div class="truncate pl-5 text-xs leading-tight text-base-content/50">{{ name }}</div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="entry-{{ entry_id }}-live" class="-mx-4 -mt-5">
+  <div id="entry-{{ entry_id }}-live-stream"{% if let Some(url) = page.score.events_url %} hx-ext="sse" hx-sse:connect="{{ url }}" hx-swap="innerHTML" hx-on::after:sse:connection="document.getElementById('entry-{{ entry_id }}-live-indicator').classList.remove('hidden')" hx-on::sse:error="document.getElementById('entry-{{ entry_id }}-live-indicator').classList.add('hidden')" hx-on::sse:close="document.getElementById('entry-{{ entry_id }}-live-indicator').classList.add('hidden')"{% endif %}></div>
+  <div id="entry-{{ entry_id }}-score-summary" class="sticky top-14 z-10 flex items-center gap-3 border-b border-base-300 bg-base-100 px-4 py-3 shadow-md" aria-live="polite">
+    {% block score_summary %}
+    {% if let Some(rank) = page.rank_str() %}
+    <div class="w-6 text-center text-xl font-bold tabular-nums">{{ rank }}</div>
+    {% endif %}
+    {% if let Some(logo) = page.logo_url %}
+    <div class="size-11 shrink-0 overflow-hidden rounded-full">
+      <img src="{{ logo }}" alt="" class="size-full object-cover">
+    </div>
+    {% else %}
+    <div class="grid size-11 shrink-0 place-items-center rounded-full bg-accent/15 text-sm font-semibold text-accent">
+      {{ page.monogram() }}
+    </div>
+    {% endif %}
+    <div class="min-w-0 flex-1">
+      <div class="truncate text-lg font-semibold tracking-tight">{{ page.team_name }}</div>
+      <div class="truncate text-sm text-base-content/50">{{ page.owner_name }}</div>
+    </div>
+    {% if let Some(total) = page.total_str() %}
+    <div class="text-right">
+      <div class="text-2xl font-bold tnum">{{ total }}</div>
+      <div class="text-xs text-base-content/50">points</div>
+    </div>
+    {% endif %}
+    {% endblock %}
+  </div>
+
+  <div id="entry-{{ entry_id }}-score-regions">
+    {% block score_regions %}
+    {% if fragment %}
+      {% if let Some(picks) = page.picks %}
+      {% for row in picks.rows %}
+      <div hx-swap-oob="outerHTML:#entry-{{ entry_id }}-{{ row.dom_id() }}-game">{% call row_game(entry_id, row) %}{% endcall %}</div>
+      <div hx-swap-oob="outerHTML:#entry-{{ entry_id }}-{{ row.dom_id() }}-stats">{% call row_stats(entry_id, row) %}{% endcall %}</div>
+      <span id="entry-{{ entry_id }}-{{ row.dom_id() }}-injury" class="inline-flex shrink-0" hx-swap-oob="outerHTML:#entry-{{ entry_id }}-{{ row.dom_id() }}-injury">{% match row.injury() %}{% when Some with (c) %}{% call injuries::chip(c) %}{% endcall %}{% when None %}{% endmatch %}</span>
+      <div hx-swap-oob="outerHTML:#entry-{{ entry_id }}-{{ row.dom_id() }}-status">{% call row_status(entry_id, row) %}{% endcall %}</div>
+      <div hx-swap-oob="outerHTML:#entry-{{ entry_id }}-{{ row.dom_id() }}-points">{% call row_points(entry_id, row) %}{% endcall %}</div>
+      <div hx-swap-oob="outerHTML:#entry-{{ entry_id }}-{{ row.dom_id() }}-breakdown">{% call row_breakdown(entry_id, row) %}{% endcall %}</div>
+      {% endfor %}
+      {% endif %}
+    {% else if let Some(picks) = page.picks %}
+    <div class="pick-list">
+      {% for row in picks.rows %}
+      <details name="pick" class="pick">
+        <summary>
+          {% call row_summary(entry_id, row) %}{% endcall %}
+        </summary>
+        <div id="entry-{{ entry_id }}-panel-{{ row.dom_id() }}" class="pick-panel">{% call row_panel(entry_id, row) %}{% endcall %}</div>
+      </details>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="card mt-4 border border-base-300 bg-base-100">
+      <div class="card-body items-center gap-2 py-10 text-center text-base-content/60">
+        <i class="ph ph-lock-simple text-3xl"></i>
+        <p>Picks will be shown after kickoff.</p>
+      </div>
+    </div>
+    {% endif %}
+    {% endblock %}
+  </div>
+</div>
+{% endblock %}

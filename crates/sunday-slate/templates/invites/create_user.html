@@ -1,0 +1,42 @@
+{% extends "layout.html" %}
+{% block title %}Set your password{% endblock %}
+{% block content %}
+<div class="mx-auto max-w-sm">
+  <h1 class="mb-1 text-2xl font-semibold tracking-tight">Set your password</h1>
+  <p class="mb-5 text-sm text-base-content/60">
+    Create a password for <span class="font-medium">{{ email }}</span> to join the league.
+  </p>
+  <div class="card border border-base-300 bg-base-100 shadow-sm">
+    <div class="card-body">
+      <form method="post" action="/invite/create-user" hx-post="/invite/create-user"
+            hx-swap="innerMorph" class="flex flex-col gap-4">
+        {% block form %}
+        <input type="hidden" name="token" value="{{ token }}">
+        <fieldset class="fieldset">
+          <legend class="fieldset-legend">Email</legend>
+          <input type="email" value="{{ email }}" class="input w-full" disabled>
+        </fieldset>
+        <fieldset class="fieldset">
+          <legend class="fieldset-legend">Password</legend>
+          <input type="password" name="password" required minlength="8"
+                 autocomplete="new-password" class="input w-full" placeholder="••••••••">
+          <p class="label text-xs text-base-content/60">At least 8 characters.</p>
+          {% for msg in errors.field("password") %}
+          <p class="label text-xs text-error">{{ msg }}</p>
+          {% endfor %}
+        </fieldset>
+        <fieldset class="fieldset">
+          <legend class="fieldset-legend">Confirm password</legend>
+          <input type="password" name="password_confirm" required
+                 autocomplete="new-password" class="input w-full" placeholder="••••••••">
+          {% for msg in errors.field("password_confirm") %}
+          <p class="label text-xs text-error">{{ msg }}</p>
+          {% endfor %}
+        </fieldset>
+        <button type="submit" class="btn btn-primary mt-2">Create account</button>
+        {% endblock %}
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

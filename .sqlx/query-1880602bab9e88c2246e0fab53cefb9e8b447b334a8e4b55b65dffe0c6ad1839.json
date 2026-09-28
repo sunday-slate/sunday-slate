@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO nfl_players (gsis_player_id, fd_player_id) VALUES (?1, ?2)\n           ON CONFLICT (gsis_player_id) DO UPDATE SET fd_player_id = ?2\n           RETURNING id AS \"id!: i64\",\n                     gsis_player_id AS \"gsis_player_id!: String\",\n                     fd_player_id AS \"fd_player_id: String\",\n                     headshot_media_id AS \"headshot_media_id?: MediaId\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "nfl_players",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "gsis_player_id!: String",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "nfl_players",
+            "name": "gsis_player_id"
+          }
+        }
+      },
+      {
+        "name": "fd_player_id: String",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "nfl_players",
+            "name": "fd_player_id"
+          }
+        }
+      },
+      {
+        "name": "headshot_media_id?: MediaId",
+        "ordinal": 3,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "nfl_players",
+            "name": "headshot_media_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "1880602bab9e88c2246e0fab53cefb9e8b447b334a8e4b55b65dffe0c6ad1839"
+}

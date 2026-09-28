@@ -1,0 +1,25 @@
+{% extends "layout.html" %}
+{% import "partials/team_fields.html" as fields %}
+{% block title %}Create your team{% endblock %}
+{% block content %}
+<div class="mx-auto max-w-sm">
+  <h1 class="mb-1 text-2xl font-semibold tracking-tight">Create your team</h1>
+  <p class="mb-5 text-sm text-base-content/60">
+    Set up your fantasy team to join the league.
+  </p>
+
+  <div class="card border border-base-300 bg-base-100 shadow-sm">
+    <div class="card-body">
+      <form method="post" action="/teams"
+            hx-post="/teams"
+            hx-swap="innerMorph"
+            class="flex flex-col gap-4">
+        {% block form %}
+        {% call fields::name_fields(name, owner_name, errors) %}{% endcall %}
+        <button type="submit" class="btn btn-primary mt-2">Create team</button>
+        {% endblock %}
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

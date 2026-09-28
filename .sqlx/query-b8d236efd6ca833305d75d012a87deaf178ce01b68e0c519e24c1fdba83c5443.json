@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT abbr AS \"abbr!: String\",\n                  logo_media_id AS \"logo_media_id?: MediaId\"\n           FROM nfl_teams\n           WHERE logo_media_id IS NULL\n           ORDER BY abbr",
+  "describe": {
+    "columns": [
+      {
+        "name": "abbr!: String",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "nfl_teams",
+            "name": "abbr"
+          }
+        }
+      },
+      {
+        "name": "logo_media_id?: MediaId",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "nfl_teams",
+            "name": "logo_media_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "b8d236efd6ca833305d75d012a87deaf178ce01b68e0c519e24c1fdba83c5443"
+}

@@ -1,0 +1,40 @@
+{% extends "app.html" %}
+{% block content %}
+{% if !rows.is_empty() %}
+<ul class="list list-card">
+  {% for row in rows %}
+  <li class="{% if self.is_current_team(row) %}bg-primary/10{% endif %}">
+    <a href="/teams/{{ row.fantasy_team.0 }}" class="list-row items-center {% if self.is_current_team(row) %}hover:bg-primary/20{% else %}hover:bg-base-200{% endif %}">
+      <div class="w-6 text-center text-sm tnum text-base-content/50">
+        {% if let Some(rank) = row.rank %}{{ rank }}{% endif %}
+      </div>
+      {% if let Some(logo) = row.logo %}
+      <img class="size-9 rounded-full object-cover" src="{{ logo }}" alt="">
+      {% else %}
+      <div class="grid size-9 place-items-center rounded-full bg-accent/15 text-xs font-semibold text-accent">
+        {{ row.monogram() }}
+      </div>
+      {% endif %}
+      <div class="list-col-grow">
+        <div class="font-medium">{{ row.name }}</div>
+        <div class="text-xs text-base-content/50">{{ row.owner_name }}</div>
+      </div>
+      <div class="self-center text-right">
+        <div class="text-lg font-semibold tnum">{% if let Some(total) = row.total_str() %}{{ total }}{% endif %}</div>
+        {% if row.wins > 0 %}
+        <div class="text-xs text-base-content/40 tnum">{{ row.wins }} win{{ row.wins|pluralize }}</div>
+        {% endif %}
+      </div>
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<div class="card border border-base-300 bg-base-100">
+  <div class="card-body items-center gap-2 py-10 text-center text-base-content/60">
+    <i class="ph ph-users-three text-3xl"></i>
+    <p>No fantasy teams yet.</p>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

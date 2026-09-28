@@ -1,0 +1,132 @@
+{% extends "app.html" %}
+{% import "partials/live_indicator.html" as live %}
+
+{% macro identity(row) %}
+  {% if let Some(logo) = row.logo %}
+  <img class="size-9 rounded-full object-cover" src="{{ logo }}" alt="">
+  {% else %}
+  <div class="grid size-9 place-items-center rounded-full bg-accent/15 text-xs font-semibold text-accent">
+    {{ row.monogram() }}
+  </div>
+  {% endif %}
+  <div class="list-col-grow">
+    <div class="font-medium">{{ row.name }}</div>
+    <div class="text-xs text-base-content/50">{{ row.owner_name }}</div>
+  </div>
+{% endmacro %}
+
+{% macro entry_score(row) %}
+<div class="text-lg font-semibold tnum">
+  {% if let Some(points) = row.points_str() %}{% if row.winner %}<i class="ph-fill ph-trophy align-[-0.1em] text-warning"></i> {% endif %}{{ points }}{% endif %}
+</div>
+{% endmacro %}
+
+{% macro entry_minutes_meter(row) %}
+<div class="mt-0.5 flex items-center gap-1">
+  <div class="minutes-meter minutes-meter--{{ row.minutes_band() }}" title="Minutes remaining">
+    <div class="minutes-meter-fill" style="width: {{ row.minutes_pct() }}%;"></div>
+  </div>
+  {% if let Some(minutes) = row.minutes_str() %}
+  <span class="shrink-0 text-[9px] tnum text-base-content/50">{{ minutes }}m</span>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{% block live_indicator %}
+{% call live::live_indicator("contest-" ~ contest_id ~ "-live-indicator", score.events_url.is_some(), score.active && !score.delayed && score.coverage.is_complete(), score.delayed, score.coverage.is_complete(), score.official, fragment) %}{% endcall %}
+{% endblock %}
+{% block content %}
+<div id="contest-{{ contest_id }}-live">
+  <div id="contest-{{ contest_id }}-live-stream"{% if let Some(url) = score.events_url %} hx-ext="sse" hx-sse:connect="{{ url }}" hx-swap="innerHTML" hx-on::after:sse:connection="document.getElementById('contest-{{ contest_id }}-live-indicator').classList.remove('hidden')" hx-on::sse:error="document.getElementById('contest-{{ contest_id }}-live-indicator').classList.add('hidden')" hx-on::sse:close="document.getElementById('contest-{{ contest_id }}-live-indicator').classList.add('hidden')"{% endif %}></div>
+
+  {% if let Some(up) = upcoming %}
+  <div class="mb-3 px-1">
+    <div class="font-medium">Kicks off {{ up.kickoff }}</div>
+    <div class="text-sm text-base-content/50">Entries lock at kickoff — {{ up.countdown }}</div>
+  </div>
+  {% endif %}
+  {% if let Some(action) = draft_action %}
+  <a href="{{ action.href }}" class="btn btn-primary btn-block mb-6 sm:btn-wide">{{ action.kind.label() }}</a>
+  {% endif %}
+  {% if upcoming.is_some() %}
+  <h2 class="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-base-content/50">Entries · {{ rows.len() }}</h2>
+  {% endif %}
+
+  {% block score_regions %}
+  <div id="contest-{{ contest_id }}-entries"{% if fragment %} hx-swap-oob="innerHTML:#contest-{{ contest_id }}-entries"{% endif %}>
+  {% if !rows.is_empty() %}
+  <ul class="list list-card">
+    {% for row in rows %}
+    <li class="{% if row.mine %}bg-primary/10{% endif %}">
+      {% if upcoming.is_some() && row.mine %}
+      <a href="/entries/{{ row.id.0 }}" class="list-row items-center hover:bg-primary/20">
+        {% call identity(row) %}{% endcall %}
+        <i class="ph ph-caret-right self-center text-base-content/40"></i>
+      </a>
+      {% else if upcoming.is_some() %}
+      <div class="list-row items-center">
+        {% call identity(row) %}{% endcall %}
+      </div>
+      {% else %}
+      <a href="/entries/{{ row.id.0 }}" class="list-row items-center {% if row.mine %}hover:bg-primary/20{% else %}hover:bg-base-200{% endif %}">
+        <div class="w-6 text-center text-sm tnum text-base-content/50">
+          {% if let Some(rank) = row.rank %}{{ rank }}{% endif %}
+        </div>
+        {% call identity(row) %}{% endcall %}
+        <div id="contest-{{ contest_id }}-entry-{{ row.id.0 }}-score" class="flex flex-col items-end self-center">
+          {% call entry_score(row) %}{% endcall %}
+          {% if row.minutes_remaining.is_some() %}{% call entry_minutes_meter(row) %}{% endcall %}{% endif %}
+        </div>
+      </a>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else if upcoming.is_some() %}
+  <p class="px-1 text-sm text-base-content/60">No entries yet. Be the first in.</p>
+  {% else %}
+  <div class="card border border-base-300 bg-base-100">
+    <div class="card-body items-center gap-2 py-10 text-center text-base-content/60">
+      <i class="ph ph-clipboard text-3xl"></i>
+      <p>No entries.</p>
+    </div>
+  </div>
+  {% endif %}
+  </div>
+  {% endblock %}
+</div>
+
+{% if upcoming.is_some() && !waiting.is_empty() %}
+<h2 class="mt-6 mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-base-content/50">Still to enter · {{ waiting.len() }}</h2>
+<ul class="list list-card">
+  {% for row in waiting %}
+  <li class="{% if row.mine %}bg-primary/10{% endif %}">
+    {% if row.mine %}
+    <a href="/contests/{{ contest_id }}/draft-entry" class="list-row items-center hover:bg-primary/20">
+      {% call identity(row) %}{% endcall %}
+      <i class="ph ph-caret-right self-center text-base-content/40"></i>
+    </a>
+    {% else %}
+    <div class="list-row items-center">
+      {% call identity(row) %}{% endcall %}
+    </div>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+{% if !games.is_empty() %}
+<h2 class="mt-6 mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-base-content/50">NFL Games</h2>
+<ul class="list list-card">
+  {% for game in games %}
+  <li class="list-row items-center">
+    <div class="list-col-grow font-medium">{{ game.matchup }}</div>
+    {% if let Some(kickoff) = game.kickoff %}
+    <div class="text-sm text-base-content/50">{{ kickoff }}</div>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% endblock %}

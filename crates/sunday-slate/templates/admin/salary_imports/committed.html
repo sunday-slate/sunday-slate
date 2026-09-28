@@ -1,0 +1,72 @@
+{% extends "app.html" %}
+
+{# Same header line as review.html. Askama macros are file-scoped, so this is a
+   local copy rather than a shared partial. #}
+{% macro row_header(row) %}
+<div class="flex items-center justify-between">
+  <span class="text-sm font-medium">{{ row.fd_name }}</span>
+  <span class="text-xs text-base-content/60">
+    {{ row.fd_team }} · {{ row.dfs_position }} · ${{ row.salary }}
+  </span>
+</div>
+{% endmacro %}
+
+{% block content %}
+<div class="mx-auto max-w-md">
+  <p class="mb-5 text-sm text-base-content/60">
+    {% if let Some(w) = week %}Week {{ w }}{% else %}Week unknown{% endif %}
+    · {{ games }} games · committed{% if let Some(at) = committed_at %} {{ at }}{% endif %}
+  </p>
+
+  <div class="mb-6 rounded-box border border-base-300 bg-base-100 p-4">
+    <p class="text-lg font-semibold">
+      {{ imported }} salar{% if imported == 1 %}y{% else %}ies{% endif %} imported
+    </p>
+    <p class="mt-1 text-sm text-base-content/60">
+      {{ matched }} matched · {{ dst }} D/ST · {{ resolved }} resolved by you
+    </p>
+  </div>
+
+  {# Only the rows a human touched. The auto-matched ones are the bulk — 699 of
+     one import's 707 — and reading them says nothing about what was decided. #}
+  <h2 class="mb-2 text-sm font-semibold text-base-content/60">
+    Resolved by you ({{ resolved }})
+  </h2>
+  {% if resolved_rows.is_empty() %}
+  <p class="mb-6 rounded-box border border-base-300 p-6 text-center text-sm text-base-content/60">
+    Nothing needed resolving — every row matched on its own.
+  </p>
+  {% else %}
+  <ul class="mb-6 flex flex-col gap-2">
+    {% for row in resolved_rows %}
+    <li class="flex flex-col gap-1 rounded-box border border-base-300 bg-base-100 p-3">
+      {% call row_header(row) %}{% endcall %}
+      {% if !row.detail.is_empty() %}
+      <span class="text-xs text-base-content/60">{{ row.detail }}</span>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  <h2 class="mb-2 text-sm font-semibold text-base-content/60">
+    Not imported ({{ skipped }} skipped)
+  </h2>
+  {% if skipped_rows.is_empty() %}
+  <p class="mb-6 rounded-box border border-base-300 p-6 text-center text-sm text-base-content/60">
+    Nothing was skipped — every row was imported.
+  </p>
+  {% else %}
+  <ul class="mb-6 flex flex-col gap-2">
+    {% for row in skipped_rows %}
+    <li class="flex flex-col gap-1 rounded-box border border-base-300 bg-base-100 p-3">
+      {% call row_header(row) %}{% endcall %}
+      {% if !row.detail.is_empty() %}
+      <span class="text-xs text-base-content/60">{{ row.detail }}</span>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,99 @@
+{% extends "app.html" %}
+{% import "draft_entry/info_columns.html" as info %}
+{% import "partials/injury_badge.html" as injuries %}
+
+{% block body_attrs %}x-data="{ searching: false, q: '' }"{% endblock %}
+
+{# The bar swaps wholesale: back/title/magnifier, or the search field and
+   Cancel. Both live in the navbar so the swap doesn't shift the list. #}
+{% block header %}
+<div class="navbar-start" x-show="!searching">
+  {% if let Some(close) = chrome.close %}
+  <a href="{{ close }}" class="btn btn-ghost btn-square -ml-2" aria-label="Back">
+    <i class="ph ph-caret-left text-2xl"></i>
+  </a>
+  {% endif %}
+</div>
+<div class="navbar-center" x-show="!searching">
+  <span class="whitespace-nowrap text-lg font-semibold tracking-tight">{{ chrome.title }}</span>
+</div>
+<div class="navbar-end" x-show="!searching">
+  <button type="button" class="btn btn-ghost btn-square -mr-2" aria-label="Search"
+          @click="searching = true; $nextTick(() => $refs.search.focus())">
+    <i class="ph ph-magnifying-glass text-2xl"></i>
+  </button>
+</div>
+
+<div class="flex w-full items-center gap-1" x-show="searching" x-cloak>
+  <label class="input input-sm h-9 flex-1 items-center gap-2 rounded-full border-none bg-base-200">
+    <i class="ph ph-magnifying-glass text-base text-base-content/50"></i>
+    <input type="search" class="grow" x-ref="search" x-model="q"
+           placeholder="{{ self.search_placeholder() }}" aria-label="{{ self.search_placeholder() }}"
+           autocapitalize="off" autocorrect="off" spellcheck="false"
+           @keydown.escape.prevent="searching = false; q = ''">
+    <button type="button" class="text-base-content/40" aria-label="Clear search"
+            x-show="q" x-cloak @click="q = ''; $refs.search.focus()">
+      <i class="ph-fill ph-x-circle text-lg"></i>
+    </button>
+  </label>
+  <button type="button" class="btn btn-ghost btn-sm px-2 font-normal text-primary"
+          @click="searching = false; q = ''">Cancel</button>
+</div>
+{% endblock %}
+
+{% block content %}
+{# `names` mirrors the rendered rows so the empty state can ask whether any
+   row survived the filter without inspecting their computed styles. #}
+<div class="-mx-4 -mt-5"
+     x-data="{
+       names: [],
+       get needle() { return this.q.trim().toLowerCase() },
+       get empty() { return this.names.length > 0 && !this.names.some(n => n.includes(this.needle)) }
+     }"
+     x-init="names = [...$el.querySelectorAll('[data-name]')].map(e => e.dataset.name)">
+  <div class="pick-list">
+    {% for c in choices %}
+    {% if c.is_picked %}
+    <div class="pick pick-row bg-primary/5"
+         data-name="{{ c.info.name|lower }}" x-show="$el.dataset.name.includes(needle)">
+      {% call info::pick_media(c.info) %}{% endcall %}
+      <div class="pick-body">
+        {% call info::pick_header_with_chip("bg-primary/15 text-primary", c, c.over_cap) %}{% endcall %}
+        {% call info::info_columns(c.info) %}{% endcall %}
+      </div>
+      {# `contents` keeps the form out of layout, so the icon sits exactly
+         where the other rows put their plus. #}
+      <form method="post" action="/contests/{{ contest_id }}/draft-entry/{{ slot }}/clear" class="contents">
+        <button type="submit" class="grid place-items-center self-center px-3 text-error" aria-label="Remove {{ c.info.name }}">
+          <i class="ph ph-minus-circle text-3xl"></i>
+        </button>
+      </form>
+    </div>
+    {% else %}
+    <form class="pick" method="post" action="/contests/{{ contest_id }}/draft-entry/{{ slot }}"
+          data-name="{{ c.info.name|lower }}" x-show="$el.dataset.name.includes(needle)">
+      {% if self.is_def() %}
+      <input type="hidden" name="team_abbr" value="{{ c.value_key() }}">
+      {% else %}
+      <input type="hidden" name="gsis_id" value="{{ c.value_key() }}">
+      {% endif %}
+      <button type="submit" class="pick-row w-full text-left hover:bg-base-200">
+        {% call info::pick_media(c.info) %}{% endcall %}
+        <div class="pick-body">
+          {% call info::pick_header_with_chip("bg-base-300 text-base-content/70", c, c.over_cap) %}{% endcall %}
+          {% call info::info_columns(c.info) %}{% endcall %}
+        </div>
+        <div class="grid place-items-center self-center px-3 text-primary">
+          <i class="ph ph-plus-circle text-3xl"></i>
+        </div>
+      </button>
+    </form>
+    {% endif %}
+    {% endfor %}
+  </div>
+
+  <div class="px-4 py-12 text-center text-base-content/50" x-show="empty" x-cloak>
+    No {{ self.search_noun() }} match “<span class="font-medium" x-text="q.trim()"></span>”.
+  </div>
+</div>
+{% endblock %}

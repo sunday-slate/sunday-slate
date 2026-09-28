@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO team_week_stats\n                       (season, week, season_type, team, opponent, gsis_game_id,\n                        sacks, interceptions, fumble_recoveries, safeties,\n                        touchdowns, blocked_kicks, conversion_returns, points_allowed)\n                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 14
+    },
+    "nullable": []
+  },
+  "hash": "d1fefc42ea728363f36f24d9ed752357f4fa701a7bcbcf391b08783deb15f74d"
+}

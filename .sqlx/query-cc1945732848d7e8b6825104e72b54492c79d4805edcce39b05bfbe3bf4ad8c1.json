@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT contest_id AS \"contest_id!: ContestId\", gsis_game_id AS \"gsis_game_id!: NflGameId\"\n           FROM contest_games ORDER BY contest_id, gsis_game_id",
+  "describe": {
+    "columns": [
+      {
+        "name": "contest_id!: ContestId",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "contest_games",
+            "name": "contest_id"
+          }
+        }
+      },
+      {
+        "name": "gsis_game_id!: NflGameId",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "contest_games",
+            "name": "gsis_game_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "cc1945732848d7e8b6825104e72b54492c79d4805edcce39b05bfbe3bf4ad8c1"
+}

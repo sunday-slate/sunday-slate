@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en" data-theme="sundayslate">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#FAFAF9">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Sunday Slate">
+  <link rel="manifest" href="{{ crate::assets::versioned("/static/manifest.webmanifest") }}">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ crate::assets::versioned("/static/img/apple-touch-icon.png") }}">
+  <title>{% block title %}{% endblock %}{% block title_suffix %} – {% if let Some(name) = crate::context::league_name() %}{{ name }}{% else %}Sunday Slate{% endif %}{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="{{ crate::assets::versioned("/static/img/favicon.svg") }}">
+  <link rel="preload" href="{{ crate::assets::versioned("/static/vendor/fonts/geist.woff2") }}" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="{{ crate::assets::versioned("/static/css/app.css") }}">
+  <link rel="stylesheet" href="{{ crate::assets::versioned("/static/vendor/phosphor/regular.css") }}">
+  <link rel="stylesheet" href="{{ crate::assets::versioned("/static/vendor/phosphor/fill.css") }}">
+
+  <meta name="htmx-config" content='{"prefix":""}'>
+  <script src="{{ crate::assets::versioned("/static/vendor/js/htmx.min.js") }}" defer></script>
+  <script src="{{ crate::assets::versioned("/static/vendor/js/hx-sse.min.js") }}" defer></script>
+  <script src="{{ crate::assets::versioned("/static/vendor/js/alpine.min.js") }}" defer></script>
+</head>
+<body class="min-h-dvh bg-base-200 text-base-content antialiased" {% block body_attrs %}{% endblock %}>
+  {% block shell %}
+  <header class="sticky top-0 z-20 border-b border-base-300 bg-base-100">
+    <div class="navbar mx-auto min-h-14 w-full max-w-md px-4">
+      {% block header %}
+      <div class="navbar-start">{% block navbar_start %}{% endblock %}</div>
+      <div class="navbar-center">{% block navbar_center %}
+        <span class="whitespace-nowrap text-lg font-semibold tracking-tight">Sunday Slate</span>
+      {% endblock %}</div>
+      <div class="navbar-end">{% block navbar_end %}{% endblock %}</div>
+      {% endblock %}
+    </div>
+  </header>
+
+  <div id="flash"
+       class="toast toast-bottom toast-center z-30 {% block flash_offset %}mb-4{% endblock %} w-full max-w-sm pointer-events-none">
+    {% let flashes = crate::context::flashes() %}
+    {% for f in flashes %}
+    <div role="alert" class="alert alert-{{ f.level }} pointer-events-auto whitespace-normal shadow-lg"
+         x-data="{ open: true }" x-show="open" x-transition.opacity.duration.300ms
+         {% if let Some(ms) = f.dismiss_ms %}x-init="setTimeout(() => open = false, {{ ms }})"{% endif %}>
+      <i class="ph ph-{{ f.icon }} text-lg"></i>
+      <span>{{ f.text }}</span>
+      <button type="button" class="btn btn-ghost btn-circle btn-xs" @click="open = false" aria-label="Dismiss">
+        <i class="ph ph-x"></i>
+      </button>
+    </div>
+    {% endfor %}
+  </div>
+
+  {% block pre_main %}{% endblock %}
+
+  <main class="mx-auto w-full max-w-md px-4 py-5">
+    {% block content %}{% endblock %}
+  </main>
+  {% endblock %}
+</body>
+</html>

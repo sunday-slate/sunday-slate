@@ -1,0 +1,35 @@
+{# The summary band that heads the team detail page (teams/show.html): logo
+   or monogram, name, one subtitle line, and an optional total on the right —
+   the same slim sticky band as the entry page. `edit_team_id` is `Some(id)`
+   for the owner, which makes the avatar a logo-editor link; the team-name
+   editor is rendered in the navbar. #}
+{% macro team_header(name, subtitle, logo, monogram, total, total_label, edit_team_id) %}
+<div class="sticky top-14 z-10 -mx-4 -mt-5 flex items-center gap-3 border-b border-base-300 bg-base-100 px-4 py-3 shadow-md">
+  {% if let Some(team_id) = edit_team_id %}
+  <a href="/teams/{{ team_id }}/logo" aria-label="Edit team logo" class="relative inline-flex shrink-0 rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content">
+  {% endif %}
+  {% if let Some(logo) = logo %}
+  <div class="size-11 shrink-0 overflow-hidden rounded-full">
+    <img src="{{ logo }}" alt="Team logo" class="size-full object-cover">
+  </div>
+  {% else %}
+  <div class="grid size-11 shrink-0 place-items-center rounded-full bg-accent/15 text-sm font-semibold text-accent">
+    {{ monogram }}
+  </div>
+  {% endif %}
+  {% if edit_team_id.is_some() %}
+    <span aria-hidden="true" class="absolute -bottom-0.5 -right-0.5 grid size-5 place-items-center rounded-full border-2 border-base-100 bg-primary text-primary-content"><i class="ph ph-pencil-simple text-xs"></i></span>
+  </a>
+  {% endif %}
+  <div class="min-w-0 flex-1">
+    <div class="truncate text-lg font-semibold tracking-tight">{{ name }}</div>
+    <div class="truncate text-sm text-base-content/50">{{ subtitle }}</div>
+  </div>
+  {% if let Some(total) = total %}
+  <div class="shrink-0 text-right">
+    <div class="text-2xl font-bold tnum">{{ total }}</div>
+    <div class="text-xs text-base-content/50">{{ total_label }}</div>
+  </div>
+  {% endif %}
+</div>
+{% endmacro %}

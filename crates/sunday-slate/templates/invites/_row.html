@@ -1,0 +1,58 @@
+{# Three grid children of `.list-row`. `list-col-grow` on the first makes the
+   email column take the slack (the default `minmax(0,auto) 1fr` would size it
+   to content and hand the space to the buttons); `list-col-wrap` drops the
+   link onto its own row, which a wide input cannot share with the buttons. #}
+<li class="list-row items-center">
+  <div class="list-col-grow min-w-0">
+    <div class="truncate font-medium">{{ row.invite.email }}</div>
+    <div class="text-xs text-base-content/50">
+      {% if row.invite.accepted_at.is_some() %}Accepted{% else %}Pending{% endif %}
+    </div>
+  </div>
+  {% if row.invite.accepted_at.is_none() %}
+  <div class="flex items-center gap-1">
+    {% if row.link.is_none() %}
+    <form method="post" action="/invites/{{ row.invite.id }}/link"
+          hx-post="/invites/{{ row.invite.id }}/link" hx-target="closest li" hx-swap="outerHTML">
+      <button type="submit" class="btn btn-ghost btn-sm">Regenerate</button>
+    </form>
+    {% endif %}
+    <form method="post" action="/invites/{{ row.invite.id }}/revoke"
+          hx-post="/invites/{{ row.invite.id }}/revoke" hx-target="closest li" hx-swap="outerHTML">
+      <button type="submit" class="btn btn-ghost btn-sm text-error">Revoke</button>
+    </form>
+  </div>
+  {% endif %}
+  {% if let Some(link) = row.link %}
+  {# Copying happens on this button's own click. Firing it from the htmx swap
+     instead loses the user gesture Safari requires, and the clipboard API is
+     absent over plain http — hence the selectable input as the fallback. #}
+  {# `col-span-full` only reaches the grid's one explicit track; span both real
+     columns (email, buttons — always present together here) explicitly. #}
+  <div class="list-col-wrap [grid-column:1/3] mt-1 flex flex-col gap-1" x-data="{ copied: false }">
+    <div class="join w-full">
+      <input type="text" readonly value="{{ link.url() }}" x-ref="link"
+             @focus="$el.select()"
+             class="input input-sm join-item w-full min-w-0 font-mono text-xs">
+      <button type="button" class="btn btn-sm join-item shrink-0"
+              @click="$refs.link.select();
+                      navigator.clipboard?.writeText($refs.link.value)
+                        .then(() => { copied = true; setTimeout(() => copied = false, 2000) })">
+        <span x-text="copied ? 'Copied' : 'Copy'">Copy</span>
+      </button>
+    </div>
+    <p class="text-xs text-base-content/50">
+      {% if link.retires_previous() %}
+      Only this link works now — any link sent earlier has stopped.
+      {% if link.email_failed() %}
+      We couldn't email the new link. Copy it and send it yourself.
+      {% else %}
+      A new link was emailed.
+      {% endif %}
+      {% else %}
+      Same link we emailed them.
+      {% endif %}
+    </p>
+  </div>
+  {% endif %}
+</li>

@@ -1,0 +1,21 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT EXISTS(\n               SELECT 1 FROM fantasy_teams ft\n               JOIN users u ON u.id = ft.user_id\n               WHERE ft.league_id = ?1 AND u.email = ?2\n           ) AS \"exists!: bool\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "exists!: bool",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "2fd25e144382bfd3537e9a0cd48d6801a4f9a0d8fb9f797a3743b6a8a86becc8"
+}

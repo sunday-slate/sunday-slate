@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE nfl_teams SET logo_media_id = ?2 WHERE abbr = ?1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "34661f9fa89844b5c9086cd3bfee5f1e554a0893b7b91a2c20998d2c7fbd0e37"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE password_reset_tokens SET used_at = datetime('now','subsec') WHERE id = ?1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "d1ccdcb6fd3efd5249cadc8dd52990fd20f610cd27e45322cc916573dc758160"
+}

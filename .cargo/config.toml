@@ -1,0 +1,10 @@
+# Link with mold on Linux. `cargo test --workspace` links nine separate test
+# binaries, and the default GNU ld dominates that phase.
+#
+# Linux only: mold does not link Mach-O, so macOS keeps its native linker. The
+# cfg form covers both Linux architectures.
+#
+# This file is outside nix/package.nix's `src` fileset, so release builds are
+# unaffected and the Nix sandbox needs no mold in nativeBuildInputs.
+[target.'cfg(target_os = "linux")']
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]

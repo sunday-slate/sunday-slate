@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO player_week_stats\n                       (season, week, season_type, gsis_id, team, opponent,\n                        completions, attempts,\n                        passing_yards, passing_tds, passing_interceptions,\n                        rushing_attempts, rushing_yards, rushing_tds,\n                        targets, receptions, receiving_yards, receiving_tds,\n                        fumbles_lost, two_point_conversions, special_teams_tds,\n                        fumble_recovery_tds,\n                        fg_made_0_19, fg_made_20_29, fg_made_30_39, fg_made_40_49,\n                        fg_made_50_59, fg_made_60_plus, fg_missed, pat_made, pat_missed,\n                        fantasy_points, fantasy_points_ppr)\n                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,\n                               ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 33
+    },
+    "nullable": []
+  },
+  "hash": "864c053e2254d22d9ae04789306be88b34fa8fce0cf40bb473f04e0bbadd78d7"
+}

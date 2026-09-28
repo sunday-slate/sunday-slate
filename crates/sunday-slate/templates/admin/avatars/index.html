@@ -1,0 +1,48 @@
+{% extends "app.html" %}
+
+{% block content %}
+<div class="mx-auto max-w-md">
+  {% block panel %}
+  <div id="avatars-panel"{% if running %} hx-get="/admin/avatars" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+    <div class="card border border-base-300 bg-base-100 shadow-sm">
+      <div class="card-body gap-5">
+        {% if running %}
+        <div class="flex items-center gap-2">
+          <span class="loading loading-spinner loading-sm"></span>
+          <span class="font-medium">Fetch in progress</span>
+        </div>
+        <p class="text-sm">Fetched {{ progress.fetched }} of {{ progress.total }} · {{ progress.failed }} failed · {{ progress.skipped }} no source</p>
+        <p class="text-sm text-base-content/60">Running for {{ elapsed }}</p>
+        <button type="button" class="btn btn-primary w-full" disabled>Fetch missing images</button>
+        {% else %}
+        <dl class="grid grid-cols-2 gap-4">
+          <div class="rounded-box bg-base-200 p-4">
+            <dt class="text-sm text-base-content/60">Players missing headshots</dt>
+            <dd class="mt-1 text-2xl font-semibold">{{ missing_headshots }}</dd>
+          </div>
+          <div class="rounded-box bg-base-200 p-4">
+            <dt class="text-sm text-base-content/60">Teams missing logos</dt>
+            <dd class="mt-1 text-2xl font-semibold">{{ missing_logos }}</dd>
+          </div>
+        </dl>
+        <form method="post" action="/admin/avatars/fetch"
+              hx-post="/admin/avatars/fetch" hx-target="#avatars-panel" hx-swap="outerHTML">
+          <button type="submit" class="btn btn-primary w-full">Fetch missing images</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if let Some(last) = last_run %}
+    <div class="alert {% if last.ok %}alert-success{% else %}alert-error{% endif %} mt-4">
+      <div>
+        <p class="font-medium">{% if last.ok %}Last fetch completed{% else %}Last fetch failed{% endif %}</p>
+        <p class="text-xs">{{ last.finished_at }}</p>
+        <p class="text-sm">{{ last.text }}</p>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+  {% endblock %}
+</div>
+{% endblock %}

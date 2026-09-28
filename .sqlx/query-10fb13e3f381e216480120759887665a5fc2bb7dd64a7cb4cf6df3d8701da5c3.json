@@ -1,0 +1,122 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO fantasy_teams (league_id, user_id, name, owner_name, is_commissioner)\n           VALUES (?1, ?2, ?3, ?4, ?5)\n           RETURNING id AS \"id!: i64\",\n                     league_id AS \"league_id!: i64\",\n                     user_id AS \"user_id!: i64\",\n                     name AS \"name!: String\",\n                     owner_name AS \"owner_name!: String\",\n                     logo_media_id AS \"logo_media_id: MediaId\",\n                     is_commissioner AS \"is_commissioner!: bool\",\n                     created_at AS \"created_at!: PrimitiveDateTime\",\n                     updated_at AS \"updated_at!: PrimitiveDateTime\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "fantasy_teams",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "league_id!: i64",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "fantasy_teams",
+            "name": "league_id"
+          }
+        }
+      },
+      {
+        "name": "user_id!: i64",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "fantasy_teams",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "name": "name!: String",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fantasy_teams",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "name": "owner_name!: String",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fantasy_teams",
+            "name": "owner_name"
+          }
+        }
+      },
+      {
+        "name": "logo_media_id: MediaId",
+        "ordinal": 5,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "fantasy_teams",
+            "name": "logo_media_id"
+          }
+        }
+      },
+      {
+        "name": "is_commissioner!: bool",
+        "ordinal": 6,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "fantasy_teams",
+            "name": "is_commissioner"
+          }
+        }
+      },
+      {
+        "name": "created_at!: PrimitiveDateTime",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fantasy_teams",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "name": "updated_at!: PrimitiveDateTime",
+        "ordinal": 8,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fantasy_teams",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": [
+      null,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "10fb13e3f381e216480120759887665a5fc2bb7dd64a7cb4cf6df3d8701da5c3"
+}

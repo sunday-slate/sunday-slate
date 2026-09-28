@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT e.id             AS \"entry_id!: EntryId\",\n                  s.roster_slot    AS \"roster_slot!: RosterSlot\",\n                  s.gsis_player_id AS \"gsis_player_id?: NflPlayerId\",\n                  s.team_abbr      AS \"team_abbr?: NflTeamAbbr\"\n           FROM entry_slots s\n           JOIN entries e ON e.id = s.entry_id\n           WHERE e.contest_id = ?1 AND e.fantasy_team_id = ?2",
+  "describe": {
+    "columns": [
+      {
+        "name": "entry_id!: EntryId",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "entries",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "roster_slot!: RosterSlot",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "entry_slots",
+            "name": "roster_slot"
+          }
+        }
+      },
+      {
+        "name": "gsis_player_id?: NflPlayerId",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "entry_slots",
+            "name": "gsis_player_id"
+          }
+        }
+      },
+      {
+        "name": "team_abbr?: NflTeamAbbr",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "entry_slots",
+            "name": "team_abbr"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "a98f79c1c61c4f932911dcef7a7c2ac9c2be87585c25afed0d19428f28aff4a3"
+}

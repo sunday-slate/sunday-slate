@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE salary_import_rows\n           SET gsis_player_id = NULL, state = 'unmatched'\n           WHERE id = ?1 AND import_id = ?2 AND state IN ('resolved', 'skipped')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "ba51f4054e0610c9b781a05d914bf0caccd3b966d9e8f22ea717b936ca3e8b2f"
+}

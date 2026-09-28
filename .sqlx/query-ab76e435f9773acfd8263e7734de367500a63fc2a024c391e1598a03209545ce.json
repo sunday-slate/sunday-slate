@@ -1,0 +1,74 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT i.id AS \"id!: i64\",\n                  i.league_id AS \"league_id!: i64\",\n                  i.email AS \"email!: String\",\n                  i.token_hash AS \"token_hash!: String\",\n                  l.name AS \"league_name!: String\"\n           FROM invites i\n           JOIN leagues l ON l.id = i.league_id\n           WHERE i.id = ?1\n             AND i.accepted_at IS NULL\n             AND i.expires_at > datetime('now','subsec')",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "invites",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "league_id!: i64",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "invites",
+            "name": "league_id"
+          }
+        }
+      },
+      {
+        "name": "email!: String",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "invites",
+            "name": "email"
+          }
+        }
+      },
+      {
+        "name": "token_hash!: String",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "invites",
+            "name": "token_hash"
+          }
+        }
+      },
+      {
+        "name": "league_name!: String",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "leagues",
+            "name": "name"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ab76e435f9773acfd8263e7734de367500a63fc2a024c391e1598a03209545ce"
+}

@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT l.id AS \"id!: i64\",\n                  l.name AS \"name!: String\",\n                  l.created_at AS \"created_at!: PrimitiveDateTime\",\n                  l.updated_at AS \"updated_at!: PrimitiveDateTime\"\n           FROM leagues l\n           JOIN fantasy_teams ft ON ft.league_id = l.id\n           WHERE ft.user_id = ?1\n           ORDER BY l.id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "leagues",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "name!: String",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "leagues",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "name": "created_at!: PrimitiveDateTime",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "leagues",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "name": "updated_at!: PrimitiveDateTime",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "leagues",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "26f2769ea6abdd679bdccc8f3cc04ba2a352763c891c164c87cfcb614fe9299a"
+}

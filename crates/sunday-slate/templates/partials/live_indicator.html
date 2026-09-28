@@ -1,0 +1,6 @@
+{% macro live_label(official, green, delayed, complete) %}{% if official %}Official stats finalized{% else if green %}Live score updates{% else if delayed %}Live score updates delayed{% else if !complete %}Live score data incomplete{% else %}Live score updates pending{% endif %}{% endmacro %}
+{% macro live_indicator(id, stream, green, delayed, complete, official, fragment) %}
+{% if stream || fragment %}
+<span id="{{ id }}" class="size-2 rounded-full {% if green %}bg-success{% else %}bg-warning{% endif %}{% if !fragment || !stream %} hidden{% endif %}" role="img" aria-label="{% call live_label(official, green, delayed, complete) %}{% endcall %}" title="{% call live_label(official, green, delayed, complete) %}{% endcall %}"{% if fragment %} hx-swap-oob="outerHTML:#{{ id }}"{% endif %}></span>
+{% endif %}
+{% endmacro %}

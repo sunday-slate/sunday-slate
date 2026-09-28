@@ -1,0 +1,1 @@
+DROP INDEX idx_weekly_roster_entries_gsis;

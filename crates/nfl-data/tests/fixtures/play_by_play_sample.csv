@@ -1,0 +1,8 @@
+game_id,season,week,season_type,home_team,away_team,posteam,defteam,td_team,fumbled_1_team,fumble_recovery_1_team,sack,interception,touchdown,return_touchdown,own_kickoff_recovery,own_kickoff_recovery_td,safety,punt_blocked,field_goal_result,extra_point_result,two_point_conv_result,defensive_extra_point_conv,defensive_two_point_conv
+2025_01_AAA_BBB,2025,1,REG,BBB,AAA,BBB,AAA,BBB,,,0,0,1,0,0,0,0,0,,good,,0,0
+2025_01_AAA_BBB,2025,1,REG,BBB,AAA,BBB,AAA,,,,0,0,0,0,0,0,0,0,made,,,0,0
+2025_01_AAA_BBB,2025,1,REG,BBB,AAA,BBB,AAA,AAA,,,0,1,1,1,0,0,0,0,,,,0,0
+2025_01_AAA_BBB,2025,1,REG,BBB,AAA,BBB,AAA,AAA,BBB,AAA,1,0,1,0,0,0,0,0,,,,0,0
+2025_01_AAA_BBB,2025,1,REG,BBB,AAA,AAA,BBB,,,,0,0,0,0,0,0,0,1,,,,0,0
+2025_01_AAA_BBB,2025,1,REG,BBB,AAA,AAA,BBB,,,,0,0,0,0,0,0,1,0,,,,0,0
+2025_01_AAA_BBB,2025,1,REG,BBB,AAA,BBB,AAA,,,,0,0,0,0,0,0,0,0,,,failure,0,1

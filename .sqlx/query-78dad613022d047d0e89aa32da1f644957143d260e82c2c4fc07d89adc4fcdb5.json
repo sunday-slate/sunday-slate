@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id!: EntryId\", contest_id AS \"contest_id!: ContestId\"\n           FROM entries\n           WHERE fantasy_team_id = ?1",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: EntryId",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "entries",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "contest_id!: ContestId",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "entries",
+            "name": "contest_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "78dad613022d047d0e89aa32da1f644957143d260e82c2c4fc07d89adc4fcdb5"
+}

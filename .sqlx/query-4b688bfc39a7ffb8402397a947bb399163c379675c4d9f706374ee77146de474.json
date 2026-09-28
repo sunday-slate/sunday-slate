@@ -1,0 +1,158 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT e.id           AS \"entry_id!: EntryId\",\n                  ft.id          AS \"id!: FantasyTeamId\",\n                  ft.name        AS \"name!: String\",\n                  ft.owner_name  AS \"owner_name!: String\",\n                  m.id           AS \"media_id?: MediaId\",\n                  m.path         AS \"media_path?: String\",\n                  m.content_type AS \"media_content_type?: String\",\n                  m.byte_size    AS \"media_byte_size?: i64\",\n                  m.width        AS \"media_width?: i64\",\n                  m.height       AS \"media_height?: i64\",\n                  m.created_at   AS \"media_created_at?: PrimitiveDateTime\",\n                  m.updated_at   AS \"media_updated_at?: PrimitiveDateTime\"\n           FROM entries e\n           JOIN fantasy_teams ft ON ft.id = e.fantasy_team_id\n           LEFT JOIN media m ON m.id = ft.logo_media_id\n           WHERE e.contest_id = ?1 AND ft.league_id = ?2\n           ORDER BY e.created_at, e.id",
+  "describe": {
+    "columns": [
+      {
+        "name": "entry_id!: EntryId",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "entries",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "id!: FantasyTeamId",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "fantasy_teams",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "name!: String",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fantasy_teams",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "name": "owner_name!: String",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fantasy_teams",
+            "name": "owner_name"
+          }
+        }
+      },
+      {
+        "name": "media_id?: MediaId",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "media_path?: String",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "path"
+          }
+        }
+      },
+      {
+        "name": "media_content_type?: String",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "content_type"
+          }
+        }
+      },
+      {
+        "name": "media_byte_size?: i64",
+        "ordinal": 7,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "byte_size"
+          }
+        }
+      },
+      {
+        "name": "media_width?: i64",
+        "ordinal": 8,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "width"
+          }
+        }
+      },
+      {
+        "name": "media_height?: i64",
+        "ordinal": 9,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "height"
+          }
+        }
+      },
+      {
+        "name": "media_created_at?: PrimitiveDateTime",
+        "ordinal": 10,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "name": "media_updated_at?: PrimitiveDateTime",
+        "ordinal": 11,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "4b688bfc39a7ffb8402397a947bb399163c379675c4d9f706374ee77146de474"
+}

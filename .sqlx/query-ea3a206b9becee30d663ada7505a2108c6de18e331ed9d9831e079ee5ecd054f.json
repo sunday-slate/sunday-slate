@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES (?1, ?2, datetime('now','subsec','+1 hour')) ON CONFLICT(user_id) DO UPDATE SET token_hash = excluded.token_hash, expires_at = excluded.expires_at, used_at    = NULL, created_at = datetime('now','subsec') RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "password_reset_tokens",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ea3a206b9becee30d663ada7505a2108c6de18e331ed9d9831e079ee5ecd054f"
+}

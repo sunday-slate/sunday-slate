@@ -1,0 +1,182 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n               season AS \"season: Season\",\n               week AS \"week: Week\",\n               season_type AS \"season_type: SeasonType\",\n               team AS \"team: TeamAbbr\",\n               opponent AS \"opponent: TeamAbbr\",\n               gsis_game_id,\n               sacks AS \"sacks: u32\",\n               interceptions AS \"interceptions: u32\",\n               fumble_recoveries AS \"fumble_recoveries: u32\",\n               safeties AS \"safeties: u32\",\n               touchdowns AS \"touchdowns: u32\",\n               blocked_kicks AS \"blocked_kicks: u32\",\n               conversion_returns AS \"conversion_returns: u32\",\n               points_allowed AS \"points_allowed: i32\"\n           FROM team_week_stats\n           WHERE season = ? AND week = ?\n           ORDER BY team, season_type",
+  "describe": {
+    "columns": [
+      {
+        "name": "season: Season",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "team_week_stats",
+            "name": "season"
+          }
+        }
+      },
+      {
+        "name": "week: Week",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "team_week_stats",
+            "name": "week"
+          }
+        }
+      },
+      {
+        "name": "season_type: SeasonType",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "team_week_stats",
+            "name": "season_type"
+          }
+        }
+      },
+      {
+        "name": "team: TeamAbbr",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "team_week_stats",
+            "name": "team"
+          }
+        }
+      },
+      {
+        "name": "opponent: TeamAbbr",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "team_week_stats",
+            "name": "opponent"
+          }
+        }
+      },
+      {
+        "name": "gsis_game_id",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "team_week_stats",
+            "name": "gsis_game_id"
+          }
+        }
+      },
+      {
+        "name": "sacks: u32",
+        "ordinal": 6,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "team_week_stats",
+            "name": "sacks"
+          }
+        }
+      },
+      {
+        "name": "interceptions: u32",
+        "ordinal": 7,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "team_week_stats",
+            "name": "interceptions"
+          }
+        }
+      },
+      {
+        "name": "fumble_recoveries: u32",
+        "ordinal": 8,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "team_week_stats",
+            "name": "fumble_recoveries"
+          }
+        }
+      },
+      {
+        "name": "safeties: u32",
+        "ordinal": 9,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "team_week_stats",
+            "name": "safeties"
+          }
+        }
+      },
+      {
+        "name": "touchdowns: u32",
+        "ordinal": 10,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "team_week_stats",
+            "name": "touchdowns"
+          }
+        }
+      },
+      {
+        "name": "blocked_kicks: u32",
+        "ordinal": 11,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "team_week_stats",
+            "name": "blocked_kicks"
+          }
+        }
+      },
+      {
+        "name": "conversion_returns: u32",
+        "ordinal": 12,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "team_week_stats",
+            "name": "conversion_returns"
+          }
+        }
+      },
+      {
+        "name": "points_allowed: i32",
+        "ordinal": 13,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "team_week_stats",
+            "name": "points_allowed"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "5b332fd2795fddb950fc70c130566597f2b9114ea1335fcd753b04e6a44f1600"
+}

@@ -1,0 +1,42 @@
+# Sunday Slate configuration
+# Copy to config.toml and adjust for your environment.
+
+# SQLite database URL. sqlite:// prefix, relative paths resolved from CWD.
+database_url = "sqlite://./storage/sunday-slate.db"
+
+# Address the HTTP server binds to.
+bind_addr = "127.0.0.1:3000"
+
+# Public URL of the deployed app. Used for links in emails.
+base_url = "http://localhost:3000"
+
+# Email From address. Used in system messages.
+mail_from = "Sunday Slate <no-reply@example.com>"
+
+# NFL season the app serves. Contests, salaries and stats all resolve against it,
+# so nfl-data.db must hold this season's games (`just nfl-sync`). Overridable per
+# run with the SUNDAY_SLATE__SEASON environment variable — `just dev-data` does
+# exactly that, pinning the golden dump's season in storage/dev.env.
+season = 2026
+
+# Optional GitHub token for server-started /admin/nfl-sync runs.
+# Secret: prefer SUNDAY_SLATE__NFL_GITHUB_TOKEN from deployment secret storage;
+# never commit a token.
+# nfl_github_token = "..."
+
+# Automatic refresh of the nflverse cache while the app runs, in seconds
+# (3600 = hourly). 0 or unset = manual only (admin button / `just nfl-sync`).
+# nfl_sync_interval_secs = 0
+
+# Optional Tank01 live-score provider key. Without it, live score polling is
+# disabled and pages use official nflverse stats only.
+# Secret: prefer SUNDAY_SLATE__TANK01_API_KEY from deployment secret storage;
+# never commit a token.
+# tank01_api_key = "..."
+
+# SMTP configuration (optional — omit the entire [smtp] section for dev mode).
+# Password must be set via SUNDAY_SLATE__SMTP__PASSWORD environment variable (see .env.example).
+# [smtp]
+# host = "smtp.example.com"
+# port = 587
+# username = "user"

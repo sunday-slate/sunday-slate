@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM weekly_roster_entries WHERE season = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "60812735bd58da7bbc5fa50a8a720515ec6b8de029d77bf91c8677a5f3db8c53"
+}

@@ -1,0 +1,16 @@
+/* Geist + Geist Mono, self-hosted woff2. /static paths work regardless of emit location. */
+@font-face {
+  font-family: "Geist";
+  src: url("/static/vendor/fonts/geist.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  src: url("/static/vendor/fonts/geist-mono.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO weekly_roster_entries\n                       (season, week, team, gsis_id, espn_id, full_name, last_name, position, status)\n                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 9
+    },
+    "nullable": []
+  },
+  "hash": "49e5018a43298e6f6000dfb22264dcab80d7feeafd43e154739223512e47b1a1"
+}

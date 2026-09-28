@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM invites WHERE id = ?1 AND league_id = ?2 AND accepted_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "d67dfaa3382e6a496f6dc6b00570a5d71acee82533412d1c5dd913f0b91bde65"
+}

@@ -1,0 +1,45 @@
+{% extends "app.html" %}
+{% import "draft_entry/info_columns.html" as info %}
+
+{% block page_action %}
+<a href="/contests/{{ page.contest_id.0 }}/draft-entry" class="btn btn-ghost -mr-2 text-primary">Edit</a>
+{% endblock %}
+
+{% block content %}
+<div class="-mx-4 -mt-5">
+
+  {# Sticky summary band under the top bar: team identity and salary use #}
+  <div class="sticky top-14 z-10 flex items-center gap-3 border-b border-base-300 bg-base-100 px-4 py-3 shadow-md">
+    {% if let Some(logo) = page.logo_url %}
+    <div class="size-11 shrink-0 overflow-hidden rounded-full">
+      <img src="{{ logo }}" alt="" class="size-full object-cover">
+    </div>
+    {% else %}
+    <div class="grid size-11 shrink-0 place-items-center rounded-full bg-accent/15 text-sm font-semibold text-accent">
+      {{ page.monogram() }}
+    </div>
+    {% endif %}
+    <div class="min-w-0 flex-1">
+      <div class="truncate text-lg font-semibold tracking-tight">{{ page.team_name }}</div>
+      <div class="truncate text-sm text-base-content/50">{{ page.owner_name }}</div>
+    </div>
+    <div class="text-right">
+      <div class="text-2xl font-bold tnum">{{ page.remaining_str() }}</div>
+      <div class="text-xs text-base-content/50">salary remaining</div>
+    </div>
+  </div>
+
+  <div class="pick-list">
+    {% for row in page.rows %}
+    <div class="pick pick-row">
+      {% call info::pick_media(row.info) %}{% endcall %}
+      <div class="pick-body">
+        {% call info::pick_header("bg-base-300 text-base-content/70", row.slot, row.info, false) %}{% endcall %}
+        {% call info::info_columns(row.info) %}{% endcall %}
+      </div>
+      <div class="w-1"></div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

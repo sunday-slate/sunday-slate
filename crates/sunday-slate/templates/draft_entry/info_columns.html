@@ -1,0 +1,78 @@
+{# Shared pieces of a pick row. `info` is an `entries::service::PickInfo`. #}
+{% import "partials/injury_badge.html" as injuries %}
+
+{# The avatar cell: headshot, D/ST logo, or silhouette. #}
+{% macro pick_media(info) %}
+<div class="pick-shot{% if info.avatar_is_logo() %} pick-shot--logo{% endif %}">
+  <img src="{{ info.avatar_url() }}" alt="">
+</div>
+{% endmacro %}
+
+{# The header line: position badge, name, and right-aligned salary. #}
+{% macro pick_name(badge_class, badge, info) %}
+<span class="pick-name{% if info.is_long_name() %} pick-name--long{% endif %}"><span class="mr-1 rounded px-1.5 py-0.5 text-[11px] font-bold tracking-wide {{ badge_class }}">{{ badge }}</span><span class="pick-name-full text-[17px] font-medium text-accent">{{ info.name }}</span><span class="pick-name-abbr text-[17px] font-medium text-accent">{{ info.abbreviated_name() }}</span></span>
+{% endmacro %}
+{% macro pick_header(badge_class, badge, info, over_cap) %}
+<div class="pick-header flex items-baseline justify-between gap-2">
+  <div class="min-w-0 truncate">
+    {% call pick_name(badge_class, badge, info) %}{% endcall %}
+  </div>
+  <div class="text-base font-bold tnum{% if over_cap %} text-error{% endif %}">{{ info.salary_str() }}</div>
+</div>
+{% endmacro %}
+
+{# The pick-list header with the row's injury chip after the name. `choice` is
+   a `draft_entry::service::SlotChoice`; existing pages without one use
+   `pick_header`. The chip sits outside the name's truncating wrapper, mirroring
+   editor.html, so long names ellipsize without clipping the badge. #}
+{% macro pick_header_with_chip(badge_class, choice, over_cap) %}
+<div class="pick-header flex items-baseline justify-between gap-2">
+  <div class="flex min-w-0 items-baseline gap-1">
+    <div class="min-w-0 truncate">
+      {% call pick_name(badge_class, choice.position, choice.info) %}{% endcall %}
+    </div>
+    {% match choice.injury() %}{% when Some with (c) %}{% call injuries::chip(c) %}{% endcall %}{% when None %}{% endmatch %}
+  </div>
+  <div class="text-base font-bold tnum{% if over_cap %} text-error{% endif %}">{{ choice.info.salary_str() }}</div>
+</div>
+{% endmacro %}
+
+{# Two info lines: game over kickoff, then FPPG and GP. #}
+{% macro info_columns(info) %}
+<div class="mt-1 flex items-end gap-4">
+  <div class="min-w-0 flex-1">
+    <div class="truncate text-sm tabular-nums text-base-content/80">
+      {% if let Some(g) = info.game() %}
+        {% if g.home_is_pick %}
+          {{ g.away_str() }} @ <b class="font-bold text-base-content">{{ g.home_str() }}</b>
+        {% else %}
+          <b class="font-bold text-base-content">{{ g.away_str() }}</b> @ {{ g.home_str() }}
+        {% endif %}
+      {% else %}
+        {{ info.team_str() }}
+      {% endif %}
+    </div>
+    <div class="truncate text-[11px] text-base-content/50">
+      {% if let Some(kickoff) = info.kickoff %}{{ kickoff }}{% else %}—{% endif %}
+    </div>
+  </div>
+  <div class="text-right">
+    <div class="text-sm tabular-nums text-base-content/80">{{ info.fppg_str() }}</div>
+    <div class="text-[11px] text-base-content/50">FPPG</div>
+  </div>
+  <div class="text-right">
+    <div class="text-sm tabular-nums text-base-content/80">{{ info.played_str() }}</div>
+    <div class="text-[11px] text-base-content/50">GP</div>
+  </div>
+</div>
+{% endmacro %}
+
+{# An open slot: silhouette, badge, state label. #}
+{% macro empty_slot_body(info, label, locked) %}
+<div class="pick-shot">
+  <img src="{{ info.avatar_url() }}" alt="" class="opacity-40">
+</div>
+<div class="pick-body">
+  <span class="mr-1 rounded bg-base-300 px-1.5 py-0.5 text-[11px] font-bold tracking-wide text-base-content/70">{{ label }}</span>{% if locked %}<span class="text-[17px] text-base-content/40">Locked</span>{% else %}<span class="text-[17px] text-base-content/50">Select {{ label }}</span>{% endif %}
+</div>
+{% endmacro %}

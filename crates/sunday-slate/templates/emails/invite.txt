@@ -1,0 +1,8 @@
+You're invited to {{ league_name }}
+
+You've been invited to join the {{ league_name }} league on Sunday Slate.
+
+Accept your invite:
+{{ accept_link }}
+
+This link expires in 48 hours.

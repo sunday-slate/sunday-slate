@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE fantasy_teams SET name = ?2, owner_name = ?3 WHERE id = ?1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "9478c36846d2806ecb55329c00e4577832c0e2b27bd13c28a218667985d94bbe"
+}

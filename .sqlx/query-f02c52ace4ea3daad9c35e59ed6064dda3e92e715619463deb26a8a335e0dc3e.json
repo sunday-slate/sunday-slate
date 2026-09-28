@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT logo_media_id AS \"logo_media_id: MediaId\"\n           FROM fantasy_teams WHERE id = ?1",
+  "describe": {
+    "columns": [
+      {
+        "name": "logo_media_id: MediaId",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "fantasy_teams",
+            "name": "logo_media_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "f02c52ace4ea3daad9c35e59ed6064dda3e92e715619463deb26a8a335e0dc3e"
+}

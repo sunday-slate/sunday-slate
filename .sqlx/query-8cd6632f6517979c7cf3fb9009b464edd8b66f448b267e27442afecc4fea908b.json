@@ -1,0 +1,146 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id!: i64\", import_id AS \"import_id!: i64\",\n                  fd_player_id, fd_name, fd_team,\n                  dfs_position AS \"dfs_position!: crate::player_salaries::model::DfsPosition\",\n                  salary AS \"salary!: i64\", gsis_game_id,\n                  gsis_player_id AS \"gsis_player_id: String\",\n                  suggested_gsis_player_id AS \"suggested_gsis_player_id: String\",\n                  state AS \"state!: RowState\"\n           FROM salary_import_rows\n           WHERE import_id = ? AND state = ?\n           ORDER BY id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "salary_import_rows",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "import_id!: i64",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "salary_import_rows",
+            "name": "import_id"
+          }
+        }
+      },
+      {
+        "name": "fd_player_id",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "salary_import_rows",
+            "name": "fd_player_id"
+          }
+        }
+      },
+      {
+        "name": "fd_name",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "salary_import_rows",
+            "name": "fd_name"
+          }
+        }
+      },
+      {
+        "name": "fd_team",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "salary_import_rows",
+            "name": "fd_team"
+          }
+        }
+      },
+      {
+        "name": "dfs_position!: crate::player_salaries::model::DfsPosition",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "salary_import_rows",
+            "name": "dfs_position"
+          }
+        }
+      },
+      {
+        "name": "salary!: i64",
+        "ordinal": 6,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "salary_import_rows",
+            "name": "salary"
+          }
+        }
+      },
+      {
+        "name": "gsis_game_id",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "salary_import_rows",
+            "name": "gsis_game_id"
+          }
+        }
+      },
+      {
+        "name": "gsis_player_id: String",
+        "ordinal": 8,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "salary_import_rows",
+            "name": "gsis_player_id"
+          }
+        }
+      },
+      {
+        "name": "suggested_gsis_player_id: String",
+        "ordinal": 9,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "salary_import_rows",
+            "name": "suggested_gsis_player_id"
+          }
+        }
+      },
+      {
+        "name": "state!: RowState",
+        "ordinal": 10,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "salary_import_rows",
+            "name": "state"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "8cd6632f6517979c7cf3fb9009b464edd8b66f448b267e27442afecc4fea908b"
+}

@@ -1,0 +1,109 @@
+{% extends "app.html" %}
+{% import "draft_entry/info_columns.html" as info %}
+{% import "partials/injury_badge.html" as injuries %}
+{% block page_action %}
+{% if !page.locked && page.can_save() %}
+<button type="button" class="btn btn-ghost -mr-2 text-primary"
+        hx-post="/contests/{{ contest_id }}/draft-entry/save">Save</button>
+{% endif %}
+{% endblock %}
+{% block content %}
+<div id="draft-root" class="-mx-4 -mt-5">
+
+  {# Sticky salary band under the top bar #}
+  <div class="sticky top-14 z-10 border-b border-base-300 bg-base-100 px-4 py-3 shadow-md">
+    <div class="flex items-baseline justify-between gap-2">
+      <div class="min-w-0">
+        <span class="text-lg font-semibold tracking-tight{% if page.over_cap() %} text-error{% endif %}">
+          {{ page.remaining_str() }}
+        </span>
+        {% if page.over_cap() %}
+        <span class="text-sm font-semibold text-error"> over the salary cap</span>
+        {% else %}
+        <span class="text-sm text-base-content/50"> salary remaining</span>
+        {% endif %}
+      </div>
+      {% if let Some(note) = page.cap_note() %}
+      <div class="shrink-0 text-sm tabular-nums text-base-content/50">
+        {{ note }}
+      </div>
+      {% endif %}
+    </div>
+    <div class="mt-0.5 flex items-baseline justify-between gap-2">
+      <div class="min-w-0 truncate text-xs text-base-content/50">{{ page.contest_name }} · {{ page.team_name }}</div>
+      {% if let Some(hint) = page.save_hint() %}
+      <div class="shrink-0 text-xs text-base-content/50">{{ hint }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if page.locked %}
+  <div class="flex items-center gap-2 border-b border-base-300 bg-warning/10 px-4 py-2 text-sm text-warning">
+    <i class="ph ph-lock-simple text-base"></i>
+    <span>This slate has kicked off. The lineup is locked.</span>
+  </div>
+  {% endif %}
+
+  {# Nine slot rows, roster order #}
+  <div class="pick-list">
+    {% for row in page.slots %}
+    {% if row.value.is_some() %}
+    <div class="pick pick-row">
+      {% call info::pick_media(row.info) %}{% endcall %}
+      <div class="pick-body">
+        <div class="pick-header flex items-baseline justify-between gap-2">
+          <div class="flex min-w-0 items-baseline gap-1">
+            <span class="mr-1 rounded bg-base-300 px-1.5 py-0.5 text-[11px] font-bold tracking-wide text-base-content/70">{{ row.label }}</span>
+            <span class="pick-name{% if row.info.is_long_name() %} pick-name--long{% endif %}">
+              <span class="pick-name-full text-[17px] font-medium text-accent">{{ row.info.name }}</span>
+              <span class="pick-name-abbr text-[17px] font-medium text-accent">{{ row.info.abbreviated_name() }}</span>
+            </span>
+            {% match row.injury() %}{% when Some with (c) %}{% call injuries::chip(c) %}{% endcall %}{% when None %}{% endmatch %}
+          </div>
+          <div class="text-base font-bold tnum">{{ row.info.salary_str() }}</div>
+        </div>
+        {% call info::info_columns(row.info) %}{% endcall %}
+      </div>
+      {% if !page.locked %}
+      <a href="/contests/{{ contest_id }}/draft-entry/{{ row.slot }}"
+         class="grid place-items-center self-center px-3" aria-label="Swap {{ row.label }}">
+        <i class="ph ph-arrows-left-right text-2xl text-base-content/60"></i>
+      </a>
+      {% else %}
+      <div></div>
+      {% endif %}
+    </div>
+    {% else %}
+    {% if !page.locked %}
+    <a href="/contests/{{ contest_id }}/draft-entry/{{ row.slot }}"
+       class="pick pick-row w-full text-left hover:bg-base-200">
+      {% call info::empty_slot_body(row.info, row.label, false) %}{% endcall %}
+      <i class="ph ph-plus self-center pr-4 text-xl text-base-content/40"></i>
+    </a>
+    {% else %}
+    <div class="pick pick-row">
+      {% call info::empty_slot_body(row.info, row.label, true) %}{% endcall %}
+    </div>
+    {% endif %}
+    {% endif %}
+    {% endfor %}
+  </div>
+
+  {# Save / discard actions, in flow below the last slot #}
+  <div class="mt-6 px-4 py-3">
+    {% if !page.locked %}
+    <button type="button" class="btn btn-primary btn-block" {% if !page.can_save() %}disabled{% endif %}
+            hx-post="/contests/{{ contest_id }}/draft-entry/save">
+      {{ page.save_label() }}
+    </button>
+    <button type="button" class="btn btn-outline btn-error btn-block mt-2"
+            hx-confirm="Discard your lineup changes? This can't be undone."
+            hx-post="/contests/{{ contest_id }}/draft-entry/discard">
+      {{ page.discard_label() }}
+    </button>
+    {% else %}
+    <a href="/contests/{{ contest_id }}" class="btn btn-primary flex-1 w-full">View Contest</a>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

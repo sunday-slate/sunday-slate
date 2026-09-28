@@ -1,0 +1,134 @@
+{% extends "app.html" %}
+
+{% macro stat(abbr, name, pts) %}
+<div class="flex items-baseline gap-3 py-1.5">
+  <dt class="flex min-w-0 flex-1 items-baseline gap-2">
+    <span class="badge badge-ghost badge-sm shrink-0 font-mono text-[11px]">{{ abbr }}</span>
+    <span class="truncate text-base-content/70">{{ name }}</span>
+  </dt>
+  <dd class="shrink-0 font-mono font-semibold tabular-nums{% if pts.starts_with("-") %} text-error{% endif %}">{{ pts }}</dd>
+</div>
+{% endmacro %}
+
+{% macro tier(allowed, pts) %}
+<div class="flex items-baseline justify-between gap-3 py-1.5">
+  <dt class="text-base-content/70">{{ allowed }}</dt>
+  <dd class="font-mono font-semibold tabular-nums{% if pts.starts_with("-") %} text-error{% endif %}">{{ pts }}</dd>
+</div>
+{% endmacro %}
+
+{% block content %}
+<div class="space-y-4">
+
+  <p class="text-sm text-base-content/60">
+    Salary-cap DFS. Every stat line you see on an entry uses the abbreviations below.
+  </p>
+
+  <section class="card bg-base-100 shadow-sm">
+    <div class="card-body gap-3 p-4">
+      <h2 class="card-title text-base">
+        <i class="ph ph-football text-lg text-primary"></i>Offense
+      </h2>
+      <dl class="divide-y divide-base-200 text-sm">
+        {% call stat("PaY", "Passing yards", "0.04") %}{% endcall %}
+        {% call stat("PaTD", "Passing TD", "4") %}{% endcall %}
+        {% call stat("I", "Interception thrown", "-1") %}{% endcall %}
+        {% call stat("RuY", "Rushing yards", "0.1") %}{% endcall %}
+        {% call stat("RuTD", "Rushing TD", "6") %}{% endcall %}
+        {% call stat("Re", "Receptions", "0.5") %}{% endcall %}
+        {% call stat("ReY", "Receiving yards", "0.1") %}{% endcall %}
+        {% call stat("ReTD", "Receiving TD", "6") %}{% endcall %}
+        {% call stat("FU/L", "Fumble lost", "-2") %}{% endcall %}
+        {% call stat("2PC", "Two-point conversion", "2") %}{% endcall %}
+        {% call stat("KR/PR TD", "Kick or punt return TD", "6") %}{% endcall %}
+        {% call stat("FU/TD", "Fumble recovery TD", "6") %}{% endcall %}
+      </dl>
+
+      <div class="divider my-0 text-xs text-base-content/50">Yardage bonuses</div>
+      <dl class="divide-y divide-base-200 text-sm">
+        {% call tier("300+ passing yards", "3") %}{% endcall %}
+        {% call tier("100+ rushing yards", "3") %}{% endcall %}
+        {% call tier("100+ receiving yards", "3") %}{% endcall %}
+      </dl>
+    </div>
+  </section>
+
+  <section class="card bg-base-100 shadow-sm">
+    <div class="card-body gap-3 p-4">
+      <h2 class="card-title text-base">
+        <i class="ph ph-shield text-lg text-primary"></i>Defense / Special Teams
+      </h2>
+      <dl class="divide-y divide-base-200 text-sm">
+        {% call stat("S", "Sack", "1") %}{% endcall %}
+        {% call stat("I", "Interception", "2") %}{% endcall %}
+        {% call stat("FR", "Fumble recovery", "2") %}{% endcall %}
+        {% call stat("TD", "Defensive or return TD", "6") %}{% endcall %}
+        {% call stat("DE/SF", "Safety", "2") %}{% endcall %}
+        {% call stat("DE/B", "Blocked kick", "2") %}{% endcall %}
+        {% call stat("DE/XPR", "Extra-point return", "2") %}{% endcall %}
+      </dl>
+
+      <div class="divider my-0 text-xs text-base-content/50">Points allowed</div>
+      <dl class="divide-y divide-base-200 text-sm">
+        {% call tier("0", "10") %}{% endcall %}
+        {% call tier("1–6", "7") %}{% endcall %}
+        {% call tier("7–13", "4") %}{% endcall %}
+        {% call tier("14–20", "1") %}{% endcall %}
+        {% call tier("21–27", "0") %}{% endcall %}
+        {% call tier("28–34", "-1") %}{% endcall %}
+        {% call tier("35+", "-4") %}{% endcall %}
+      </dl>
+    </div>
+  </section>
+
+  <section class="card bg-base-100 shadow-sm">
+    <div class="card-body gap-3 p-4">
+      <h2 class="card-title text-base">
+        <i class="ph ph-users-three text-lg text-primary"></i>Roster &amp; cap
+      </h2>
+      <div class="flex flex-wrap gap-1.5">
+        {% for slot in ["QB", "RB", "RB", "WR", "WR", "WR", "TE", "FLEX", "D/ST"] %}
+        <span class="badge badge-outline badge-sm font-mono text-[11px]">{{ slot }}</span>
+        {% endfor %}
+      </div>
+      <dl class="divide-y divide-base-200 text-sm">
+        <div class="flex items-baseline justify-between gap-3 py-1.5">
+          <dt class="text-base-content/70">Lineup</dt>
+          <dd class="font-semibold">9 slots</dd>
+        </div>
+        <div class="flex items-baseline justify-between gap-3 py-1.5">
+          <dt class="text-base-content/70">FLEX takes</dt>
+          <dd class="font-semibold">RB / WR / TE</dd>
+        </div>
+        <div class="flex items-baseline justify-between gap-3 py-1.5">
+          <dt class="text-base-content/70">Salary cap</dt>
+          <dd class="font-mono font-semibold tabular-nums">$60,000</dd>
+        </div>
+      </dl>
+    </div>
+  </section>
+
+  <section class="card bg-base-100 shadow-sm">
+    <div class="card-body gap-3 p-4">
+      <h2 class="card-title text-base">
+        <i class="ph ph-trophy text-lg text-primary"></i>Contests &amp; season
+      </h2>
+      <ul class="space-y-2.5 text-sm text-base-content/70">
+        <li class="flex gap-2.5">
+          <i class="ph ph-lock-simple mt-0.5 shrink-0 text-base text-base-content/40"></i>
+          <span>Lineups lock at the first kickoff on the slate. There are <strong class="font-semibold text-base-content">no late swaps</strong>.</span>
+        </li>
+        <li class="flex gap-2.5">
+          <i class="ph ph-medal mt-0.5 shrink-0 text-base text-base-content/40"></i>
+          <span>The highest score wins the contest. Tied scores share the rank.</span>
+        </li>
+        <li class="flex gap-2.5">
+          <i class="ph ph-ranking mt-0.5 shrink-0 text-base text-base-content/40"></i>
+          <span>Season standings are the sum of a team's <strong class="font-semibold text-base-content">top 10</strong> contest scores.</span>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+</div>
+{% endblock %}

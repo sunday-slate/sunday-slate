@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO media (path, content_type, byte_size, width, height)\n           VALUES (?1, ?2, ?3, ?4, ?5)\n           RETURNING id AS \"id!: MediaId\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: MediaId",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "636dc2b149ec92ef48973aad5017e033d558386756a529b6ef8e7abc47a092e4"
+}

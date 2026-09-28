@@ -1,0 +1,115 @@
+{% extends "app.html" %}
+
+{# The header line every decision row wears. Askama macros are file-scoped;
+   committed.html keeps its own copy rather than share a partial. #}
+{% macro row_header(row) %}
+<div class="flex items-center justify-between">
+  <span class="text-sm font-medium">{{ row.fd_name }}</span>
+  <span class="text-xs text-base-content/60">
+    {{ row.fd_team }} · {{ row.dfs_position }} · ${{ row.salary }}
+  </span>
+</div>
+{% endmacro %}
+
+{% block content %}
+<div class="mx-auto max-w-md">
+  {# Everything a decision changes — the counts, the tabs, the rows, and whether
+     Commit is still disabled — lives in this block. It is rendered standalone for
+     the htmx swap via `ReviewTemplate::as_triage()` and inline here on a full
+     page load, from one definition, so the swap and the page cannot drift. Only
+     the title, which no decision changes, stays outside. #}
+  {% block triage %}
+  <div id="triage">
+    <p class="mb-4 text-sm text-base-content/60">
+      {{ triage.auto_matched }} auto-matched ({{ triage.matched }} matched, {{ triage.dst }} D/ST) — nothing to do
+    </p>
+
+    <div role="tablist" class="tabs tabs-box mb-3">
+      {% for tab in triage.tabs %}
+      <button type="button" role="tab"
+              class="tab{% if tab.selected %} tab-active{% endif %}"
+              hx-get="/admin/salary-imports/{{ triage.import_id }}/triage?group={{ tab.slug }}"
+              hx-target="#triage" hx-swap="outerHTML"
+              hx-push-url="{{ tab.url }}">
+        {{ tab.label }}
+        <span class="badge badge-sm ml-1">{{ tab.count }}</span>
+      </button>
+      {% endfor %}
+    </div>
+
+    {% if triage.rows.is_empty() %}
+    <p class="mb-6 rounded-box border border-base-300 p-6 text-center text-sm text-base-content/60">
+      {{ triage.empty_message }}
+    </p>
+    {% else %}
+    <ul class="mb-6 flex flex-col gap-2">
+      {% for row in triage.rows %}
+      <li id="row-{{ row.id }}"
+          class="flex flex-col gap-2 rounded-box border border-base-300 bg-base-100 p-3">
+        {% call row_header(row) %}{% endcall %}
+
+        {% if row.is_unmatched %}
+          {% if let Some(s) = row.suggestion %}
+          {# Exactly one player on this team, this week, shares the row's surname
+             and FanDuel position. Likely, not proven — offered for one click,
+             never applied, so a wrong guess costs nothing. #}
+          <form hx-post="/admin/salary-imports/{{ triage.import_id }}/rows/{{ row.id }}?group={{ triage.group_slug }}"
+                hx-target="#triage" hx-swap="outerHTML"
+                class="flex items-center justify-between gap-2 rounded-box bg-base-200/60 px-2 py-1">
+            <span class="text-sm text-base-content/70">Looks like {{ s.label }}</span>
+            <button type="submit" name="gsis_player_id" value="{{ s.gsis_id }}"
+                    class="btn btn-xs btn-primary">Confirm</button>
+          </form>
+          {% endif %}
+
+          {# The placeholder names the list this box actually filters. Promising a
+             search of every player made an admin who typed a traded player's name
+             and saw nothing conclude the player was missing; reaching another team
+             is the explicit widen offered in the results. #}
+          <input class="input input-sm w-full" placeholder="filter this week's {{ row.fd_team }} roster…"
+                 name="q" autocomplete="off"
+                 hx-get="/admin/salary-imports/{{ triage.import_id }}/rows/{{ row.id }}/players"
+                 hx-trigger="focus once, input changed delay:300ms"
+                 hx-target="#row-{{ row.id }}-results" hx-swap="innerHTML">
+
+          <div id="row-{{ row.id }}-results"></div>
+
+          <form hx-post="/admin/salary-imports/{{ triage.import_id }}/rows/{{ row.id }}?group={{ triage.group_slug }}"
+                hx-target="#triage" hx-swap="outerHTML" class="self-end">
+            <button type="submit" name="skip" value="1" class="btn btn-sm btn-ghost">Skip</button>
+          </form>
+        {% else %}
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-sm text-base-content/70">
+              {% if row.resolved_label.is_empty() %}{{ row.state_label }}{% else %}→ {{ row.resolved_label }}{% endif %}
+            </span>
+            <form hx-post="/admin/salary-imports/{{ triage.import_id }}/rows/{{ row.id }}/undo?group={{ triage.group_slug }}"
+                  hx-target="#triage" hx-swap="outerHTML">
+              <button type="submit" class="btn btn-xs btn-ghost">Undo</button>
+            </form>
+          </div>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+
+    {# Inside the block because `unmatched` is what disables Commit: rendered
+       outside it, the swap that cleared the last decision left the button
+       disabled with nothing on screen saying a reload would enable it. Plain
+       form posts, not htmx — both hand off to a whole page. #}
+    <div class="flex gap-2">
+      <form method="post" action="/admin/salary-imports/{{ triage.import_id }}/commit">
+        <button type="submit" class="btn btn-primary"
+                {% if triage.unmatched > 0 || triage.status != "pending" %}disabled{% endif %}>
+          Commit salaries
+        </button>
+      </form>
+      <form method="post" action="/admin/salary-imports/{{ triage.import_id }}/discard">
+        <button type="submit" class="btn btn-ghost">Discard</button>
+      </form>
+    </div>
+  </div>
+  {% endblock %}
+</div>
+{% endblock %}

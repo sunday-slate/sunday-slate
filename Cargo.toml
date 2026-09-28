@@ -1,0 +1,57 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.95"
+license = "AGPL-3.0-or-later"
+
+[workspace.dependencies]
+anyhow = "1.0.104"
+askama = "0.16"
+axum = "0.8.9"
+axum-htmx = "0.8.1"
+axum-test = "21"
+axum-login = { git = "https://github.com/maxcountryman/axum-login" }
+axum-messages = { git = "https://github.com/haruska/axum-messages" } # fork w/ tower-sessions 0.15
+clap = { version = "4.6", features = ["derive", "env"] }
+config = "0.15.26"
+csv = "1.4"
+fake = "5"
+flate2 = "1.1"
+garde = "0.23"
+http = "1.5.0"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+itertools = "0.15"
+lettre = { version = "0.11", default-features = false, features = [
+  "tokio1-rustls-tls", "smtp-transport", "builder"
+] }
+password-auth = "1.0.0"
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "query"] }
+serde = { version = "1.0.229", features = ["derive"] }
+rstest = "0.27.0"
+serde_json = "1.0"
+sha2 = "0.11.0"
+sqlx = { version = "0.9.0", features = ["runtime-tokio", "tls-rustls", "sqlite", "macros", "migrate", "time", "uuid", "sqlx-toml"] }
+strum = { version = "0.28", features = ["derive"] }
+mime_guess = "2.0.5"
+rust-embed = { version = "8.12.0", features = ["interpolate-folder-path"] }
+tempfile = "3"
+thiserror = "2.0.21"
+time = { version = "0.3.55", features = ["serde", "formatting", "parsing", "macros"] }
+tokio = { version = "1.53.1", features = ["full"] }
+tower = "0.5.3"
+tower-http = { version = "0.7.1", features = ["trace", "compression-gzip", "fs", "set-header"] }
+tower-sessions = { version = "0.15.0", default-features = false, features = ["signed", "axum-core"] }
+tower-sessions-sqlx-store = { git = "https://github.com/maxcountryman/tower-sessions-stores", features = ["sqlite"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+uuid = { version = "1.26.1", features = ["v4", "v7", "serde"] }
+wiremock = "0.6"
+
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

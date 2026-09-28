@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE draft_entries SET\n              qb_gsis_id = ?2, rb1_gsis_id = ?3, rb2_gsis_id = ?4,\n              wr1_gsis_id = ?5, wr2_gsis_id = ?6, wr3_gsis_id = ?7,\n              te_gsis_id = ?8, flex_gsis_id = ?9, def_team_abbr = ?10\n           WHERE id = ?1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 10
+    },
+    "nullable": []
+  },
+  "hash": "3b99f6ea4d5ffc337ff98233dc619976dfdfa9982e68ce87bd48a822ae62efa6"
+}

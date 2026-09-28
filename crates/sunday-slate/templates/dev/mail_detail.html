@@ -1,0 +1,26 @@
+{% extends "layout.html" %}
+{% block title %}Email{% endblock %}
+{% block content %}
+<div class="mb-4">
+  <a href="/_dev/mail" class="btn btn-ghost btn-sm gap-1">
+    <i class="ph ph-arrow-left"></i> Back to inbox
+  </a>
+</div>
+
+<div class="card mb-4 border border-base-300 bg-base-100 shadow-sm">
+  <div class="card-body gap-1 text-sm">
+    <div><span class="font-semibold">From:</span> {{ from }}</div>
+    <div><span class="font-semibold">To:</span> {{ to }}</div>
+    <div><span class="font-semibold">Subject:</span> {{ subject }}</div>
+  </div>
+</div>
+
+<div class="card overflow-hidden border border-base-300 bg-base-100 shadow-sm">
+  <iframe srcdoc="{{ html }}" class="min-h-[400px] w-full border-0" sandbox></iframe>
+</div>
+
+<details class="mt-4">
+  <summary class="cursor-pointer text-sm font-semibold">Text version</summary>
+  <pre class="mt-2 whitespace-pre-wrap rounded-lg bg-base-200 p-4 text-sm">{{ text }}</pre>
+</details>
+{% endblock %}

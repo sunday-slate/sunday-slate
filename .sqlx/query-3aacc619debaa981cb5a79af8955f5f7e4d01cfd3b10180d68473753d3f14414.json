@@ -1,0 +1,21 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT EXISTS(\n               SELECT 1 FROM fantasy_teams\n               WHERE league_id = ?1 AND user_id = ?2 AND is_commissioner = 1\n           ) AS \"exists!: bool\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "exists!: bool",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "3aacc619debaa981cb5a79af8955f5f7e4d01cfd3b10180d68473753d3f14414"
+}

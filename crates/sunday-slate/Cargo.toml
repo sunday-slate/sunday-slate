@@ -1,0 +1,72 @@
+[package]
+name = "sunday-slate"
+version = "0.1.2"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "sunday-slate"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+nfl-data = { path = "../nfl-data" }
+tank01-data = { path = "../tank01-data" }
+askama.workspace = true
+futures-util = "0.3"
+sha2 = { workspace = true }
+axum = { workspace = true, features = ["multipart"] }
+axum-login.workspace = true
+axum-messages.workspace = true
+axum-htmx.workspace = true
+config.workspace = true
+csv = { workspace = true }
+garde = { workspace = true, features = ["derive", "email", "regex"] }
+image.workspace = true
+itertools.workspace = true
+lettre.workspace = true
+password-auth.workspace = true
+reqwest.workspace = true
+regex = { version = "1", features = ["unicode"] }
+serde.workspace = true
+serde_json.workspace = true
+mime_guess.workspace = true
+rust-embed.workspace = true
+sqlx.workspace = true
+strum.workspace = true
+thiserror.workspace = true
+time = { workspace = true, features = ["serde", "formatting", "parsing", "macros", "serde-human-readable"] }
+tokio.workspace = true
+tower = { workspace = true, features = ["util"] }
+tower-http.workspace = true
+tower-sessions.workspace = true
+tower-sessions-sqlx-store.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+url = "2"
+urlencoding = "2"
+uuid.workspace = true
+http.workspace = true
+
+[features]
+# Force rust-embed to embed at compile time even in debug builds, so
+# `cargo test --features debug-embed` exercises the embedded byte path
+# (templates + static) that a plain debug build reads from disk instead.
+debug-embed = ["rust-embed/debug-embed"]
+# Exposes Db::test to out-of-crate consumers (the sister dev-tooling crate's
+# query tests); the public build surface is unchanged without it.
+test-support = []
+
+[dev-dependencies]
+axum-test = { workspace = true }
+fake = { workspace = true, features = ["derive", "http", "uuid", "time", "url"] }
+tokio = { workspace = true, features = ["test-util", "macros"] }
+rstest = { workspace = true }
+sqlx = { workspace = true }
+wiremock.workspace = true
+http-body-util = "0.1"
+tempfile.workspace = true

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE salary_imports\n                   SET status = 'committed', committed_at = datetime('now','subsec')\n                   WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "18d4a5b6380563c85c5e73c8cafb4b6cbb213f35c938c7230d921e56769166d8"
+}

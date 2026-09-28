@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO sync_state (release_tag, asset_name, upstream_updated_at)\n           VALUES (?, ?, ?)\n           ON CONFLICT (release_tag, asset_name) DO UPDATE SET\n               upstream_updated_at = excluded.upstream_updated_at,\n               synced_at = datetime('now', 'subsec')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "b7e372a3460f8e094de986f13caf0c08a4207e30cccb5ccad8c359694bd0a79a"
+}

@@ -1,0 +1,52 @@
+{% extends "app.html" %}
+{% block content %}
+<div class="mb-4">
+  <p class="text-sm text-base-content/60">
+    {% if locked %}
+    These games have started. The slate can no longer change.
+    {% else %}
+    Choose the games this contest covers, then publish.
+    {% endif %}
+  </p>
+</div>
+
+{% if choices.is_empty() %}
+<p class="text-sm text-base-content/60">
+  No NFL games found for this contest's week. Run <code>just nfl-sync</code>.
+</p>
+{% else if locked %}
+<ul class="flex flex-col gap-2">
+  {% for c in choices %}{% if c.checked %}
+  <li class="flex items-center justify-between rounded-box border border-base-300 bg-base-100 p-3">
+    <span class="text-sm font-medium">{{ c.game.matchup }}</span>
+    {% if let Some(kickoff) = c.game.kickoff %}
+    <span class="text-xs text-base-content/60">{{ kickoff }}</span>
+    {% endif %}
+  </li>
+  {% endif %}{% endfor %}
+</ul>
+{% else %}
+<div class="card border border-base-300 bg-base-100 shadow-sm">
+  <div class="card-body">
+    <form method="post" action="/admin/contests/{{ contest_id }}/slate"
+          hx-post="/admin/contests/{{ contest_id }}/slate" hx-swap="none"
+          class="flex flex-col gap-3">
+      {% for c in choices %}
+      <label class="flex items-center gap-3">
+        <input type="checkbox" name="game_{{ c.game.id }}" value="on"
+               class="checkbox checkbox-primary"
+               {% if c.checked %}checked{% endif %}>
+        <span class="flex-1 text-sm font-medium">{{ c.game.matchup }}</span>
+        {% if let Some(kickoff) = c.game.kickoff %}
+        <span class="text-xs text-base-content/60">{{ kickoff }}</span>
+        {% endif %}
+      </label>
+      {% endfor %}
+      <button type="submit" class="btn btn-primary mt-2">
+        {% if published %}Update slate{% else %}Publish slate{% endif %}
+      </button>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
