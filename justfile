@@ -56,12 +56,18 @@ sqlx-cache:
     cargo sqlx prepare --workspace
 
 
+# run all migrations in both DBs. create the DBs if missing.
 [group('db')]
 db-migrate:
     touch $DATABASE_FILE
     cargo sqlx migrate run --source crates/sunday-slate/migrations
     touch $NFL_DATABASE_FILE
     DATABASE_URL="$NFL_DATABASE_URL" cargo sqlx migrate run --source crates/nfl-data/migrations
+
+# Browse the app + nfl-data DBs in a Datasette web UI (read-only).
+[group('db')]
+db-browser:
+    uvx datasette serve --crossdb $DATABASE_FILE $NFL_DATABASE_FILE
 
 # Fetch the latest nflverse data into storage/nfl-data.db
 [group('nfl')]
