@@ -6,12 +6,11 @@
 # The DaisyUI Tailwind plugins are vendored into crates/sunday-slate/styles.
 set -euo pipefail
 
-# Pinned versions — bump deliberately, then re-run.
-# htmx 4 is still pre-release (npm `latest` is 2.x); this pins the v4 beta.
-HTMX_VER="4.0.0-beta4"
-ALPINE_VER="3.14.8"
-PHOSPHOR_VER="2.1.1"
-DAISYUI_VER="latest" # release artifacts only ship under /latest/
+# Pinned versions
+HTMX_VER="4.0.0" # https://github.com/bigskysoftware/htmx/releases
+ALPINE_VER="3.x.x" # latest v3 - https://alpinejs.dev/essentials/installation
+PHOSPHOR_VER="2.1.2" # https://github.com/phosphor-icons/web
+DAISYUI_VER="latest" # latest - https://github.com/saadeghi/daisyui
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 crate="$root/crates/sunday-slate"
@@ -37,6 +36,7 @@ get "https://cdn.jsdelivr.net/npm/@phosphor-icons/web@${PHOSPHOR_VER}/src/regula
 get "https://cdn.jsdelivr.net/npm/@phosphor-icons/web@${PHOSPHOR_VER}/src/regular/Phosphor.woff2" "$vendor/phosphor/Phosphor.woff2"
 get "https://cdn.jsdelivr.net/npm/@phosphor-icons/web@${PHOSPHOR_VER}/src/fill/style.css" "$vendor/phosphor/fill.css"
 get "https://cdn.jsdelivr.net/npm/@phosphor-icons/web@${PHOSPHOR_VER}/src/fill/Phosphor-Fill.woff2" "$vendor/phosphor/Phosphor-Fill.woff2"
+
 
 # Trim @font-face to the woff2 we vendored: drop the woff/ttf/svg sources
 for f in regular fill; do
