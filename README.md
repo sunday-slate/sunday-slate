@@ -47,4 +47,18 @@ just dev            # or `just serve 3000` for no bacon TUI
 
 ## License
 
-AGPL-3.0 or later. See [LICENSE](LICENSE).
+### Code
+All source code in this repository is licensed under the
+**GNU Affero General Public License v3.0 or later**
+([AGPL-3.0-or-later](https://spdx.org/licenses/AGPL-3.0-or-later.html)).
+
+See [LICENSE](./LICENSE) for the full text.
+
+SPDX-License-Identifier: AGPL-3.0-or-later
+
+### Documentation
+All files under [`docs/`](./docs/) are licensed under the
+**Creative Commons Attribution-ShareAlike 4.0 International License**
+([CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)).
+
+See [docs/LICENSE](./docs/LICENSE) for the full text.
