@@ -1,0 +1,9 @@
+[[pre-start]]
+direnv = "direnv allow"
+
+[[pre-start]]
+db = "direnv exec . just db-migrate"
+
+# Seed the nflverse cache from the primary worktree
+[[pre-start]]
+nfl-data = 'mkdir -p storage && if [ -f "{{ primary_worktree_path }}/storage/nfl-data.db" ]; then direnv exec . sqlite3 "{{ primary_worktree_path }}/storage/nfl-data.db" ".backup storage/nfl-data.db"; fi'
