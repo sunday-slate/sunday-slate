@@ -9,6 +9,7 @@ edit_uri: edit/main/docs/
 
 nav:
   - Home: index.md
+  - Deploy with Nix: deploy-with-nix.md
   - NFL Data: nfl-data-sources.md  
   - About These Documents: about.md
 
