@@ -27,6 +27,7 @@
           rust-analyzer
           typos-lsp
           uv # for datasette. replace with datasette pkg and update justfile call when upstream fixed
+          python3Packages.mkdocs-material # docs previewer/build, see justfile 'docs' recipes
         ];
       };
     }
