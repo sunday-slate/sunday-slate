@@ -7,7 +7,7 @@
   };
 
   outputs = { self, nixpkgs, flake-utils }:
-  flake-utils.lib.eachDefaultSystem (system:
+  (flake-utils.lib.eachDefaultSystem (system:
     let
       pkgs = nixpkgs.legacyPackages.${system};
       sunday-slate = pkgs.callPackage ./nix/package.nix {
@@ -53,10 +53,6 @@
       };
 
       checks = {
-        sunday-slate-vm = nixpkgs.legacyPackages.x86_64-linux.testers.nixosTest (
-          import ./nix/module-test.nix
-        );
-
         module-settings =
           let
             lib = nixpkgs.lib;
@@ -142,15 +138,20 @@
                   if expKeys == null then true
                   else lib.sort lib.lessThan (builtins.attrNames (builtins.fromJSON json))
                     == lib.sort lib.lessThan expKeys;
+                expectCfg = case.serviceConfig or { };
+                cfgOk = lib.all (k: (svc.serviceConfig.${k} or null) == expectCfg.${k})
+                  (builtins.attrNames expectCfg);
+                tmp = evaled.config.systemd.tmpfiles.rules or [ ];
+                tmpOk = tmp == (case.tmpfilesRules or [ ]);
                 r = {
-                  ok = assertionFails && keysOk &&
+                  ok = assertionFails && keysOk && cfgOk && tmpOk &&
                     (contains json (case.settingsContain or [ ])) &&
                     (nots json (case.settingsOmit or [ ])) &&
                     (contains execStart (case.execStartContain or [ ])) &&
                     (nots execStart (case.execStartNotContain or [ ])) &&
                     (contains preStart (case.preStartContain or [ ])) &&
                     loadCredential == (case.loadCredential or [ ]);
-                  failMsg = "module case '${case.name}' failed: rendered=${json} execStart=${execStart} preStart=${preStart} loadCredential=${builtins.toJSON loadCredential}";
+                  failMsg = "module case '${case.name}' failed: rendered=${json} execStart=${execStart} preStart=${preStart} loadCredential=${builtins.toJSON loadCredential} tmpfiles=${builtins.toJSON tmp}";
                 };
               in
               assert lib.assertMsg r.ok r.failMsg;
@@ -160,7 +161,33 @@
           assert lib.all (r: r.ok) results;
           assert lib.all (r: r.ok) moduleResults;
           pkgs.runCommand "module-settings-test" { } "mkdir -p $out; echo ok > $out/marker";
+
+        # Guard against the .cargo/mold leak class: the package's source set
+        # must exclude the repo's .cargo/config.toml (it forces -fuse-ld=
+        # mold on Linux; the Nix sandbox has no mold).
+        package-src-purity =
+          pkgs.runCommand "package-src-purity"
+            {
+              src = sunday-slate.src;
+            }
+            ''
+              if test -e "$src/.cargo/config.toml"; then
+                echo "FAIL: .cargo/config.toml leaked into package src" >&2
+                exit 1
+              fi
+              mkdir -p $out; echo ok > $out/marker
+            '';
+      } // nixpkgs.lib.optionalAttrs (system == "x86_64-linux") {
+        # Linux-only: the VM test needs kvm/nixos-test; keeping it out of
+        # other legs' checks keeps nix flake check evaluable on darwin (the
+        # aarch64-darwin CI leg only builds packages).
+        sunday-slate-vm = nixpkgs.legacyPackages.x86_64-linux.testers.nixosTest (
+          import ./nix/module-test.nix
+        );
       };
     }
-  );
+  )) // {
+    # The service module, consumable by NixOS and plain flake imports.
+    nixosModules.default = import ./nix/module.nix;
+  };
 }

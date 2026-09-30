@@ -1,14 +1,18 @@
 name: Nix lock bump
 # Keeps main's flake.lock aligned with nixos-unstable so default consumers
-# stay on cache-hit paths. Order is load-bearing: update the lock first,
-# then only commit if the whole build + cache push is green — main's lock
-# never leads the cache.
+# stay on cache-hit paths. Order is load-bearing: update the lock, prove the
+# build, push the linux closure synchronously, and only then commit — main's
+# lock never leads its linux cache. The fresh lock's macOS closure is built
+# right after the commit via an explicit workflow_dispatch (baked GITHUB_
+# TOKEN pushes don't trigger the matrix workflow on their own; explicit
+# dispatches do).
 on:
   schedule:
     - cron: "0 6 * * *" # daily, 06:00 UTC
   workflow_dispatch:
 permissions:
   contents: write
+  actions: write # for the nix.yml dispatch caching the fresh lock's mac leg
 concurrency:
   group: nix-bump
   cancel-in-progress: false
@@ -32,12 +36,14 @@ jobs:
       - name: Build gate (build + VM test on linux)
         if: steps.update.outputs.changed == 'true'
         run: nix flake check -L --keep-going
-      - name: Push closure to cachix
+      - name: Push the fresh-lock closure (synchronous)
         if: steps.update.outputs.changed == 'true'
-        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17 (cachix/cachix-action)
-        with:
-          name: sunday-slate
-          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+        env:
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        run: |
+          nix profile install nixpkgs#cachix
+          nix build .#sunday-slate
+          cachix push sunday-slate result
       - name: Commit the bumped lock
         if: steps.update.outputs.changed == 'true'
         run: |
@@ -46,3 +52,11 @@ jobs:
           git add flake.lock
           git commit -m "chore: bump nixpkgs lock (automatic)"
           git push
+      - name: Cache the fresh lock's macOS closure
+        # GITHUB_TOKEN push events do not trigger nix.yml's matrix; run it
+        # explicitly so macOS users get the new lock from cache within
+        # minutes of the commit.
+        if: steps.update.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run nix.yml --ref main --repo "${{ github.repository }}"

@@ -34,6 +34,8 @@
     };
 
   testScript = ''
+    import re
+
     machine.wait_for_unit("sunday-slate.service")
     machine.wait_for_open_port(3000)
 
@@ -44,10 +46,14 @@
     machine.succeed("test -f /var/lib/sunday-slate/storage/sunday-slate.db")
     machine.succeed("test -f /var/lib/sunday-slate/storage/nfl-data.db")
 
-    # Launcher wires systemd credentials (Review Focus 2) — no env-file
-    launcher = machine.succeed(
-        "systemctl show -p ExecStart --value sunday-slate"
-    ).split(" ")[0].strip()
+    # Launcher wires systemd credentials (Review Focus 2) — no env-file.
+    # `systemctl show -p ExecStart --value` prints a structured record on
+    # current systemd ({path=…;argv0=…}); `systemctl cat` exposes the plain
+    # ExecStart= line, so parse there.
+    unit = machine.succeed("systemctl cat sunday-slate")
+    m = re.search(r"^ExecStart=(\S+)", unit, re.M)
+    assert m, unit
+    launcher = m.group(1)
     machine.succeed(f"grep -q CREDENTIALS_DIRECTORY {launcher}")
     machine.succeed(f"grep -q SUNDAY_SLATE__SMTP__PASSWORD {launcher}")
     machine.fail(f"grep -q EnvironmentFile {launcher}")

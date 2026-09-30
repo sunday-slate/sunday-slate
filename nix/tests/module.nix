@@ -3,7 +3,8 @@
 # The flake's module-settings check evaluates each case through
 # lib.evalModules and asserts on the module's own outputs:
 #   name            – identifier shown when the case fails
-#   moduleConf      – attrset merged over { enable = true; } as module config
+#   moduleConf      – attrset deep-merged over { enable = true; } as module
+#                     config
 #   settingsKeys    – expected sorted attrset keys of the rendered settings
 #                     record (the attrset that becomes config.toml)
 #   settingsContain – JSON fragments that must appear in the rendered record
@@ -11,7 +12,29 @@
 #   execStartContain / execStartNotContain – fragments in the ExecStart text
 #   preStartContain – fragments in the preStart script text
 #   loadCredential  – expected list of "name:path" credential entries
+#   serviceConfig   – attrset of exact deep-equal expectations on the unit's
+#                     serviceConfig fields (WorkingDirectory, ReadWritePaths…)
+#   tmpfilesRules   – exact expected set of systemd.tmpfiles.rules entries
+#                     the module emits (directory provisioning for non-default
+#                     working/storage dirs; empty when both are covered)
 #   assertionFails  – when true, evaluating config must raise an assertion
+let
+  # Non-default-both-dirs case expectations share shape:
+  # - the unit chdirs into the custom working directory;
+  # - ProtectSystem=strict gains ReadWritePaths for the dirs the app writes;
+  # - tmpfiles rules (d, 0700, app uid/gid) provision them before the unit
+  #   starts, so config.toml install and DB creation succeed.
+  customDirsDefaults = {
+    serviceConfig = {
+      WorkingDirectory = "/srv/ss";
+      ReadWritePaths = [ "/srv/ss" "/srv/ss/storage" ];
+    };
+    tmpfilesRules = [
+      "d /srv/ss 0700 sunday-slate sunday-slate - -"
+      "d /srv/ss/storage 0700 sunday-slate sunday-slate - -"
+    ];
+  };
+in
 [
   {
     name = "defaults-render-in-app-terms";
@@ -30,6 +53,12 @@
     execStartNotContain = [ "CREDENTIALS_DIRECTORY" ];
     loadCredential = [ ];
     preStartContain = [ "install -m 600" "config.toml" ];
+    serviceConfig = {
+      WorkingDirectory = "/var/lib/sunday-slate";
+      StateDirectory = "sunday-slate";
+      ReadWritePaths = [ ];
+    };
+    tmpfilesRules = [ ];
   }
 
   {
@@ -51,7 +80,7 @@
     loadCredential = [ "smtp-password:/run/creds/ss-smtp-pass" ];
   }
 
-  {
+  (customDirsDefaults // {
     name = "working-directory-cascades-into-urls-and-media";
     moduleConf = {
       services.sunday-slate.workingDirectory = "/srv/ss";
@@ -61,9 +90,9 @@
       "sqlite:///srv/ss/storage/nfl-data.db"
       "/srv/ss/storage/media"
     ];
-  }
+  })
 
-  {
+  (customDirsDefaults // {
     name = "urls-remain-overridable-independently";
     moduleConf = {
       services.sunday-slate.databaseUrl = "sqlite:///mnt/db/sunday-slate.db";
@@ -73,7 +102,7 @@
       "sqlite:///mnt/db/sunday-slate.db"
       "sqlite:///srv/ss/storage/nfl-data.db"
     ];
-  }
+  })
 
   {
     name = "season-passes-through-when-set";

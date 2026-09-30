@@ -29,20 +29,47 @@ The key value comes from the cache's dashboard.
 Add the flake as an input and enable the service:
 
 ```nix
-# flake.nix
-inputs.sunday-slate = {
-  url = "github:sunday-slate/sunday-slate";
-  inputs.nixpkgs.follows = "nixpkgs"; # see "Cache-hit contract" before using
-};
+# flake.nix — the input needs no follow lines; leave it plain.
+inputs.sunday-slate.url = "github:sunday-slate/sunday-slate";
 
 # in a NixOS configuration module
-services.sunday-slate = {
-  enable = true;
-  baseUrl = "https://slate.example.com";
-  secrets.smtpPasswordFile = config.age.secrets.ss-smtp-pass.path;
-  secrets.nflGitHubTokenFile = config.age.secrets.ss-gh-token.path;
-};
+{ config, pkgs, inputs, ... }:
+{
+  imports = [ inputs.sunday-slate.nixosModules.default ];
+
+  services.sunday-slate = {
+    enable = true;
+    package = inputs.sunday-slate.packages.${pkgs.system}.sunday-slate; # cache-aligned build
+    baseUrl = "https://slate.example.com";
+    secrets.smtpPasswordFile = config.age.secrets.ss-smtp-pass.path;
+    secrets.nflGitHubTokenFile = config.age.secrets.ss-gh-token.path;
+  };
+}
 ```
+
+Without `package =`, the module defaults to building this repository's
+packaging against the *consuming* nixpkgs — meaning a local workspace build
+instead of a cached pull (the derivation CI built use a different nixpkgs
+closure). Setting `package` as above is what buys the 30-second deployment.
+
+</br>
+
+<details>
+<summary>Alternative: build against your own nixpkgs</summary>
+
+Overriding the app flake's input instead of selecting its package is also
+possible:
+
+```nix
+inputs.sunday-slate.inputs.nixpkgs.follows = "nixpkgs";
+# and omit the package line — the module builds with your nixpkgs.
+```
+
+The cost stays small (a one-time workspace rebuild, then cached locally),
+but it disables the substituter-hit-on-pull behavior for every future
+build, so prefer the explicit `package` option in production configs.
+
+</details>
 
 The module is a single instance:
 

@@ -4,10 +4,27 @@
   tailwindcss,
   src,
 }:
+
+let
+  # The repo's .cargo/config.toml forces `-fuse-ld=mold` on Linux and is
+  # deliberately outside the package's source set (see the comment in that
+  # file, written for this packaging plan): the Nix sandbox has no mold.
+  # Filter it out of whatever this package is handed.
+  srcFiltered = lib.cleanSourceWith {
+    inherit src;
+    filter =
+      path: type:
+      !(type == "directory" && baseNameOf path == ".cargo")
+      && !(
+        type == "regular"
+        && lib.hasSuffix "/.cargo/config.toml" (toString path)
+      );
+  };
+in
 rustPlatform.buildRustPackage {
   pname = "sunday-slate";
   version = "0.1.2"; # keep in sync with crates/sunday-slate/Cargo.toml
-  inherit src;
+  src = srcFiltered;
   cargoLock = {
     lockFile = ../Cargo.lock;
     # Git-vendored deps (axum-login, axum-messages fork, sessions store) need

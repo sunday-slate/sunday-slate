@@ -262,6 +262,16 @@ in
 
     networking.firewall.allowedTCPPorts = mkIf cfg.openFirewall [ bindPort ];
 
+    # Directory provisioning for non-default working/storage dirs: systemd
+    # only auto-manages StateDirectory paths, so custom ones need their own
+    # tmpfiles entry (created before the unit starts, with app ownership),
+    # and ProtectSystem=strict needs ReadWritePaths for the dirs the app
+    # writes (config.toml in the working dir, databases/media in storage).
+    systemd.tmpfiles.rules =
+      map (d: "d ${d} 0700 sunday-slate sunday-slate - -")
+        (lib.optionals (!workingDirCovered) [ cfg.workingDirectory ]
+          ++ lib.optionals (!storageDirCovered) [ cfg.storageDir ]);
+
     systemd.services.sunday-slate = {
       description = "Sunday Slate fantasy football server";
       wantedBy = [ "multi-user.target" ];
@@ -270,25 +280,25 @@ in
 
       environment = cfg.environmentVariables;
 
-      preStart =
-        let
-          customDirs =
-            lib.optionals (!workingDirCovered) [ cfg.workingDirectory ]
-            ++ lib.optionals (!storageDirCovered) [ cfg.storageDir ];
-        in
-        ''
-          ${lib.concatMapStringsSep "\n" (d: "install -d -m 700 ${d}") customDirs}
-          install -m 600 ${configFile} ${cfg.workingDirectory}/config.toml
-        '';
+      preStart = ''
+        install -m 600 ${configFile} ${lib.escapeShellArg "${cfg.workingDirectory}/config.toml"}
+      '';
 
       serviceConfig = {
         User = "sunday-slate";
         Group = "sunday-slate";
 
+        # App CWD: its config.toml resolution and relative defaults depend
+        # on this matching cfg.workingDirectory.
+        WorkingDirectory = cfg.workingDirectory;
+
         ExecStart = "${launcher}";
 
         StateDirectory = mkIf workingDirCovered "sunday-slate";
         StateDirectoryMode = "0700";
+
+        ReadWritePaths = lib.optionals (!workingDirCovered) [ cfg.workingDirectory ]
+          ++ lib.optionals (!storageDirCovered) [ cfg.storageDir ];
 
         LoadCredential =
           mkIf (activeSecrets != [ ])

@@ -25,13 +25,18 @@ jobs:
         uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1 (cachix/install-nix-action)
       - name: Flake check
         # Builds the package, evals nixosModules, runs the VM test on linux.
+        # The aarch64-darwin leg has no x86_64-linux checks (see flake.nix),
+        # so darwin checks = drains + package build only.
         run: nix flake check -L --keep-going
       - name: Build the package
         run: nix build .#sunday-slate
-      - name: Push closure to cachix
-        # Last step on purpose: a failed check/build leaves this cache
-        # without the rev, and the daily bump job never commits its lock.
-        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17 (cachix/cachix-action)
-        with:
-          name: sunday-slate
-          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+      - name: Push closure to cachix (synchronous)
+        # Explicit CLI push so the upload completes inside this step: the
+        # closure exists before anything else consumes the rev, and the
+        # lock-bump job can treat success as a gate (buffered action-side
+        # pushes are not a commit gate).
+        env:
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        run: |
+          nix profile install nixpkgs#cachix
+          cachix push sunday-slate result
