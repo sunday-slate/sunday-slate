@@ -1,4 +1,4 @@
-These documents are being built up over time as notes and references to how Sunday Slate is developed. This will include patterns, code organization, notes on various library usage, etc. Eventually, more standard user and dev guides that pull from these documents will be published. In the meantime, any topic here as it pertains to the project should be added here and it'll get re-organized as we go along.
+These documents are being built up over time as notes and references to how Sunday Slate is developed. This will include patterns, code organization, notes on various library usage, etc. Eventually, more standard user and dev guides that pull from these documents will be published. In the meantime, any topic here as it pertains to the project should be added here and it'll get re-organized.
 
 ## Authoring and previewing
 
@@ -15,4 +15,9 @@ Docs are plain markdown in `docs/`; any text editor works. From the repo root:
 
 Pushes to `main` that touch the docs build the site with
 [MkDocs](https://www.mkdocs.org/) (Material theme) and publish it to GitHub
-Pages via `.github/workflows/docs.yml`.
+Pages via
+[.github/workflows/docs.yml](../.github/workflows/docs.yml).
+
+## mkDocs
+
+Using mkDocs which has a planned 2.0. See note on [mkDocs 2.0 upgrade](./mkdocs-upgrade.md)

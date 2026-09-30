@@ -27,3 +27,4 @@ docs/.obsidian/
 
 # MkDocs build output
 /_site
+__pycache__

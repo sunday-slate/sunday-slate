@@ -4,6 +4,8 @@ site_description: Developer docs for Sunday Slate, a season-long DFS-style fanta
 docs_dir: docs
 site_dir: _site
 copyright: 'Code licensed AGPL-3.0-or-later · Docs licensed CC BY-SA 4.0'
+repo_url: https://github.com/sunday-slate/sunday-slate
+edit_uri: edit/main/docs/
 
 nav:
   - Home: index.md
@@ -11,3 +13,16 @@ nav:
 
 theme:
   name: material
+  features:
+    - content.action.edit
+    - content.action.view
+
+plugins:
+  - search
+
+hooks:
+  - scripts/repo_links.py
+
+markdown_extensions:
+  - pymdownx.magiclink:
+      repo_url_shortener: true
