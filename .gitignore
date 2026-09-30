@@ -21,6 +21,10 @@ result-*
 .mcp.json
 AGENTS.md
 .omp-session/
+.pi/
 
 docs/.obsidian/
 
+# MkDocs build output
+/_site
+__pycache__

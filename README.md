@@ -20,18 +20,15 @@ in to something to build from moving forward.
 Once the expunging of any slop is complete, I'll release a stable version. Until
 then, it's low risk to use but it's entirely *your* risk if you do so.
 
+## Documentation
+
+See [Documentation](https://docs.sundayslate.org).
+
+Docs are published from the source in [docs/](./docs)
+
 ## NFL Data Sources
 
-The primary data source for NFL stats is the excellent [nflverse](https://github.com/nflverse).
-This is a freely available repo of historical NFL stats that gets updated regularly.
 
-Optionally, you can also subscribe to the paid 
-[Tank01 NFL Live Stats](https://rapidapi.com/tank01/api/tank01-nfl-live-in-game-real-time-statistics-nfl).
-If you add a Tank01 API key to your environment, Sunday Slate will use it to update fantasy points while
-the contest is running.
-
-Nflverse does not publish stats until the conclusion of the game. Tank01 provides live stats. 
-Not required for Sunday Slate, but useful on gameday. The app considers Nflverse the official stats however.
 
 ## Development
 
@@ -41,6 +38,7 @@ I set up my dev environment via a [nix flake](flake.nix). YMMV.
 direnv allow        # enters the flake devshell
 just db-migrate
 just dev            # or `just serve 3000` for no bacon TUI
+just docs           # serve the docs site at localhost:8000
 ```
 
 `just --list` shows the useful commands.

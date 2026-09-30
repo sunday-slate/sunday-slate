@@ -33,6 +33,16 @@ css:
 fetch-assets:
     ./scripts/fetch-assets.sh
 
+# Live-reload docs preview at http://localhost:8000.
+[group('docs')]
+docs:
+    mkdocs serve -f .config/mkdocs.yml
+
+# One-shot docs build; mirrors CI (mkdocs build --strict).
+[group('docs')]
+docs-build:
+    mkdocs build --strict -f .config/mkdocs.yml
+
 # Run all tests
 [group('check')]
 test *name:
