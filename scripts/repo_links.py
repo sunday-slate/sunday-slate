@@ -1,6 +1,6 @@
 """MkDocs hook: link repo files as examples from docs pages.
 
-Registered via `hooks:` in mkdocs.yml (mkdocs >= 1.2 lightweight plugin API).
+Registered via `hooks:` in .config/mkdocs.yml (mkdocs >= 1.2 lightweight plugin API).
 
 Rewrites markdown link targets that point at real files in the repo but
 *outside* docs_dir (e.g. `[x](../.github/workflows/docs.yml)`) into GitHub
@@ -25,7 +25,7 @@ work when the file is viewed on github.com.
 import os
 import re
 
-# Fallbacks used only when mkdocs.yml has no repo_url/edit_uri.
+# Fallbacks used only when the mkdocs config has no repo_url/edit_uri.
 REPO_URL = "https://github.com/sunday-slate/sunday-slate"
 BRANCH = "main"
 
@@ -39,13 +39,18 @@ _MAX_PEEL = 16
 
 
 def _repo_root(config):
-    return os.path.dirname(os.path.abspath(config["config_file_path"]))
+    """Repo root — the parent of the directory holding the docs source tree.
+
+    Deriving it from docs_dir keeps the hook independent of where the mkdocs
+    config file lives (e.g. repo root or .config/).
+    """
+    return os.path.dirname(_docs_dir_abs(config))
 
 
 def _docs_dir_abs(config):
     docs_dir = config["docs_dir"]
     if not os.path.isabs(docs_dir):
-        docs_dir = os.path.join(_repo_root(config), docs_dir)
+        docs_dir = os.path.join(os.path.dirname(os.path.abspath(config["config_file_path"])), docs_dir)
     return os.path.normpath(docs_dir)
 
 
@@ -55,7 +60,7 @@ def _inside_docs(path, docs_dir):
 
 
 def _github_defaults(config):
-    """(repo_url, branch) — repo_url/branch come from mkdocs.yml when set."""
+    """(repo_url, branch) — repo_url/branch come from the mkdocs config when set."""
     repo_url = (config.get("repo_url") or REPO_URL).rstrip("/")
     branch = None
     edit_uri = (config.get("edit_uri") or "").strip("/")
