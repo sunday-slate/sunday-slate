@@ -48,15 +48,22 @@
 
       nixosModules.default = import ./nix/module.nix;
 
-      checks.x86_64-linux.service-unit = (nixpkgs.lib.nixosSystem {
-        system = "x86_64-linux";
-        modules = [
-          self.nixosModules.default
-          {
-            system.stateVersion = "26.05";
-            services.sunday-slate.enable = true;
-          }
-        ];
-      }).config.systemd.units."sunday-slate.service".unit;
+      checks.x86_64-linux.service-unit =
+        let
+          testSystem = nixpkgs.lib.nixosSystem {
+            system = "x86_64-linux";
+            modules = [
+              self.nixosModules.default
+              {
+                system.stateVersion = "26.05";
+                services.sunday-slate.enable = true;
+              }
+            ];
+          };
+        in
+        assert nixpkgs.lib.assertMsg
+          (builtins.pathExists "${testSystem.config.services.sunday-slate.package.src}/Cargo.lock")
+          "Sunday Slate package source must include Cargo.lock";
+        testSystem.config.systemd.units."sunday-slate.service".unit;
     };
 }

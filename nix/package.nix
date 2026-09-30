@@ -12,7 +12,7 @@ rustPlatform.buildRustPackage {
   src = lib.cleanSourceWith {
     inherit src;
     filter = path: _: lib.any
-      (name: path == "${src}/${name}" || lib.hasPrefix "${src}/${name}/" path)
+      (name: path == "${toString src}/${name}" || lib.hasPrefix "${toString src}/${name}/" path)
       [ "Cargo.toml" "Cargo.lock" "crates" ".sqlx" ];
   };
   cargoLock = {
