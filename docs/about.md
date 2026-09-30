@@ -7,7 +7,9 @@ Docs are plain markdown in `docs/`; any text editor works. From the repo root:
 - `just docs` serves the site at <http://localhost:8000> with live reload
   while you edit.
 - `just docs-build` does a one-shot build; CI uses the same build with
-  `--strict`, so broken links and nav problems fail loudly there too.
+  `--strict`, so navigation and file problems mkdocs reports as warnings
+  fail the build there too. Wiki-style `[[links]]` are invisible to
+  mkdocs; a grep pass over `docs/` catches those.
 
 ## Publishing
 
