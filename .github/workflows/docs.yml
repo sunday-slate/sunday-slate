@@ -4,7 +4,7 @@ on:
     branches: [main]
     paths:
       - "docs/**"
-      - ".config/quartz/**"
+      - ".config/**"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 jobs:
@@ -29,7 +29,7 @@ jobs:
         with:
           source: docs
           page_title: Sunday Slate Docs
-          quartz_config: .config/quartz/quartz.config.ts
+          quartz_config: .config/quartz.config.ts
           quartz_repo_ref: v4.5.2 # deliberate Quartz upgrade lever; "v4" tracks the branch head
       - name: Upload artifact
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3 (actions/upload-pages-artifact)
