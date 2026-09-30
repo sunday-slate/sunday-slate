@@ -21,6 +21,7 @@ result-*
 .mcp.json
 AGENTS.md
 .omp-session/
+.pi/
 
 docs/.obsidian/
 
