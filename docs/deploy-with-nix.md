@@ -1,63 +1,79 @@
 # Deploy with Nix
 
-Sunday Slate ships as a Nix flake with a runnable package, a NixOS service
-module, and a public binary cache, so administrators on NixOS (and, via bare
-installs, elsewhere) can deploy without building from source.
+The flake provides a Sunday Slate package and NixOS service module for
+**x86-64 Linux only**. There is no project binary cache; expect an initial
+build from source.
 
 ## NixOS service
 
-### Enable Cachix Package cache
-
-`cachix use sunday-slate` 
-
-### Flake example
+Add the flake input:
 
 ```nix
 inputs.sunday-slate.url = "github:sunday-slate/sunday-slate";
+```
 
-# in a NixOS configuration module
-{ config, inputs, ... }:
+Then import and enable the module:
+
+```nix
+{ inputs, ... }:
 {
   imports = [ inputs.sunday-slate.nixosModules.default ];
 
   services.sunday-slate = {
     enable = true;
+    settings = {
+      base_url = "https://slate.example.com";
+      # bind_addr = "0.0.0.0:3000"; # if serving without a local reverse proxy
+    };
+    # environmentFile = "/run/secrets/sunday-slate";
   };
 }
 ```
 
-The module is a single instance:
+The service runs as `sunday-slate` in `/var/lib/sunday-slate`. Databases and
+media use the application's default `./storage` paths beneath that directory.
+Migrations run at startup. The default bind address is `127.0.0.1:3000`;
+configure a reverse proxy or host firewall separately if exposing the service.
 
-| Option                  | Default |
-| ----------------------- | ------- |
-| `workingDirectory`      | `/var/lib/sunday-slate` |
-| `storageDir`            | `${workingDirectory}/storage` |
-| `databaseUrl`           | `sqlite://<storageDir>/sunday-slate.db` |
-| `nflDatabaseUrl`        | `sqlite://<storageDir>/nfl-data.db` |
-| `mediaDir`              | `<storageDir>/media` |
-| `bindAddr`              | `127.0.0.1:3000` |
-| `baseUrl`               | `http://localhost:3000` |
-| `mailFrom`              | `Sunday Slate <no-reply@example.com>` |
-| `season`                | `2026` |
-| `nflSyncIntervalSecs`   | `0` (disabled) |
-| `smtp`                  | `null` |
-| `smtp.host`             | required if smtp set |
-| `smtp.port`             | `587` |
-| `smtp.username`         | required if smtp set |
-| `openFirewall`          | `false` |
-| `package`               | `sunday-slate` |
+The module has four options: `enable`, `package`, `settings`, and
+`environmentFile`. `settings` uses the same snake_case names and structure as
+[config.toml.example](https://github.com/sunday-slate/sunday-slate/blob/main/config.toml.example).
+Omitted settings use application defaults.
 
-### Secrets
+## Secrets
 
-Secrets are file paths, never literal values — raw values would land in the
-world-readable nix store and systemd unit files. Sources can be sops-nix age
-files, systemd credentials, or plain root-owned files.
+Do not put passwords or tokens in `settings`: generated configuration enters
+the world-readable Nix store. Instead, provision a root-owned, mode `0600`
+systemd environment file outside the store, using a secret manager or manual
+file creation. Set `environmentFile` to its absolute path as a **quoted
+string**, not a Nix path literal.
 
-- `secrets.smtpPasswordFile` → `SUNDAY_SLATE__SMTP__PASSWORD`
-- `secrets.nflGitHubTokenFile` → `SUNDAY_SLATE__NFL_GITHUB_TOKEN`
-- `secrets.tank01ApiKeyFile` → `SUNDAY_SLATE__TANK01_API_KEY`
+Example contents (use systemd environment-file quoting rules):
 
-### Migrations
+```sh
+SUNDAY_SLATE__SMTP__PASSWORD="replace-with-password"
+SUNDAY_SLATE__NFL_GITHUB_TOKEN="replace-with-token"
+SUNDAY_SLATE__TANK01_API_KEY="replace-with-key"
+```
 
-Migrations run automatically at startup for both databases; no migration
-scripting is needed.
+Include only variables needed for the deployment. For SMTP, also provide
+`smtp.host`, `smtp.port`, and `smtp.username` in `settings`.
+
+## Build and verify
+
+```sh
+nix build github:sunday-slate/sunday-slate#sunday-slate
+```
+
+CI builds the package and checks that the service module generates a systemd
+unit. It does not boot or verify a deployment. After enabling the service and
+running `nixos-rebuild switch`, check it on the target host:
+
+```sh
+systemctl status sunday-slate
+journalctl -u sunday-slate -n 50
+curl -fsSL http://127.0.0.1:3000/
+```
+
+Adjust the URL if a different bind address is configured. Update the flake
+lock manually when needed; there is no scheduled update job.

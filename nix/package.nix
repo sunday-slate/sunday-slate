@@ -5,39 +5,19 @@
   src,
 }:
 
-let
-  # The repo's .cargo/config.toml forces `-fuse-ld=mold` on Linux and is
-  # deliberately outside the package's source set (see the comment in that
-  # file, written for this packaging plan): the Nix sandbox has no mold.
-  # Filter it out of whatever this package is handed.
-  srcFiltered = lib.cleanSourceWith {
-    inherit src;
-    filter =
-      path: type:
-      !(type == "directory" && baseNameOf path == ".cargo")
-      && !(
-        type == "regular"
-        && lib.hasSuffix "/.cargo/config.toml" (toString path)
-      );
-  };
-in
 rustPlatform.buildRustPackage {
   pname = "sunday-slate";
-  version = "0.1.2"; # keep in sync with crates/sunday-slate/Cargo.toml
-  src = srcFiltered;
+  version = (builtins.fromTOML (builtins.readFile ../crates/sunday-slate/Cargo.toml)).package.version;
+  # The sandbox has no mold linker; exclude the repo's .cargo configuration.
+  src = lib.cleanSourceWith {
+    inherit src;
+    filter = path: _: baseNameOf path != ".cargo";
+  };
   cargoLock = {
     lockFile = ../Cargo.lock;
-    # Git-vendored deps (axum-login, axum-messages fork, sessions store) need
-    # pinned source hashes; fed by the fetch errors during the hash cycle.
-    outputHashes = {
-      "axum-login-0.18.0" = "sha256-CxxVN0uEicYW+mgyqWWw6sn+jXe64xkJZLbFWaXUeKM=";
-      "axum-messages-0.8.0" = "sha256-rfPlTS/QhcYZGRdjMUB1Fv2KNLDuFiXgjRbXzRKqM1U=";
-      "tower-sessions-sqlx-store-0.15.0" = "sha256-1+lKmPZM33FpYHWjEmNvjyj6f3Vrkz783kUEqzzj5ag=";
-    };
+    allowBuiltinFetchGit = true;
   };
 
-# Vendored crate fetching is driven by `cargoLock` (lockFile + outputHashes);
-# a separate cargoHash attr is unused by this nixpkgs generation.
   nativeBuildInputs = [ tailwindcss ];
   env = {
     SQLX_OFFLINE = "true";
@@ -45,9 +25,7 @@ rustPlatform.buildRustPackage {
   };
   cargoBuildFlags = [ "--package" "sunday-slate" ];
 
-  # wiremock-based tests bind loopback ports, which the build sandbox forbids
-  # (operation not permitted at socket bind). The workspace suite runs via
-  # `just test` / CI instead — cargo test stays the repo's own gate.
+  # Socket-binding tests cannot run in the Nix sandbox. Run them with `just test`.
   doCheck = false;
 
   meta = {
@@ -55,5 +33,6 @@ rustPlatform.buildRustPackage {
     homepage = "https://github.com/sunday-slate/sunday-slate";
     license = lib.licenses.agpl3Plus;
     mainProgram = "sunday-slate";
+    platforms = [ "x86_64-linux" ];
   };
 }
