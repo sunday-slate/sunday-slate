@@ -41,6 +41,7 @@ I set up my dev environment via a [nix flake](flake.nix). YMMV.
 direnv allow        # enters the flake devshell
 just db-migrate
 just dev            # or `just serve 3000` for no bacon TUI
+just docs           # serve the docs site at localhost:8000
 ```
 
 `just --list` shows the useful commands.
