@@ -26,7 +26,7 @@ jobs:
         # nixpkgs input; bump both together.
         run: |
           pip install "mkdocs-material==9.7.7"
-          mkdocs build --strict --site-dir _site
+          mkdocs build --strict
       - name: Upload artifact
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3 (actions/upload-pages-artifact)
         with:

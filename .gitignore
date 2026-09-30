@@ -26,4 +26,4 @@ AGENTS.md
 docs/.obsidian/
 
 # MkDocs build output
-/site
+/_site
