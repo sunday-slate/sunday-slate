@@ -1,0 +1,16 @@
+These documents are being built up over time as notes and references to how Sunday Slate is developed. This will include patterns, code organization, notes on various library usage, etc. Eventually, more standard user and dev guides that pull from these documents will be published. In the meantime, any topic here as it pertains to the project should be added here and it'll get re-organized as we go along.
+
+## Authoring and previewing
+
+Docs are plain markdown in `docs/`; any text editor works. From the repo root:
+
+- `just docs` serves the site at <http://localhost:8000> with live reload
+  while you edit.
+- `just docs-build` does a one-shot build; CI uses the same build with
+  `--strict`, so broken links and nav problems fail loudly there too.
+
+## Publishing
+
+Pushes to `main` that touch the docs build the site with
+[MkDocs](https://www.mkdocs.org/) (Material theme) and publish it to GitHub
+Pages via `.github/workflows/docs.yml`.
