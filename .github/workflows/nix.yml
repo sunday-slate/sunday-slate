@@ -1,0 +1,37 @@
+name: Nix
+on:
+  push:
+    branches: [main]
+    paths:
+      - "flake.nix"
+      - "flake.lock"
+      - "nix/**"
+      - "Cargo.lock"
+      - "crates/**"
+      - ".github/workflows/nix.yml"
+  workflow_dispatch:
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 (actions/checkout)
+      - name: Install Nix
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1 (cachix/install-nix-action)
+      - name: Flake check
+        # Builds the package, evals nixosModules, runs the VM test on linux.
+        run: nix flake check -L --keep-going
+      - name: Build the package
+        run: nix build .#sunday-slate
+      - name: Push closure to cachix
+        # Last step on purpose: a failed check/build leaves this cache
+        # without the rev, and the daily bump job never commits its lock.
+        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17 (cachix/cachix-action)
+        with:
+          name: sunday-slate
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
