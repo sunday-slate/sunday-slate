@@ -7,3 +7,7 @@ db = "direnv exec . just db-migrate"
 # Seed the nflverse cache from the primary worktree
 [[pre-start]]
 nfl-data = 'mkdir -p storage && if [ -f "{{ primary_worktree_path }}/storage/nfl-data.db" ]; then direnv exec . sqlite3 "{{ primary_worktree_path }}/storage/nfl-data.db" ".backup storage/nfl-data.db"; fi'
+
+# Pi sandbox allow access to worktree
+[[pre-start]]
+sandbox = 'if [ {{ worktree_path }} != {{ primary_worktree_path }} ] && [ ! -f .pi/sandbox.json ]; then mkdir -p .pi && printf "{\n  \"filesystem\": {\n    \"allowRead\": [\n      \"%s\"\n    ],\n    \"allowWrite\": [\n      \"%s/.git\"\n    ]\n  }\n}\n" {{ primary_worktree_path }} {{ primary_worktree_path }} > .pi/sandbox.json; fi'
