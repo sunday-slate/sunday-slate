@@ -188,6 +188,20 @@
     }
   )) // {
     # The service module, consumable by NixOS and plain flake imports.
-    nixosModules.default = import ./nix/module.nix;
+    # A bare module cannot reach the importer's inputs, so this wrapper
+    # injects the flake's own cache-aligned packages.${system}.sunday-slate
+    # as the service's default package. mkDefault outranks module.nix's
+    # declared fallback default (the consuming-nixpkgs build), which stays
+    # authoritative for bare module.nix imports (the eval tests) and for
+    # systems this flake doesn't export.
+    nixosModules.default = { lib, pkgs, ... }: {
+      imports = [ ./nix/module.nix ];
+      services.sunday-slate.package = lib.mkDefault
+        (self.packages.${pkgs.system}.sunday-slate or
+          (pkgs.callPackage ./nix/package.nix {
+            src = self;
+            tailwindcss = pkgs.tailwindcss_4;
+          }));
+    };
   };
 }

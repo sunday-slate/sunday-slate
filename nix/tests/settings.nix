@@ -1,14 +1,4 @@
-# Pure-eval test cases for nix/settings.nix (mkSettings).
-#
-# Each case is a record:
-#   name    – identifier shown in the assertion when the case fails
-#   input   – the cfgAttrset exactly as the module would pass it (camelCase
-#             option names, matching the Produces contract in the plan)
-#   omit    – TOML keys that must NOT appear in the rendered settings
-#   contain – fragments that MUST appear in the JSON serialization
 let
-  # The module always passes a fully-defaulted record; `null` marks the
-  # options with a null default (season, smtp).
   base = {
     bindAddr = "127.0.0.1:3000";
     baseUrl = "http://localhost:3000";

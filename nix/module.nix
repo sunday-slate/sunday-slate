@@ -1,10 +1,3 @@
-# NixOS module for the Sunday Slate server.
-#
-# Every option maps 1:1 to a field in crates/sunday-slate/src/config.rs.
-# Config reaches the app as a generated config.toml installed into the
-# service's working directory (the app reads config.toml from CWD);
-# secrets never enter the store or config.toml — they flow from
-# systemd credentials into SUNDAY_SLATE__* variables by the launcher.
 {
   lib,
   pkgs,
@@ -30,7 +23,6 @@ let
 
   format = pkgs.formats.toml { };
 
-  # camelCase option record → mkSettings (snake_case config.toml keys).
   settingsRecord = {
     bindAddr = cfg.bindAddr;
     baseUrl = cfg.baseUrl;
@@ -93,15 +85,22 @@ in
   options.services.sunday-slate = {
     enable = mkEnableOption "Sunday Slate server";
 
+    # Consuming-nixpkgs build. Serves as the module's own fallback: the
+    # flake's nixosModules.default wrapper injects its cache-aligned
+    # packages.${system}.sunday-slate as a mkDefault, which outranks the
+    # declared default below; bare module.nix imports (the eval tests) and
+    # systems the flake doesn't export land here.
     package = mkOption {
       type = types.package;
-      defaultText = literalExpression ''
-        pkgs.callPackage ./package.nix { src = ../.; tailwindcss = pkgs.tailwindcss_4; }
-      '';
+      default = pkgs.callPackage ../nix/package.nix {
+        src = ../.;
+        tailwindcss = pkgs.tailwindcss_4;
+      };
       description = ''
-        The Sunday Slate package. Defaults to this repository's own
-        derivation as of the consuming nixpkgs; pass the flake's
-        packages.''${system}.sunday-slate for the lock-aligned cached build.
+        The Sunday Slate package. Defaults to the flake's own
+        packages.''${system}.sunday-slate — the lock-aligned derivation CI
+        pushes to the cache; overridden here for direct module.nix imports
+        and systems the flake doesn't export.
       '';
     };
 
@@ -235,12 +234,6 @@ in
   };
 
   config = mkIf cfg.enable {
-    services.sunday-slate.package = mkDefault (
-      pkgs.callPackage ../nix/package.nix {
-        src = ../.;
-        tailwindcss = pkgs.tailwindcss_4;
-      });
-
     # Derivation cascade: each hop has mkDefault (low) priority so explicit
     # user settings win outright. (mkDerivedConfig would collide with a
     # same-priority explicit value set onto the leaf.)

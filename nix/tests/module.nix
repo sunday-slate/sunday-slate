@@ -1,29 +1,4 @@
-# Pure-eval test cases for nix/module.nix (the NixOS module).
-#
-# The flake's module-settings check evaluates each case through
-# lib.evalModules and asserts on the module's own outputs:
-#   name            – identifier shown when the case fails
-#   moduleConf      – attrset deep-merged over { enable = true; } as module
-#                     config
-#   settingsKeys    – expected sorted attrset keys of the rendered settings
-#                     record (the attrset that becomes config.toml)
-#   settingsContain – JSON fragments that must appear in the rendered record
-#   settingsOmit    – keys that must NOT appear in the rendered record
-#   execStartContain / execStartNotContain – fragments in the ExecStart text
-#   preStartContain – fragments in the preStart script text
-#   loadCredential  – expected list of "name:path" credential entries
-#   serviceConfig   – attrset of exact deep-equal expectations on the unit's
-#                     serviceConfig fields (WorkingDirectory, ReadWritePaths…)
-#   tmpfilesRules   – exact expected set of systemd.tmpfiles.rules entries
-#                     the module emits (directory provisioning for non-default
-#                     working/storage dirs; empty when both are covered)
-#   assertionFails  – when true, evaluating config must raise an assertion
 let
-  # Non-default-both-dirs case expectations share shape:
-  # - the unit chdirs into the custom working directory;
-  # - ProtectSystem=strict gains ReadWritePaths for the dirs the app writes;
-  # - tmpfiles rules (d, 0700, app uid/gid) provision them before the unit
-  #   starts, so config.toml install and DB creation succeed.
   customDirsDefaults = {
     serviceConfig = {
       WorkingDirectory = "/srv/ss";
