@@ -1,0 +1,13 @@
+site_name: Sunday Slate Docs
+site_url: https://sunday-slate.github.io/sunday-slate/
+site_description: Developer docs for Sunday Slate, a season-long DFS-style fantasy football app.
+docs_dir: docs
+site_dir: site
+copyright: 'Code licensed AGPL-3.0-or-later · Docs licensed CC BY-SA 4.0'
+
+nav:
+  - Home: index.md
+  - About These Documents: about.md
+
+theme:
+  name: material
