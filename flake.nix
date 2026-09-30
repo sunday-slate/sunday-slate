@@ -8,7 +8,12 @@
 
   outputs = { self, nixpkgs, flake-utils }:
   flake-utils.lib.eachDefaultSystem (system:
-    let pkgs = nixpkgs.legacyPackages.${system};
+    let
+      pkgs = nixpkgs.legacyPackages.${system};
+      sunday-slate = pkgs.callPackage ./nix/package.nix {
+        src = self;
+        tailwindcss = pkgs.tailwindcss_4;
+      };
 
     in {
       devShells.default = pkgs.mkShell {
@@ -29,6 +34,22 @@
           uv # for datasette. replace with datasette pkg and update justfile call when upstream fixed
           python3Packages.mkdocs-material # docs previewer/build, see justfile 'docs' recipes
         ];
+      };
+
+      packages = {
+        sunday-slate = sunday-slate;
+        default = sunday-slate;
+      };
+
+      apps = {
+        sunday-slate = flake-utils.lib.mkApp {
+          drv = sunday-slate;
+          name = "sunday-slate";
+        };
+        default = flake-utils.lib.mkApp {
+          drv = sunday-slate;
+          name = "sunday-slate";
+        };
       };
 
       checks = {
