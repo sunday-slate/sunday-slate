@@ -32,6 +32,11 @@ jobs:
         uses: actions/checkout@v4
       - name: Install Nix
         uses: cachix/install-nix-action@v31
+      - name: Cache Nix store
+        uses: nix-community/cache-nix-action@v7
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock') }}-${{ github.sha }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-${{ hashFiles('flake.lock') }}-
       - name: Check the flake and service module
         run: nix flake check -L
       - name: Build the package

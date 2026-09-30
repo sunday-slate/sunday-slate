@@ -8,10 +8,12 @@
 rustPlatform.buildRustPackage {
   pname = "sunday-slate";
   version = (builtins.fromTOML (builtins.readFile ../crates/sunday-slate/Cargo.toml)).package.version;
-  # The sandbox has no mold linker; exclude the repo's .cargo configuration.
+  # Keep only build inputs; docs, CI, and the mold linker config must not enter the source.
   src = lib.cleanSourceWith {
     inherit src;
-    filter = path: _: baseNameOf path != ".cargo";
+    filter = path: _: lib.any
+      (name: path == "${src}/${name}" || lib.hasPrefix "${src}/${name}/" path)
+      [ "Cargo.toml" "Cargo.lock" "crates" ".sqlx" ];
   };
   cargoLock = {
     lockFile = ../Cargo.lock;
