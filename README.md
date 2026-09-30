@@ -26,9 +26,6 @@ See [Documentation](https://docs.sundayslate.org).
 
 Docs are published from the source in [docs/](./docs)
 
-## NFL Data Sources
-
-
 
 ## Development
 
