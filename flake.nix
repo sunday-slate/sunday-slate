@@ -53,6 +53,10 @@
       };
 
       checks = {
+        sunday-slate-vm = nixpkgs.legacyPackages.x86_64-linux.testers.nixosTest (
+          import ./nix/module-test.nix
+        );
+
         module-settings =
           let
             lib = nixpkgs.lib;
