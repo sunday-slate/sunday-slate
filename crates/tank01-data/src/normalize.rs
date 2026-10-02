@@ -101,6 +101,7 @@ const RECEIVING_TDS: &[&str] = &[
 ];
 const FUMBLES_LOST: &[&str] = &["fumblesLost", "lostFumbles", "fumbleLost"];
 const PASSING_TWO_POINT: &[&str] = &[
+    "passingTwoPointConversion",
     "passing2PT",
     "passing2PTs",
     "passing2Point",
@@ -110,6 +111,7 @@ const PASSING_TWO_POINT: &[&str] = &[
     "passTwo",
 ];
 const RUSHING_TWO_POINT: &[&str] = &[
+    "rushingTwoPointConversion",
     "rushing2PT",
     "rushing2PTs",
     "rushing2Point",
@@ -119,6 +121,7 @@ const RUSHING_TWO_POINT: &[&str] = &[
     "rushTwo",
 ];
 const RECEIVING_TWO_POINT: &[&str] = &[
+    "receivingTwoPointConversion",
     "receiving2PT",
     "receiving2PTs",
     "receiving2Point",
@@ -1673,6 +1676,143 @@ mod tests {
         assert_eq!(player.rushing_tds, 0);
         assert_eq!(player.receiving_tds, 0);
     }
+    #[test]
+    fn normalizes_observed_week_three_two_point_conversions() {
+        let game = LiveGame {
+            gsis_game_id: "2026_03_CAR_CLE".into(),
+            provider_game_id: "20260927_CAR@CLE".into(),
+            season: Season(2026),
+            week: Week(3),
+            season_type: SeasonType::Reg,
+            kickoff: Some(datetime!(2026-09-27 17:00:00 UTC)),
+            home_team: TeamAbbr("CLE".into()),
+            away_team: TeamAbbr("CAR".into()),
+        };
+        // Trimmed player stats from the Tank01 box score fetched through MCP.
+        let value = json!({
+            "statusCode": 200,
+            "body": {
+                "gameID": "20260927_CAR@CLE",
+                "gameStatusCode": "2",
+                "playerStats": {
+                    "3122840": {
+                        "playerID": "3122840",
+                        "longName": "Deshaun Watson",
+                        "teamAbv": "CLE",
+                        "Passing": {
+                            "passingTwoPointConversion": "1",
+                            "passCompletions": "16",
+                            "passAttempts": "30",
+                            "passYds": "144",
+                            "passTD": "2",
+                            "int": "0"
+                        },
+                        "Rushing": {"carries": "11", "rushYds": "45", "rushTD": "0"}
+                    },
+                    "4832800": {
+                        "playerID": "4832800",
+                        "longName": "Denzel Boston",
+                        "teamAbv": "CLE",
+                        "Receiving": {
+                            "receivingTwoPointConversion": "1",
+                            "receptions": "2",
+                            "targets": "4",
+                            "recYds": "41",
+                            "recTD": "0"
+                        }
+                    }
+                }
+            }
+        });
+        let snapshot =
+            normalize_box_score(&value, &game, datetime!(2026-09-27 21:00:00 UTC)).unwrap();
+        let players = snapshot.players.unwrap();
+        assert_eq!(players.len(), 2);
+        for espn_id in ["3122840", "4832800"] {
+            let player = players
+                .iter()
+                .find(|player| player.espn_id.as_ref().is_some_and(|id| id.0 == espn_id))
+                .unwrap();
+            assert_eq!(player.two_point_conversions, 1, "ESPN player {espn_id}");
+        }
+    }
+
+    #[test]
+    fn normalizes_observed_rushing_two_point_conversion() {
+        // Tank01's Week 2 Travis Etienne stats use the same singular field form.
+        let value = json!({
+            "playerStats": {
+                "4239996": {
+                    "playerID": "4239996",
+                    "longName": "Travis Etienne Jr.",
+                    "Rushing": {
+                        "rushAvg": "3.1",
+                        "rushYds": "25",
+                        "rushingTwoPointConversion": "1",
+                        "carries": "8",
+                        "longRush": "8",
+                        "rushTD": "0"
+                    }
+                }
+            }
+        });
+        let snapshot =
+            normalize_box_score(&value, &game(), datetime!(2026-09-11 01:00:00 UTC)).unwrap();
+        let player = &snapshot.players.unwrap()[0];
+        assert_eq!(player.two_point_conversions, 1);
+        assert_eq!(player.rushing_attempts, 8);
+        assert_eq!(player.rushing_yards, 25);
+    }
+
+    #[test]
+    fn normalizes_two_point_conversion_totals_without_double_counting() {
+        let cases = [
+            (
+                json!({
+                    "Passing": {"passingTwoPointConversion": "1"},
+                    "Rushing": {"rushingTwoPointConversion": "2"},
+                    "Receiving": {"receivingTwoPointConversion": "1"},
+                    "twoPointConversions": "4"
+                }),
+                4,
+            ),
+            (
+                json!({"Passing": {"passingTwoPointConversion": "0"}, "twoPointConversions": "1"}),
+                0,
+            ),
+            (json!({"twoPointConversions": "2"}), 2),
+            (json!({"passTwo": "1", "rushTwo": "1", "recTwo": "1"}), 3),
+            (json!({"playerID": "1"}), 0),
+        ];
+        for (stats, expected) in cases {
+            let value = json!({"playerStats": {"1": stats}});
+            let snapshot =
+                normalize_box_score(&value, &game(), datetime!(2026-09-11 01:00:00 UTC)).unwrap();
+            let player = &snapshot.players.unwrap()[0];
+            assert_eq!(player.two_point_conversions, expected, "stats: {stats}");
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_two_point_conversion_counts() {
+        for (category, field) in [
+            ("Passing", "passingTwoPointConversion"),
+            ("Rushing", "rushingTwoPointConversion"),
+            ("Receiving", "receivingTwoPointConversion"),
+        ] {
+            for count in [json!("-1"), json!("1.5"), json!("invalid"), json!(true)] {
+                let value = json!({"playerStats": {"1": {category: {field: count}}}});
+                assert!(
+                    matches!(
+                        normalize_box_score(&value, &game(), datetime!(2026-09-11 01:00:00 UTC)),
+                        Err(NormalizeError::Invalid(_))
+                    ),
+                    "{category}.{field}: {count}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn falls_back_to_flat_exact_metric_aliases_without_context() {
         let value = json!({
