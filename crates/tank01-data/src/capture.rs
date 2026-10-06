@@ -5,7 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use nfl_data::LiveSlate;
+use nfl_model::LiveSlate;
 use serde::{Deserialize, Serialize};
 use time::{Date, OffsetDateTime};
 use tokio::sync::mpsc::Receiver;
@@ -283,7 +283,7 @@ mod tests {
 
     use super::*;
     use crate::poll::PollRequest;
-    use nfl_data::{
+    use nfl_model::{
         LiveGame, LiveScoreboard, ProviderOutcome, ProviderResponse, RawBody, Season, SeasonType,
         TeamAbbr, Week,
     };

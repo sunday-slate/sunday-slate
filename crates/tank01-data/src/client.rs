@@ -1,6 +1,6 @@
 use std::{borrow::Cow, collections::BTreeMap, time::Instant};
 
-use nfl_data::{
+use nfl_model::{
     LiveGame, LiveGameSnapshot, LiveProviderError, LiveScoreProvider, LiveScoreboard,
     ProviderOutcome, ProviderResponse, RawBody,
 };
@@ -330,7 +330,7 @@ fn redact_json(value: &mut Value, secret: &str) {
 mod tests {
     use std::time::Duration;
 
-    use nfl_data::{
+    use nfl_model::{
         LiveGame, LiveGamePhase, LiveScoreProvider, ProviderOutcome, RawBody, Season, SeasonType,
         TeamAbbr, Week,
     };

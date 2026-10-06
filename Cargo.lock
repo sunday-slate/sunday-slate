@@ -3618,7 +3618,7 @@ dependencies = [
 name = "tank01-data"
 version = "0.1.0"
 dependencies = [
- "nfl-data",
+ "nfl-model",
  "reqwest",
  "serde",
  "serde_json",

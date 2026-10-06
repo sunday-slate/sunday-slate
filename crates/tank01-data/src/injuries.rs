@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use nfl_data::{
+use nfl_model::{
     EspnPlayerId, InjuryDesignation, InjuryEntry, InjuryProvider, InjuryReport, LiveProviderError,
     ProviderOutcome, ProviderResponse, TeamAbbr,
 };
@@ -134,7 +134,7 @@ impl InjuryProvider for Tank01Client {
 mod tests {
     use std::time::Duration;
 
-    use nfl_data::LiveProviderError;
+    use nfl_model::LiveProviderError;
     use utils::Secret;
 
     use wiremock::matchers::{method, path};

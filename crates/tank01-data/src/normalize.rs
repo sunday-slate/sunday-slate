@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use nfl_data::{
+use nfl_model::{
     EspnPlayerId, LiveGame, LiveGamePhase, LiveGameSnapshot, LivePlayerStats, LiveProviderError,
     LiveScoreboard, LiveScoreboardGame, LiveTeamStats, ProviderResponse, RawBody, TeamAbbr,
 };
@@ -1624,7 +1624,7 @@ fn canonicalize(value: &Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nfl_data::{LiveGame, LiveGamePhase, Season, SeasonType, TeamAbbr, Week};
+    use nfl_model::{LiveGame, LiveGamePhase, Season, SeasonType, TeamAbbr, Week};
     use serde_json::json;
     use time::macros::{date, datetime};
 
@@ -2181,7 +2181,7 @@ mod tests {
 
     #[test]
     fn date_is_serializable_for_live_contract() {
-        let slate = nfl_data::LiveSlate {
+        let slate = nfl_model::LiveSlate {
             date: date!(2026 - 09 - 10),
             games: vec![game()],
         };
