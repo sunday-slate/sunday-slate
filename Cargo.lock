@@ -2142,6 +2142,7 @@ dependencies = [
  "clap",
  "csv",
  "flate2",
+ "nfl-model",
  "reqwest",
  "serde",
  "serde_json",
@@ -2154,6 +2155,17 @@ dependencies = [
  "tracing-subscriber",
  "utils",
  "wiremock",
+]
+
+[[package]]
+name = "nfl-model"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror",
+ "time",
 ]
 
 [[package]]

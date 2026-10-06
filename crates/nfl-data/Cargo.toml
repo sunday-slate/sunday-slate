@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+nfl-model = { path = "../nfl-model" }
 utils = { path = "../utils" }
 clap = { workspace = true }
 csv = { workspace = true }
