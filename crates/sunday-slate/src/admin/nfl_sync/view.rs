@@ -36,12 +36,12 @@ impl NflSyncTemplate {
         if let RunnerState::Running {
             started_at,
             progress: freshness,
-        } = state.sync_runner.snapshot()
+        } = state.nfl.refresh_status()
         {
             return Ok(Self::running(started_at, freshness));
         }
         let freshness = state.nfl.freshness().await?;
-        match state.sync_runner.snapshot() {
+        match state.nfl.refresh_status() {
             RunnerState::Idle { last } => {
                 let scheduler_line = state.config.nfl_sync_interval().map(|interval| {
                     format!(

@@ -20,7 +20,7 @@ async fn show(
 }
 
 async fn start(hx: HxRequest, State(state): State<AppState>) -> Result<Response, AppError> {
-    crate::nfl_sync::start_nfl_sync(&state.sync_runner, state.nfl.clone()).await?;
+    state.nfl.request_refresh().await?;
     show(hx, State(state)).await
 }
 

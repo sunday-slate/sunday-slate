@@ -95,7 +95,6 @@ impl TestApp {
                 .expect("in-memory nfl-data"),
         );
 
-        let sync_runner = Arc::new(crate::nfl_sync::NflverseSyncRunner::new());
         let avatar_runner = Arc::new(crate::avatars::AvatarFetchRunner::new());
 
         let state = AppState {
@@ -104,7 +103,6 @@ impl TestApp {
             config: Arc::new(config),
             mailer: mailer.clone(),
             nfl: nfl.clone(),
-            sync_runner,
             avatar_runner,
             live: Arc::new(crate::live::LiveContestHub::new(true)),
             injuries: Arc::new(crate::injuries::InjuryReports::new()),

@@ -168,7 +168,7 @@ async fn sync_forwards_upstream_configuration_and_preserves_partial_failure_repo
             )))
             .and(header("authorization", "Bearer sentinel"))
             .respond_with(response)
-            .expect(1)
+            .expect(2)
             .mount(&server)
             .await;
     }
@@ -203,4 +203,29 @@ async fn sync_forwards_upstream_configuration_and_preserves_partial_failure_repo
     assert_eq!(freshness[0].dataset, Dataset::Schedules);
     assert_eq!(freshness[0].assets, 1);
     assert!(freshness[0].last_synced_at.is_some());
+    use std::time::Duration;
+    use utils::background::RunnerState;
+    assert!(matches!(
+        nfl.refresh_status(),
+        RunnerState::Idle { last: None }
+    ));
+    assert!(!nfl.stop_scheduler());
+    assert!(!nfl.start_scheduler(Duration::ZERO));
+    assert!(nfl.start_scheduler(Duration::from_secs(60)));
+    assert!(!nfl.start_scheduler(Duration::from_secs(60)));
+    assert!(nfl.stop_scheduler());
+    assert!(nfl.request_refresh().await.unwrap());
+    let last = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if let RunnerState::Idle { last: Some(last) } = nfl.refresh_status() {
+                break last;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let report = last.outcome.unwrap_err();
+    assert!(report.contains("FAILED"));
+    assert!(report.contains("unchanged"));
 }

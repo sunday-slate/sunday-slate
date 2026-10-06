@@ -5,10 +5,13 @@ mod error;
 mod ingest;
 pub use nfl_model::live;
 mod model;
+mod refresh;
 mod store;
 mod sync;
 
-use std::collections::HashMap;
+pub use refresh::RefreshStatus;
+
+use std::{collections::HashMap, sync::Arc};
 
 use store::Store;
 
@@ -28,16 +31,28 @@ pub use model::{
     WeeklyRosterEntry,
 };
 
+#[derive(Clone)]
 pub struct NflverseData {
+    inner: Arc<Inner>,
+}
+
+struct Inner {
     store: Store,
     config: NflDataConfig,
+    refresh: refresh::Refresh,
 }
 
 impl NflverseData {
     /// Opens (creating if missing) the cache database and runs migrations.
     pub async fn connect(config: NflverseDataConfig) -> Result<Self, NflverseDataError> {
         let store = Store::open(&config.database_url).await?;
-        Ok(Self { store, config })
+        Ok(Self {
+            inner: Arc::new(Inner {
+                store,
+                config,
+                refresh: refresh::Refresh::default(),
+            }),
+        })
     }
 
     /// A fresh, empty, in-memory cache — for tests and tooling that need an
@@ -45,8 +60,11 @@ impl NflverseData {
     /// is synced.
     pub async fn in_memory() -> Result<Self, NflverseDataError> {
         Ok(Self {
-            store: Store::in_memory().await?,
-            config: NflDataConfig::default(),
+            inner: Arc::new(Inner {
+                store: Store::in_memory().await?,
+                config: NflDataConfig::default(),
+                refresh: refresh::Refresh::default(),
+            }),
         })
     }
 
@@ -66,7 +84,8 @@ impl NflverseData {
             if out.contains_key(gsis) {
                 continue;
             }
-            if let Some(e) = store::weekly_rosters::by_gsis(self.store.reader(), gsis).await? {
+            if let Some(e) = store::weekly_rosters::by_gsis(self.inner.store.reader(), gsis).await?
+            {
                 out.insert(gsis.to_string(), e);
             }
         }
@@ -80,7 +99,8 @@ impl NflverseData {
         &self,
         entries: &[WeeklyRosterEntry],
     ) -> Result<(), NflverseDataError> {
-        self.store
+        self.inner
+            .store
             .write_tx(async |conn| store::weekly_rosters::seed(conn, entries).await)
             .await
     }
@@ -93,7 +113,8 @@ impl NflverseData {
         players: &[Player],
         games: &[Game],
     ) -> Result<(), NflverseDataError> {
-        self.store
+        self.inner
+            .store
             .write_tx(async |conn| {
                 store::players::seed(conn, players).await?;
                 store::games::seed(conn, games).await?;
@@ -104,12 +125,12 @@ impl NflverseData {
 
     /// All cached games for a season, ordered by week.
     pub async fn games(&self, season: Season) -> Result<Vec<Game>, NflverseDataError> {
-        store::games::for_season(self.store.reader(), season).await
+        store::games::for_season(self.inner.store.reader(), season).await
     }
 
     /// All cached players, ordered by name.
     pub async fn players(&self) -> Result<Vec<Player>, NflverseDataError> {
-        store::players::all(self.store.reader()).await
+        store::players::all(self.inner.store.reader()).await
     }
 
     /// Players for a small set of ids, keyed by gsis id. Ids with no player are
@@ -132,7 +153,7 @@ impl NflverseData {
             if out.contains_key(gsis) {
                 continue;
             }
-            if let Some(p) = store::players::by_gsis(self.store.reader(), gsis).await? {
+            if let Some(p) = store::players::by_gsis(self.inner.store.reader(), gsis).await? {
                 out.insert(gsis.to_string(), p);
             }
         }
@@ -145,7 +166,7 @@ impl NflverseData {
         season: Season,
         team: &TeamAbbr,
     ) -> Result<Vec<RosterEntry>, NflverseDataError> {
-        store::rosters::for_team(self.store.reader(), season, team).await
+        store::rosters::for_team(self.inner.store.reader(), season, team).await
     }
 
     /// A team's cached roster for one week, ordered by player name. Prefer this
@@ -157,7 +178,7 @@ impl NflverseData {
         week: Week,
         team: &TeamAbbr,
     ) -> Result<Vec<WeeklyRosterEntry>, NflverseDataError> {
-        store::weekly_rosters::for_team_week(self.store.reader(), season, week, team).await
+        store::weekly_rosters::for_team_week(self.inner.store.reader(), season, week, team).await
     }
 
     /// All players' cached stat lines for one week, ordered by player GSIS id.
@@ -166,7 +187,7 @@ impl NflverseData {
         season: Season,
         week: Week,
     ) -> Result<Vec<PlayerWeekStats>, NflverseDataError> {
-        store::player_stats::for_week(self.store.reader(), season, week).await
+        store::player_stats::for_week(self.inner.store.reader(), season, week).await
     }
 
     /// Each player's summed PPR points and games played for the season's
@@ -176,7 +197,7 @@ impl NflverseData {
         season: Season,
         before: Week,
     ) -> Result<Vec<PlayerSeasonTotals>, NflverseDataError> {
-        store::player_stats::totals_before(self.store.reader(), season, before).await
+        store::player_stats::totals_before(self.inner.store.reader(), season, before).await
     }
 
     /// All teams' pbp-derived D/ST lines for one week (sacks, takeaways, TDs,
@@ -187,11 +208,11 @@ impl NflverseData {
         season: Season,
         week: Week,
     ) -> Result<Vec<TeamWeekStats>, NflverseDataError> {
-        store::team_stats::for_week(self.store.reader(), season, week).await
+        store::team_stats::for_week(self.inner.store.reader(), season, week).await
     }
     /// Freshness for every dataset, in sync order.
     pub async fn freshness(&self) -> Result<Vec<DatasetFreshness>, NflverseDataError> {
-        let rows = store::sync_state::freshness(self.store.reader()).await?;
+        let rows = store::sync_state::freshness(self.inner.store.reader()).await?;
         Ok(Dataset::ALL
             .into_iter()
             .map(|dataset| {
@@ -214,7 +235,7 @@ impl NflverseData {
     /// asset doesn't block the other seasons in the same dataset from
     /// updating.
     pub async fn sync(&self) -> Result<SyncReport, NflverseDataError> {
-        sync::run(&self.store, &self.config).await
+        sync::run(&self.inner.store, &self.inner.config).await
     }
 
     /// Seed player and team week stats directly, for tests and tooling. Reuses the
@@ -232,8 +253,8 @@ impl NflverseData {
             asset_name: "test",
             updated_at: "1970-01-01T00:00:00Z",
         };
-        store::player_stats::replace(&self.store, &asset, season, players).await?;
-        store::team_stats::replace(&self.store, &asset, season, teams).await?;
+        store::player_stats::replace(&self.inner.store, &asset, season, players).await?;
+        store::team_stats::replace(&self.inner.store, &asset, season, teams).await?;
         Ok(())
     }
 }
@@ -257,7 +278,7 @@ mod freshness_tests {
             .bind(tag)
             .bind(asset)
             .bind("2026-01-01T00:00:00Z")
-            .execute(nfl.store.reader())
+            .execute(nfl.inner.store.reader())
             .await
             .unwrap();
         }

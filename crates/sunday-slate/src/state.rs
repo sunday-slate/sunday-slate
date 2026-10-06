@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tower_sessions_sqlx_store::SqliteStore;
 
 use crate::avatars::AvatarFetchRunner;
-use crate::{Config, Db, mail::Mailer, nfl_sync::NflverseSyncRunner};
+use crate::{Config, Db, mail::Mailer};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -12,7 +12,6 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub mailer: Mailer,
     pub nfl: Arc<NflData>,
-    pub sync_runner: Arc<NflverseSyncRunner>,
     pub avatar_runner: Arc<AvatarFetchRunner>,
     pub live: Arc<crate::live::LiveContestHub>,
     pub injuries: Arc<crate::injuries::InjuryReports>,

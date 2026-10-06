@@ -23,7 +23,8 @@ pub use nfl_model::{
     WeeklyRosterEntry,
 };
 pub use nflverse_data::{
-    Dataset, DatasetFreshness, DatasetReport, DatasetStatus, PlayerSeasonTotals, SyncReport,
+    Dataset, DatasetFreshness, DatasetReport, DatasetStatus, PlayerSeasonTotals, RefreshStatus,
+    SyncReport,
 };
 
 pub struct NflData {
@@ -31,6 +32,26 @@ pub struct NflData {
 }
 
 impl NflData {
+    /// Request a background refresh; false means a refresh is already running.
+    pub async fn request_refresh(&self) -> Result<bool, NflDataError> {
+        self.provider.request_refresh().await
+    }
+
+    /// Running start time/freshness or the last completed background refresh report.
+    pub fn refresh_status(&self) -> RefreshStatus {
+        self.provider.refresh_status()
+    }
+
+    /// Explicitly start the timer. Zero disables it; an existing timer is not replaced.
+    pub fn start_scheduler(&self, interval: std::time::Duration) -> bool {
+        self.provider.start_scheduler(interval)
+    }
+
+    /// Stop the timer without cancelling a running background refresh.
+    pub fn stop_scheduler(&self) -> bool {
+        self.provider.stop_scheduler()
+    }
+
     /// Opens (creating if missing) the cache database and runs migrations.
     pub async fn connect(config: NflDataConfig) -> Result<Self, NflDataError> {
         Ok(Self {
