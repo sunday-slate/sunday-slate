@@ -17,7 +17,7 @@ pub fn failing_mailer() -> Mailer {
         host: "localhost".to_string(),
         port: 587,
         username: "user".to_string(),
-        password: nfl_data::Secret::new("pass"),
+        password: utils::Secret::new("pass"),
     };
     let transport = crate::mail::transport::build_transport(&smtp).expect("build smtp transport");
     Mailer::Smtp {

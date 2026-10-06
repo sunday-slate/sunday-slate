@@ -134,7 +134,8 @@ impl InjuryProvider for Tank01Client {
 mod tests {
     use std::time::Duration;
 
-    use nfl_data::{LiveProviderError, Secret};
+    use nfl_data::LiveProviderError;
+    use utils::Secret;
 
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};

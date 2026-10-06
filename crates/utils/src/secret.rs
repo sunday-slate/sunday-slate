@@ -24,6 +24,13 @@ mod tests {
     use super::Secret;
 
     #[test]
+    fn deserializes_a_string_without_exposing_it_in_debug() {
+        let secret: Secret = serde_json::from_str("\"sentinel\"").unwrap();
+        assert_eq!(secret.expose(), "sentinel");
+        assert_eq!(format!("{secret:?}"), "[redacted]");
+    }
+
+    #[test]
     fn debug_redacts_the_value() {
         let secret = Secret::new("sentinel");
         assert_eq!(format!("{secret:?}"), "[redacted]");

@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+utils = { path = "../utils" }
 nfl-data = { path = "../nfl-data" }
 reqwest = { workspace = true }
 serde = { workspace = true }

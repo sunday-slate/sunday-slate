@@ -1,7 +1,8 @@
 use std::process::ExitCode;
 
 use clap::Parser;
-use nfl_data::{NflData, NflDataConfig, Secret};
+use nfl_data::{NflData, NflDataConfig};
+use utils::Secret;
 
 #[derive(Parser)]
 #[command(about = "Sync nflverse data into the local SQLite cache")]

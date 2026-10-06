@@ -3,11 +3,11 @@ use std::time::Duration;
 
 use tracing::warn;
 
-use crate::background::{Progress, Runner};
 use crate::media::{self, process::ProcessedImage, store as media_store};
 use crate::nfl_players::store as player_store;
 use crate::nfl_teams::store as team_store;
 use crate::{AppError, AppState};
+use utils::background::{Progress, Runner};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FetchReport {
@@ -259,10 +259,10 @@ mod tests {
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use super::*;
-    use crate::background::{Progress, RunnerState};
     use crate::media::{MediaId, store as media_store};
     use crate::nfl_players::store as player_store;
     use crate::tests::TestApp;
+    use utils::background::{Progress, RunnerState};
 
     /// A progress handle bound to a runner that is `Running`, so `update`
     /// calls land somewhere a test can read back. The returned sender must

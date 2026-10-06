@@ -4,7 +4,7 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use crate::mail::transport::SmtpConfig;
-use nfl_data::Secret;
+use utils::Secret;
 
 fn default_database_url() -> String {
     "sqlite://./storage/sunday-slate.db".to_string()

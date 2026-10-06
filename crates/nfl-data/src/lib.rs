@@ -5,7 +5,6 @@ mod error;
 mod ingest;
 pub mod live;
 mod model;
-mod secret;
 mod store;
 mod sync;
 
@@ -28,7 +27,6 @@ pub use model::{
     PlayerSeasonTotals, PlayerWeekStats, RosterEntry, Season, SeasonType, SyncReport, TeamAbbr,
     TeamWeekStats, Week, WeeklyRosterEntry,
 };
-pub use secret::Secret;
 
 pub struct NflData {
     store: Store,

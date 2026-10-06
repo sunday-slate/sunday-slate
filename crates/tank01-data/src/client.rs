@@ -332,9 +332,10 @@ mod tests {
 
     use nfl_data::{
         LiveGame, LiveGamePhase, LiveScoreProvider, ProviderOutcome, RawBody, Season, SeasonType,
-        Secret, TeamAbbr, Week,
+        TeamAbbr, Week,
     };
     use time::macros::{date, datetime};
+    use utils::Secret;
     use wiremock::matchers::{header, method, path, query_param, query_param_is_missing};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 

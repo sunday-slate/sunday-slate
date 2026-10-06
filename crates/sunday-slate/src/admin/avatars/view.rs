@@ -2,12 +2,13 @@ use askama::Template;
 use time::OffsetDateTime;
 
 use crate::avatars::{FetchProgress, FetchReport};
-use crate::background::{LastRun, LastRunView, RunnerState};
+use crate::background::{LastRunExt, LastRunView};
 use crate::chrome::Chrome;
 use crate::nfl_players::store as player_store;
 use crate::nfl_teams::store as team_store;
 use crate::web::FormView;
 use crate::{AppError, AppState};
+use utils::background::{LastRun, RunnerState};
 
 #[derive(Template)]
 #[template(path = "admin/avatars/index.html", blocks = ["panel"])]

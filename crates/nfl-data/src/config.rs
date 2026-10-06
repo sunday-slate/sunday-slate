@@ -1,6 +1,6 @@
 use time::OffsetDateTime;
 
-use crate::Secret;
+use utils::Secret;
 
 #[derive(Debug, Clone)]
 pub struct NflDataConfig {

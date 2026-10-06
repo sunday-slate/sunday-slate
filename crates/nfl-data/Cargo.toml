@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+utils = { path = "../utils" }
 clap = { workspace = true }
 csv = { workspace = true }
 flate2 = { workspace = true }

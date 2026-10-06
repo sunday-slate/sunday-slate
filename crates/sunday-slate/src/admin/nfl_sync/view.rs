@@ -2,10 +2,11 @@ use askama::Template;
 use nfl_data::DatasetFreshness;
 use time::OffsetDateTime;
 
-use crate::background::{LastRun, LastRunView, RunnerState, format_timestamp};
+use crate::background::{LastRunExt, LastRunView, format_timestamp};
 use crate::chrome::Chrome;
 use crate::web::FormView;
 use crate::{AppError, AppState};
+use utils::background::{LastRun, RunnerState};
 
 #[derive(Template)]
 #[template(path = "admin/nfl_sync.html", blocks = ["panel"])]
@@ -110,7 +111,7 @@ mod tests {
     use time::macros::datetime;
 
     use super::NflSyncTemplate;
-    use crate::background::LastRun;
+    use utils::background::LastRun;
 
     fn freshness() -> Vec<DatasetFreshness> {
         vec![DatasetFreshness {

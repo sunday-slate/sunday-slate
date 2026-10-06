@@ -5,7 +5,7 @@ use std::time::Duration;
 use nfl_data::{DatasetFreshness, NflData, NflDataError};
 use tokio::time::MissedTickBehavior;
 
-use crate::background::Runner;
+use utils::background::Runner;
 
 /// Progress is the dataset freshness captured at start. The outcome is the
 /// report text: `Ok` when every dataset synced, `Err` otherwise.
