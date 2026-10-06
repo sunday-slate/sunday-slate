@@ -1,8 +1,8 @@
 export DATABASE_FILE := "./storage/sunday-slate.db"
 export DATABASE_URL := "sqlite://./storage/sunday-slate.db"
 
-export NFL_DATABASE_FILE := "./storage/nfl-data.db"
-export NFL_DATABASE_URL := "sqlite://./storage/nfl-data.db"
+export NFLVERSE_DATABASE_FILE := "./storage/nflverse-data.db"
+export NFLVERSE_DATABASE_URL := "sqlite://./storage/nflverse-data.db"
 
 export SQLX_OFFLINE := "true"
 
@@ -71,15 +71,15 @@ sqlx-cache:
 db-migrate:
     touch $DATABASE_FILE
     cargo sqlx migrate run --source crates/sunday-slate/migrations
-    touch $NFL_DATABASE_FILE
-    DATABASE_URL="$NFL_DATABASE_URL" cargo sqlx migrate run --source crates/nfl-data/migrations
+    touch $NFLVERSE_DATABASE_FILE
+    DATABASE_URL="$NFLVERSE_DATABASE_URL" cargo sqlx migrate run --source crates/nflverse-data/migrations
 
-# Browse the app + nfl-data DBs in a Datasette web UI (read-only).
+# Browse the app + nflverse cache DBs in a Datasette web UI (read-only).
 [group('db')]
 db-browser:
-    uvx datasette serve --crossdb $DATABASE_FILE $NFL_DATABASE_FILE
+    uvx datasette serve --crossdb $DATABASE_FILE $NFLVERSE_DATABASE_FILE
 
-# Fetch the latest nflverse data into storage/nfl-data.db
+# Fetch the latest nflverse data into storage/nflverse-data.db
 [group('nfl')]
 nfl-sync *ARGS:
     cargo run -p nfl-data --bin nfl-sync -- {{ARGS}}

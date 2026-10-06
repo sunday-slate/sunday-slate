@@ -18,7 +18,7 @@ use sqlx::{
 
 use crate::error::NflDataError;
 
-static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
+static MIGRATOR: Migrator = sqlx::migrate!("../nflverse-data/migrations");
 
 pub(crate) struct Store {
     read: SqlitePool,

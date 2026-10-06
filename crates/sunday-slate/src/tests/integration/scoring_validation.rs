@@ -1,7 +1,7 @@
 //! Full-season scoring validation: recompute every rostered FanDuel slot from
 //! nfl-data and compare to FanDuel's known-good number.
 //!
-//! Requires a synced `storage/nfl-data.db` (run `just nfl-sync`). Skips cleanly
+//! Requires a synced `storage/nflverse-data.db` (run `just nfl-sync`). Skips cleanly
 //! when it is absent, so CI without a sync stays green.
 //!
 //! Every FanDuel scoring category is now derived from nflverse, so nothing is
@@ -38,7 +38,7 @@ fn touches_uncovered(stats: &str) -> bool {
 #[tokio::test]
 async fn full_season_scores_match_fanduel() {
     let manifest = env!("CARGO_MANIFEST_DIR");
-    let nfl_db = format!("{manifest}/../../storage/nfl-data.db");
+    let nfl_db = format!("{manifest}/../../storage/nflverse-data.db");
     if !Path::new(&nfl_db).exists() {
         eprintln!("skipping: {nfl_db} not present (run `just nfl-sync`)");
         return;

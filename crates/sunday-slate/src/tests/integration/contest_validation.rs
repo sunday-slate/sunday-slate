@@ -2,7 +2,7 @@
 //! slates. 22 of 23 match exactly; Wild Card is the one intentional deviation —
 //! our Saturday+Sunday playoff rule drops the Monday night game (HOU@PIT).
 //!
-//! Requires a synced `storage/nfl-data.db` (run `just nfl-sync`). Skips cleanly
+//! Requires a synced `storage/nflverse-data.db` (run `just nfl-sync`). Skips cleanly
 //! when it is absent, so CI without a sync stays green.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -30,7 +30,7 @@ fn load_fanduel(path: &str) -> BTreeMap<String, BTreeSet<String>> {
 #[tokio::test]
 async fn resolve_matches_fanduel_2025() {
     let manifest = env!("CARGO_MANIFEST_DIR");
-    let nfl_db = format!("{manifest}/../../storage/nfl-data.db");
+    let nfl_db = format!("{manifest}/../../storage/nflverse-data.db");
     if !Path::new(&nfl_db).exists() {
         eprintln!("skipping: {nfl_db} not present (run `just nfl-sync`)");
         return;

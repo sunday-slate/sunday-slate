@@ -1,2 +1,0 @@
-DROP INDEX idx_weekly_roster_entries_season_week_team;
-DROP TABLE weekly_roster_entries;

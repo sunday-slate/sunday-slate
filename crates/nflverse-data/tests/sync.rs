@@ -1,4 +1,6 @@
-use nfl_data::{DatasetStatus, NflData, NflDataConfig, Season, SeasonType, TeamAbbr, Week};
+use nflverse_data::{
+    DatasetStatus, NflverseData, NflverseDataConfig, Season, SeasonType, TeamAbbr, Week,
+};
 use time::macros::datetime;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -99,16 +101,16 @@ async fn mock_nflverse(assets: &[FakeAsset]) -> MockServer {
     server
 }
 
-fn config(server: &MockServer, dir: &tempfile::TempDir) -> NflDataConfig {
-    NflDataConfig {
-        database_url: format!("sqlite://{}/nfl-data.db", dir.path().display()),
+fn config(server: &MockServer, dir: &tempfile::TempDir) -> NflverseDataConfig {
+    NflverseDataConfig {
+        database_url: format!("sqlite://{}/nflverse-data.db", dir.path().display()),
         earliest_season: 2025,
         github_token: None,
         github_api_base: server.uri(),
     }
 }
 
-fn assert_all_updated(report: &nfl_data::SyncReport) {
+fn assert_all_updated(report: &nflverse_data::SyncReport) {
     for d in &report.datasets {
         assert!(
             matches!(d.status, DatasetStatus::Updated { .. }),
@@ -123,7 +125,7 @@ fn assert_all_updated(report: &nfl_data::SyncReport) {
 async fn fresh_sync_populates_every_dataset() {
     let server = mock_nflverse(&fixtures()).await;
     let dir = tempfile::tempdir().unwrap();
-    let nfl = NflData::connect(config(&server, &dir)).await.unwrap();
+    let nfl = NflverseData::connect(config(&server, &dir)).await.unwrap();
 
     let report = nfl.sync().await.unwrap();
     assert_all_updated(&report);
@@ -206,7 +208,7 @@ async fn fresh_sync_populates_every_dataset() {
 async fn second_sync_with_same_updated_at_is_unchanged() {
     let server = mock_nflverse(&fixtures()).await;
     let dir = tempfile::tempdir().unwrap();
-    let nfl = NflData::connect(config(&server, &dir)).await.unwrap();
+    let nfl = NflverseData::connect(config(&server, &dir)).await.unwrap();
 
     nfl.sync().await.unwrap();
     let report = nfl.sync().await.unwrap();
@@ -225,7 +227,7 @@ async fn second_sync_with_same_updated_at_is_unchanged() {
 async fn bumped_asset_replaces_only_its_scope() {
     let server = mock_nflverse(&fixtures()).await;
     let dir = tempfile::tempdir().unwrap();
-    let nfl = NflData::connect(config(&server, &dir)).await.unwrap();
+    let nfl = NflverseData::connect(config(&server, &dir)).await.unwrap();
     nfl.sync().await.unwrap();
     drop(server);
 
@@ -238,7 +240,7 @@ async fn bumped_asset_replaces_only_its_scope() {
         .replace(",244,", ",300,")
         .into_bytes();
     let server = mock_nflverse(&assets).await;
-    let nfl = NflData::connect(NflDataConfig {
+    let nfl = NflverseData::connect(NflverseDataConfig {
         github_api_base: server.uri(),
         ..config(&server, &dir)
     })
@@ -271,7 +273,7 @@ async fn bumped_asset_replaces_only_its_scope() {
 async fn failing_dataset_is_isolated_and_keeps_previous_data() {
     let server = mock_nflverse(&fixtures()).await;
     let dir = tempfile::tempdir().unwrap();
-    let nfl = NflData::connect(config(&server, &dir)).await.unwrap();
+    let nfl = NflverseData::connect(config(&server, &dir)).await.unwrap();
     nfl.sync().await.unwrap();
     drop(server);
 
@@ -281,7 +283,7 @@ async fn failing_dataset_is_isolated_and_keeps_previous_data() {
     team.updated_at = "2026-01-16T00:00:00Z";
     team.body = b"this,is,not,the,schema\n1,2,3,4,5\n".to_vec();
     let server = mock_nflverse(&assets).await;
-    let nfl = NflData::connect(NflDataConfig {
+    let nfl = NflverseData::connect(NflverseDataConfig {
         github_api_base: server.uri(),
         ..config(&server, &dir)
     })
@@ -325,7 +327,7 @@ async fn one_bad_season_does_not_block_other_seasons_in_the_same_dataset() {
     });
     let server = mock_nflverse(&assets).await;
     let dir = tempfile::tempdir().unwrap();
-    let nfl = NflData::connect(NflDataConfig {
+    let nfl = NflverseData::connect(NflverseDataConfig {
         earliest_season: 2024,
         ..config(&server, &dir)
     })
