@@ -52,7 +52,7 @@ Example contents (use systemd environment-file quoting rules):
 
 ```sh
 SUNDAY_SLATE__SMTP__PASSWORD="replace-with-password"
-SUNDAY_SLATE__NFL_GITHUB_TOKEN="replace-with-token"
+SUNDAY_SLATE__NFLVERSE_GITHUB_TOKEN="replace-with-token"
 SUNDAY_SLATE__TANK01_API_KEY="replace-with-key"
 ```
 
