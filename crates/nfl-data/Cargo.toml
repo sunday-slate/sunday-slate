@@ -9,7 +9,6 @@ license.workspace = true
 nflverse-data = { path = "../nflverse-data" }
 nfl-model = { path = "../nfl-model" }
 utils = { path = "../utils" }
-time = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

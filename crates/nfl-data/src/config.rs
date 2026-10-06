@@ -1,5 +1,3 @@
-use time::OffsetDateTime;
-
 use utils::Secret;
 
 #[derive(Debug, Clone)]
@@ -27,11 +25,12 @@ impl From<NflDataConfig> for nflverse_data::NflverseDataConfig {
 
 impl Default for NflDataConfig {
     fn default() -> Self {
+        let config = nflverse_data::NflverseDataConfig::default();
         Self {
-            database_url: "sqlite://storage/nflverse-data.db".into(),
-            earliest_season: (OffsetDateTime::now_utc().year() - 2) as u16,
-            github_token: None,
-            github_api_base: "https://api.github.com".into(),
+            database_url: config.database_url,
+            earliest_season: config.earliest_season,
+            github_token: config.github_token,
+            github_api_base: config.github_api_base,
         }
     }
 }

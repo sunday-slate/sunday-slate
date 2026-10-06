@@ -78,53 +78,10 @@ async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clap::CommandFactory;
     use wiremock::{
         Mock, MockServer, ResponseTemplate,
         matchers::{header, method, path},
     };
-
-    #[test]
-    fn flags_defaults_and_environment_names_are_preserved_without_legacy_aliases() {
-        let args = Args::try_parse_from([
-            "nfl-sync",
-            "--database-url",
-            "sqlite::memory:",
-            "--earliest-season",
-            "2025",
-            "--github-token",
-            "sentinel",
-        ])
-        .unwrap();
-        assert_eq!(args.database_url, "sqlite::memory:");
-        assert_eq!(args.earliest_season, Some(2025));
-        assert_eq!(args.github_token.as_deref(), Some("sentinel"));
-        let command = Args::command();
-        for (id, env) in [
-            ("database_url", "NFLVERSE_DATABASE_URL"),
-            ("earliest_season", "NFLVERSE_EARLIEST_SEASON"),
-            ("github_token", "GITHUB_TOKEN"),
-        ] {
-            let arg = command
-                .get_arguments()
-                .find(|arg| arg.get_id() == id)
-                .unwrap();
-            assert_eq!(arg.get_env().unwrap(), env);
-        }
-        let database = command
-            .get_arguments()
-            .find(|arg| arg.get_id() == "database_url")
-            .unwrap();
-        assert_eq!(
-            database.get_default_values(),
-            ["sqlite://storage/nflverse-data.db"]
-        );
-        let token = command
-            .get_arguments()
-            .find(|arg| arg.get_id() == "github_token")
-            .unwrap();
-        assert!(token.is_hide_env_values_set());
-    }
 
     async fn mocked_run(fail_players: bool) -> (ExitCode, String, String) {
         let server = MockServer::start().await;

@@ -56,7 +56,7 @@ impl NflverseData {
     }
 
     /// A fresh, empty, in-memory cache — for tests and tooling that need an
-    /// `NflData` handle without a database file. Migrations are applied; no data
+    /// `NflverseData` handle without a database file. Migrations are applied; no data
     /// is synced.
     pub async fn in_memory() -> Result<Self, NflverseDataError> {
         Ok(Self {

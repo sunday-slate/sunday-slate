@@ -87,16 +87,17 @@ pub(crate) fn parse(asset: &str, bytes: &[u8]) -> Result<Vec<TeamWeekStats>, Nfl
 
     let mut games: BTreeMap<String, GameAccum> = BTreeMap::new();
     for (p, season_type) in plays {
-        let game = games.entry(p.game_id.clone()).or_insert_with(|| GameAccum {
+        let game = games.entry(p.game_id).or_insert_with(|| GameAccum {
             home: p.home_team.clone(),
             away: p.away_team.clone(),
             week: p.week,
             season: p.season,
             season_type,
-            teams: BTreeMap::new(),
+            teams: BTreeMap::from([
+                (p.home_team.clone(), Accum::default()),
+                (p.away_team.clone(), Accum::default()),
+            ]),
         });
-        game.teams.entry(game.home.clone()).or_default();
-        game.teams.entry(game.away.clone()).or_default();
 
         // Defense-credited counting stats (also credits the kicking team on a
         // kickoff, which nflverse sets as defteam).

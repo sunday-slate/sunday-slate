@@ -1,16 +1,11 @@
 mod config;
-mod eastern;
-mod error;
 mod identity;
-pub mod live;
 
 use std::collections::HashMap;
 
 use nflverse_data::NflverseData;
 
 pub use config::NflDataConfig;
-pub use eastern::{eastern_offset, to_eastern};
-pub use error::NflDataError;
 pub use identity::PlayerIdentity;
 pub use live::{
     EspnPlayerId, InjuryDesignation, InjuryEntry, InjuryProvider, InjuryReport, LiveGame,
@@ -18,13 +13,14 @@ pub use live::{
     LiveScoreboard, LiveScoreboardGame, LiveSlate, LiveTeamStats, ProviderOutcome,
     ProviderResponse, RawBody,
 };
+pub use nfl_model::live;
 pub use nfl_model::{
     Game, Player, PlayerWeekStats, RosterEntry, Season, SeasonType, TeamAbbr, TeamWeekStats, Week,
-    WeeklyRosterEntry,
+    WeeklyRosterEntry, eastern_offset, to_eastern,
 };
 pub use nflverse_data::{
-    Dataset, DatasetFreshness, DatasetReport, DatasetStatus, PlayerSeasonTotals, RefreshStatus,
-    SyncReport,
+    Dataset, DatasetFreshness, DatasetReport, DatasetStatus, NflverseDataError as NflDataError,
+    PlayerSeasonTotals, RefreshStatus, SyncReport,
 };
 
 pub struct NflData {

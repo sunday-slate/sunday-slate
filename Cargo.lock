@@ -2142,7 +2142,6 @@ dependencies = [
  "nfl-model",
  "nflverse-data",
  "tempfile",
- "time",
  "tokio",
  "utils",
  "wiremock",

@@ -17,6 +17,11 @@ The nflverse provider stores its rebuildable source cache in
 `storage/nflverse-data.db`. Sunday Slate's managed players, teams, contests,
 salaries, and identifier links remain in `storage/sunday-slate.db`.
 
+For Rust consumers, `nfl-data` retains its facade API and re-exports shared model
+types, live contracts, and time helpers from `nfl-model`. Its distinct
+`NflDataConfig` takes default values from `NflverseDataConfig` so cache settings
+stay aligned.
+
 From the workspace root, run:
 
 ```sh
