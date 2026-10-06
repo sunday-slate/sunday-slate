@@ -43,7 +43,7 @@ impl NflSyncTemplate {
         let freshness = state.nfl.freshness().await?;
         match state.nfl.refresh_status() {
             RunnerState::Idle { last } => {
-                let scheduler_line = state.config.nfl_sync_interval().map(|interval| {
+                let scheduler_line = state.config.nflverse_sync_interval().map(|interval| {
                     format!(
                         "Automatic refresh {}.",
                         crate::nfl_sync::interval_label(interval.as_secs())

@@ -69,6 +69,7 @@ sqlx-cache:
 # run all migrations in both DBs. create the DBs if missing.
 [group('db')]
 db-migrate:
+    mkdir -p storage
     touch $DATABASE_FILE
     cargo sqlx migrate run --source crates/sunday-slate/migrations
     touch $NFLVERSE_DATABASE_FILE
@@ -82,7 +83,7 @@ db-browser:
 # Fetch the latest nflverse data into storage/nflverse-data.db
 [group('nfl')]
 nfl-sync *ARGS:
-    cargo run -p nfl-data --bin nfl-sync -- {{ARGS}}
+    cargo run -p nflverse-data --bin nfl-sync -- {{ARGS}}
 
 # Update dependencies and run tests
 [group('deps')]

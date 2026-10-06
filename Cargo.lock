@@ -2139,13 +2139,11 @@ checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 name = "nfl-data"
 version = "0.1.0"
 dependencies = [
- "clap",
  "nfl-model",
  "nflverse-data",
  "tempfile",
  "time",
  "tokio",
- "tracing-subscriber",
  "utils",
  "wiremock",
 ]
@@ -2165,6 +2163,7 @@ dependencies = [
 name = "nflverse-data"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "csv",
  "flate2",
  "nfl-model",
@@ -2177,6 +2176,7 @@ dependencies = [
  "time",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "utils",
  "wiremock",
 ]

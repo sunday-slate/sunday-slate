@@ -31,8 +31,8 @@ impl App {
 
         let nfl = Arc::new(
             nfl_data::NflData::connect(nfl_data::NflDataConfig {
-                database_url: config.nfl_database_url.clone(),
-                github_token: config.nfl_github_token.clone(),
+                database_url: config.nflverse_database_url.clone(),
+                github_token: config.nflverse_github_token.clone(),
                 ..Default::default()
             })
             .await?,
@@ -85,7 +85,7 @@ impl App {
             None => None,
         };
         let coordinator_task = Arc::new(tokio::sync::Mutex::new(live_task));
-        if let Some(interval) = state.config.nfl_sync_interval() {
+        if let Some(interval) = state.config.nflverse_sync_interval() {
             state.nfl.start_scheduler(interval);
         }
         let serve_result = axum::serve(listener, router)
