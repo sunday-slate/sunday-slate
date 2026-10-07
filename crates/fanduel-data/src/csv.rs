@@ -6,9 +6,7 @@ use nfl_model::TeamAbbr;
 use crate::{CsvDiagnostic, Interpretation, InterpretedRow, Matchup, RawSalaryRow, RowDiagnostic};
 
 pub fn interpret(bytes: &[u8]) -> Interpretation {
-    let mut reader = ReaderBuilder::new()
-        .flexible(true)
-        .from_reader(Cursor::new(bytes));
+    let mut reader = ReaderBuilder::new().from_reader(Cursor::new(bytes));
     let headers = match reader.headers() {
         Ok(headers) if headers.is_empty() => return Interpretation::Empty,
         Ok(headers) => headers.clone(),
@@ -176,6 +174,17 @@ mod tests {
         assert!(matches!(
             interpret(format!("{HEADER}\n").as_bytes()),
             Interpretation::Empty
+        ));
+    }
+
+    #[test]
+    fn rejects_records_with_inconsistent_field_counts() {
+        let bytes = format!(
+            "{HEADER}\n1,QB,A,,B,0,0,1,BUF@NYJ,BUF,NYJ,,\n2,RB,C,,D,0,0,1,BUF@NYJ,BUF,NYJ,,,unexpected\n"
+        );
+        assert!(matches!(
+            interpret(bytes.as_bytes()),
+            Interpretation::InvalidCsv(_)
         ));
     }
 
