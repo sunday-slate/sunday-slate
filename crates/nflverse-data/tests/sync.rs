@@ -170,11 +170,10 @@ async fn fresh_sync_populates_every_dataset() {
     let rodgers = &stats[0];
     assert_eq!(rodgers.gsis_id, "00-0023459");
     assert_eq!(rodgers.passing_yards, 244);
-    assert_eq!(rodgers.fantasy_points, 25.66);
     let prater = &stats[1];
     assert_eq!(prater.gsis_id, "00-0023853");
     assert_eq!(prater.team, TeamAbbr("BUF".into()));
-    assert_eq!(prater.fantasy_points, 0.0);
+    assert_eq!(prater.rushing_yards, 0);
 
     // Team week stats are pbp-derived: the one game yields both teams' D/ST
     // rows (ordered by team). points_allowed is the OPPONENT's offensive points

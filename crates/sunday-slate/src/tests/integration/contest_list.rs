@@ -77,8 +77,6 @@ fn rb(gsis: &str, week: u8, rush_yards: i32) -> NflPlayerWeekStats {
         two_point_conversions: 0,
         special_teams_tds: 0,
         fumble_recovery_tds: 0,
-        fantasy_points: 0.0,
-        fantasy_points_ppr: 0.0,
     }
 }
 

@@ -62,12 +62,6 @@ async fn empty_provider_reads_preserve_missing_result_behavior() {
             .is_empty()
     );
     assert!(
-        nfl.player_season_totals(Season(2025), Week(2))
-            .await
-            .unwrap()
-            .is_empty()
-    );
-    assert!(
         nfl.team_week_stats(Season(2025), Week(1))
             .await
             .unwrap()

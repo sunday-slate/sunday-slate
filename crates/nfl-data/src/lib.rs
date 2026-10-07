@@ -20,7 +20,7 @@ pub use nfl_model::{
 };
 pub use nflverse_data::{
     Dataset, DatasetFreshness, DatasetReport, DatasetStatus, NflverseDataError as NflDataError,
-    PlayerSeasonTotals, RefreshStatus, SyncReport,
+    RefreshStatus, SyncReport,
 };
 
 pub struct NflData {
@@ -170,16 +170,6 @@ impl NflData {
         week: Week,
     ) -> Result<Vec<PlayerWeekStats>, NflDataError> {
         self.provider.player_week_stats(season, week).await
-    }
-
-    /// Each player's summed PPR points and games played for the season's
-    /// weeks before `before`. Players with no stat rows are absent.
-    pub async fn player_season_totals(
-        &self,
-        season: Season,
-        before: Week,
-    ) -> Result<Vec<PlayerSeasonTotals>, NflDataError> {
-        self.provider.player_season_totals(season, before).await
     }
 
     /// All teams' pbp-derived D/ST lines for one week (sacks, takeaways, TDs,
@@ -334,8 +324,6 @@ mod seed_week_stats_tests {
             two_point_conversions: 0,
             special_teams_tds: 0,
             fumble_recovery_tds: 0,
-            fantasy_points: 0.0,
-            fantasy_points_ppr: 0.0,
         };
         p.rushing_yards = 42;
 
@@ -355,7 +343,7 @@ mod seed_week_stats_tests {
             conversion_returns: 0,
             points_allowed: 17,
         };
-        p.fantasy_points_ppr = 4.2;
+        p.rushing_tds = 1;
         nfl.seed_week_stats_for_test(Season(2025), &[p], std::slice::from_ref(&team))
             .await
             .unwrap();
@@ -367,14 +355,7 @@ mod seed_week_stats_tests {
             nfl.team_week_stats(Season(2025), Week(1)).await.unwrap(),
             [team]
         );
-        let totals = nfl
-            .player_season_totals(Season(2025), Week(2))
-            .await
-            .unwrap();
-        assert_eq!(totals.len(), 1);
-        assert_eq!(totals[0].gsis_id, "00-RB");
-        assert_eq!(totals[0].games, 1);
-        assert_eq!(totals[0].fantasy_points_ppr, 4.2);
+        assert_eq!(got[0].rushing_tds, 1);
         assert!(
             nfl.freshness()
                 .await

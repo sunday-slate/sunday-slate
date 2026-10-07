@@ -132,9 +132,6 @@ pub struct PlayerWeekStats {
     /// Offensive fumble-recovery TDs (recovering a fumble and scoring) —
     /// FanDuel's FU/TD.
     pub fumble_recovery_tds: u32,
-    /// Upstream offense-only fantasy points.
-    pub fantasy_points: f64,
-    pub fantasy_points_ppr: f64,
 }
 
 /// One team's per-week D/ST line, aggregated from play-by-play. Every field is

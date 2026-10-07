@@ -35,8 +35,6 @@ CREATE TABLE player_week_stats (
     fumbles_lost          INTEGER NOT NULL,
     two_point_conversions INTEGER NOT NULL,
     special_teams_tds     INTEGER NOT NULL,
-    fantasy_points        REAL    NOT NULL,
-    fantasy_points_ppr    REAL    NOT NULL,
     fumble_recovery_tds   INTEGER NOT NULL DEFAULT 0,
     completions           INTEGER NOT NULL DEFAULT 0,
     attempts              INTEGER NOT NULL DEFAULT 0,

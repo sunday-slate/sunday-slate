@@ -9,14 +9,6 @@ pub use nfl_model::{
     WeeklyRosterEntry,
 };
 
-/// One player's summed PPR points and games played over a span of weeks.
-#[derive(Debug, Clone, PartialEq)]
-pub struct PlayerSeasonTotals {
-    pub gsis_id: String,
-    pub fantasy_points_ppr: f64,
-    pub games: u32,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Dataset {
     Schedules,

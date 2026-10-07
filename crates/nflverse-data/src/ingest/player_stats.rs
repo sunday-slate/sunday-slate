@@ -34,8 +34,6 @@ struct RawPlayerWeek {
     sack_fumbles_lost: Option<f64>,
     special_teams_tds: Option<f64>,
     fumble_recovery_tds: Option<f64>,
-    fantasy_points: Option<f64>,
-    fantasy_points_ppr: Option<f64>,
 }
 
 pub(crate) fn parse(asset: &str, bytes: &[u8]) -> Result<Vec<PlayerWeekStats>, NflDataError> {
@@ -72,8 +70,6 @@ pub(crate) fn parse(asset: &str, bytes: &[u8]) -> Result<Vec<PlayerWeekStats>, N
                 .saturating_add(count(raw.receiving_2pt_conversions)),
             special_teams_tds: count(raw.special_teams_tds),
             fumble_recovery_tds: count(raw.fumble_recovery_tds),
-            fantasy_points: raw.fantasy_points.unwrap_or(0.0),
-            fantasy_points_ppr: raw.fantasy_points_ppr.unwrap_or(0.0),
         }))
     })
 }
@@ -105,8 +101,6 @@ mod tests {
         assert_eq!(rodgers.rushing_attempts, 1);
         assert_eq!(rodgers.rushing_yards, -1);
         assert_eq!(rodgers.fumbles_lost, 0);
-        assert_eq!(rodgers.fantasy_points, 25.66);
-        assert_eq!(rodgers.fantasy_points_ppr, 25.66);
     }
 
     #[test]

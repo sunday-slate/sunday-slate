@@ -26,9 +26,8 @@ pub use live::{
     ProviderResponse, RawBody,
 };
 pub use model::{
-    Dataset, DatasetFreshness, DatasetReport, DatasetStatus, Game, Player, PlayerSeasonTotals,
-    PlayerWeekStats, Season, SeasonType, SyncReport, TeamAbbr, TeamWeekStats, Week,
-    WeeklyRosterEntry,
+    Dataset, DatasetFreshness, DatasetReport, DatasetStatus, Game, Player, PlayerWeekStats, Season,
+    SeasonType, SyncReport, TeamAbbr, TeamWeekStats, Week, WeeklyRosterEntry,
 };
 
 #[derive(Clone)]
@@ -177,16 +176,6 @@ impl NflverseData {
         week: Week,
     ) -> Result<Vec<PlayerWeekStats>, NflverseDataError> {
         store::player_stats::for_week(self.inner.store.reader(), season, week).await
-    }
-
-    /// Each player's summed PPR points and games played for the season's
-    /// weeks before `before`. Players with no stat rows are absent.
-    pub async fn player_season_totals(
-        &self,
-        season: Season,
-        before: Week,
-    ) -> Result<Vec<PlayerSeasonTotals>, NflverseDataError> {
-        store::player_stats::totals_before(self.inner.store.reader(), season, before).await
     }
 
     /// All teams' pbp-derived D/ST lines for one week (sacks, takeaways, TDs,

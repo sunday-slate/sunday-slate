@@ -1,7 +1,7 @@
 use sqlx::SqlitePool;
 
 use crate::error::NflDataError;
-use crate::model::{PlayerSeasonTotals, PlayerWeekStats, Season, SeasonType, TeamAbbr, Week};
+use crate::model::{PlayerWeekStats, Season, SeasonType, TeamAbbr, Week};
 use crate::store::Store;
 use crate::store::sync_state::{self, SyncedAsset};
 
@@ -32,10 +32,9 @@ pub(crate) async fn replace(
                         rushing_attempts, rushing_yards, rushing_tds,
                         targets, receptions, receiving_yards, receiving_tds,
                         fumbles_lost, two_point_conversions, special_teams_tds,
-                        fumble_recovery_tds,
-                        fantasy_points, fantasy_points_ppr)
+                        fumble_recovery_tds)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                               ?, ?, ?, ?, ?, ?, ?)"#,
+                               ?, ?, ?, ?, ?)"#,
                     s.season,
                     s.week,
                     s.season_type,
@@ -58,8 +57,6 @@ pub(crate) async fn replace(
                     s.two_point_conversions,
                     s.special_teams_tds,
                     s.fumble_recovery_tds,
-                    s.fantasy_points,
-                    s.fantasy_points_ppr
                 )
                 .execute(&mut *conn)
                 .await?;
@@ -99,34 +96,12 @@ pub(crate) async fn for_week(
                fumbles_lost AS "fumbles_lost: u32",
                two_point_conversions AS "two_point_conversions: u32",
                special_teams_tds AS "special_teams_tds: u32",
-               fumble_recovery_tds AS "fumble_recovery_tds: u32",
-               fantasy_points AS "fantasy_points: f64",
-               fantasy_points_ppr AS "fantasy_points_ppr: f64"
+               fumble_recovery_tds AS "fumble_recovery_tds: u32"
            FROM player_week_stats
            WHERE season = ? AND week = ?
            ORDER BY gsis_id, season_type"#,
         season,
         week
-    )
-    .fetch_all(pool)
-    .await?)
-}
-
-pub(crate) async fn totals_before(
-    pool: &SqlitePool,
-    season: Season,
-    before: Week,
-) -> Result<Vec<PlayerSeasonTotals>, NflDataError> {
-    Ok(sqlx::query_as!(
-        PlayerSeasonTotals,
-        r#"SELECT gsis_id,
-                  SUM(fantasy_points_ppr) AS "fantasy_points_ppr!: f64",
-                  COUNT(*) AS "games!: u32"
-           FROM player_week_stats
-           WHERE season = ? AND week < ?
-           GROUP BY gsis_id"#,
-        season,
-        before
     )
     .fetch_all(pool)
     .await?)
@@ -164,8 +139,6 @@ mod tests {
             two_point_conversions: 2,
             special_teams_tds: 1,
             fumble_recovery_tds: 59,
-            fantasy_points: 88.42,
-            fantasy_points_ppr: 101.77,
         }
     }
 
@@ -193,8 +166,6 @@ mod tests {
             two_point_conversions: 6,
             special_teams_tds: 2,
             fumble_recovery_tds: 109,
-            fantasy_points: 12.5,
-            fantasy_points_ppr: 19.25,
         }
     }
 

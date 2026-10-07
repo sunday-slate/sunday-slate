@@ -401,8 +401,6 @@ fn adapt_player(
         two_point_conversions: row.two_point_conversions,
         special_teams_tds: row.special_teams_tds,
         fumble_recovery_tds: row.fumble_recovery_tds,
-        fantasy_points: 0.0,
-        fantasy_points_ppr: 0.0,
     }
 }
 

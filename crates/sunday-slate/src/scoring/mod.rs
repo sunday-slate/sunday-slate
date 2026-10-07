@@ -296,8 +296,6 @@ mod tests {
             two_point_conversions: 0,
             special_teams_tds: 0,
             fumble_recovery_tds: 0,
-            fantasy_points: 0.0,
-            fantasy_points_ppr: 0.0,
         }
     }
 
