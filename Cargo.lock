@@ -1164,6 +1164,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "fanduel-data"
+version = "0.1.0"
+dependencies = [
+ "csv",
+ "nfl-model",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "sqlx",
+ "tempfile",
+ "thiserror",
+ "time",
+ "tokio",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2143,6 +2159,7 @@ dependencies = [
  "axum",
  "axum-htmx",
  "axum-test",
+ "fanduel-data",
  "mime_guess",
  "nfl-model",
  "nflverse-data",
@@ -2167,6 +2184,7 @@ dependencies = [
  "sqlx",
  "thiserror",
  "time",
+ "tokio",
 ]
 
 [[package]]
@@ -3558,6 +3576,7 @@ dependencies = [
  "config",
  "csv",
  "fake",
+ "fanduel-data",
  "futures-util",
  "garde",
  "http",
@@ -3567,6 +3586,7 @@ dependencies = [
  "lettre",
  "mime_guess",
  "nfl-data",
+ "nfl-model",
  "password-auth",
  "regex",
  "reqwest",

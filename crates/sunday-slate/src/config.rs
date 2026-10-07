@@ -21,6 +21,9 @@ fn default_mail_from() -> String {
 fn default_nflverse_database_url() -> String {
     "sqlite://./storage/nflverse-cache.db".to_string()
 }
+fn default_fanduel_database_url() -> String {
+    "sqlite://./storage/fanduel-data.db".to_string()
+}
 fn default_season() -> u16 {
     2026
 }
@@ -56,6 +59,9 @@ pub struct Config {
 
     #[serde(default = "default_nflverse_database_url")]
     pub nflverse_database_url: String,
+
+    #[serde(default = "default_fanduel_database_url")]
+    pub fanduel_database_url: String,
 
     #[serde(default)]
     pub nflverse_github_token: Option<Secret>,
@@ -147,6 +153,10 @@ mod tests {
                 "sqlite://cache.db".into(),
             ),
             (
+                "SUNDAY_SLATE__FANDUEL_DATABASE_URL".into(),
+                "sqlite://source.db".into(),
+            ),
+            (
                 "SUNDAY_SLATE__NFLVERSE_GITHUB_TOKEN".into(),
                 "nfl-token-sentinel".into(),
             ),
@@ -168,6 +178,7 @@ mod tests {
             Some(std::time::Duration::from_secs(3600))
         );
         assert_eq!(cfg.nflverse_database_url, "sqlite://cache.db");
+        assert_eq!(cfg.fanduel_database_url, "sqlite://source.db");
         assert_eq!(
             cfg.nflverse_github_token.as_ref().unwrap().expose(),
             "nfl-token-sentinel"
@@ -180,6 +191,21 @@ mod tests {
         assert_eq!(smtp.port, 2525);
         assert_eq!(smtp.username, "slate");
         assert_eq!(smtp.password.expose(), "secret");
+    }
+
+    #[test]
+    fn fanduel_database_url_defaults_to_durable_store_path() {
+        let cfg: super::Config = config::Config::builder()
+            .add_source(environment_source().source(Some(HashMap::new())))
+            .build()
+            .unwrap()
+            .try_deserialize()
+            .unwrap();
+
+        assert_eq!(
+            cfg.fanduel_database_url,
+            "sqlite://./storage/fanduel-data.db"
+        );
     }
 
     #[test]
@@ -260,6 +286,7 @@ mod tests {
             base_url: "http://localhost:3000".into(),
             mail_from: "Sunday Slate <no-reply@example.com>".into(),
             nflverse_database_url: "sqlite://./storage/nflverse-cache.db".into(),
+            fanduel_database_url: "sqlite://:memory:".into(),
             nflverse_github_token: None,
             tank01_api_key: None,
             live_dev_feed: false,

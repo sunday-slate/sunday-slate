@@ -1,6 +1,7 @@
 mod config;
 mod data_revision;
 mod identity;
+mod salaries;
 #[cfg(test)]
 mod test;
 mod web;
@@ -20,14 +21,30 @@ pub use live::{
 };
 pub use nfl_model::live;
 pub use nfl_model::{
-    Game, Player, PlayerWeekStats, Season, SeasonType, TeamAbbr, TeamWeekStats, Week,
+    DfsPosition, Game, Player, PlayerWeekStats, Season, SeasonType, TeamAbbr, TeamWeekStats, Week,
     WeeklyRosterEntry, eastern_offset, to_eastern,
 };
-pub use nflverse_data::NflverseDataError as NflDataError;
+pub use nflverse_data::{
+    Dataset, DatasetFreshness, DatasetReport, DatasetStatus, NflverseDataError as NflDataError,
+    RefreshStatus, SyncReport,
+};
+pub use salaries::{
+    SalaryCsvDiagnostic, SalaryMatchup, SalaryRow, SalaryRowDiagnostic, SalaryUploadError,
+    SalaryUploadOutcome,
+};
 pub use web::router as admin_router;
+
+#[derive(Debug, thiserror::Error)]
+pub enum NflDataConnectError {
+    #[error("nflverse provider startup failed: {0}")]
+    Nflverse(#[source] NflDataError),
+    #[error("FanDuel provider startup failed: {0}")]
+    Fanduel(#[source] fanduel_data::FanduelDataError),
+}
 
 pub struct NflData {
     provider: NflverseData,
+    fanduel: fanduel_data::FanduelData,
     refresh_interval: Option<std::time::Duration>,
 }
 
@@ -55,13 +72,32 @@ impl NflData {
         ))
     }
 
-    /// Opens (creating if missing) the cache database and runs migrations.
-    pub async fn connect(config: NflDataConfig) -> Result<Self, NflDataError> {
+    /// Archives and interprets a FanDuel salary upload without exposing archive identities.
+    pub async fn receive_salary_upload(
+        &self,
+        bytes: &[u8],
+        filename: Option<&str>,
+    ) -> Result<SalaryUploadOutcome, SalaryUploadError> {
+        let received = self.fanduel.receive(bytes, filename).await?;
+        Ok(received.interpretation.into())
+    }
+
+    /// Opens both provider databases and runs their migrations.
+    pub async fn connect(config: NflDataConfig) -> Result<Self, NflDataConnectError> {
         let refresh_interval = config
             .refresh_interval
             .filter(|interval| !interval.is_zero());
+        let provider = NflverseData::connect(config.clone().into())
+            .await
+            .map_err(NflDataConnectError::Nflverse)?;
+        let fanduel = fanduel_data::FanduelData::connect(fanduel_data::FanduelDataConfig {
+            database_url: config.fanduel_database_url,
+        })
+        .await
+        .map_err(NflDataConnectError::Fanduel)?;
         Ok(Self {
-            provider: NflverseData::connect(config.into()).await?,
+            provider,
+            fanduel,
             refresh_interval,
         })
     }
@@ -69,9 +105,16 @@ impl NflData {
     /// A fresh, empty, in-memory cache — for tests and tooling that need an
     /// `NflData` handle without a database file. Migrations are applied; no data
     /// is synced.
-    pub async fn in_memory() -> Result<Self, NflDataError> {
+    pub async fn in_memory() -> Result<Self, NflDataConnectError> {
+        let provider = NflverseData::in_memory()
+            .await
+            .map_err(NflDataConnectError::Nflverse)?;
+        let fanduel = fanduel_data::FanduelData::in_memory()
+            .await
+            .map_err(NflDataConnectError::Fanduel)?;
         Ok(Self {
-            provider: NflverseData::in_memory().await?,
+            provider,
+            fanduel,
             refresh_interval: None,
         })
     }

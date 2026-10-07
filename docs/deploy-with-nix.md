@@ -32,7 +32,10 @@ Then import and enable the module:
 
 The service runs as `sunday-slate` in `/var/lib/sunday-slate`. Databases and
 media use the application's default `./storage` paths beneath that directory.
-Migrations run at startup. The default bind address is `127.0.0.1:3000`;
+Migrations run at startup. The Sunday Slate database and FanDuel source archive
+are durable data and should both be included in backups. The nflverse database
+is a rebuildable cache; it can be recreated without affecting either durable
+store. The default bind address is `127.0.0.1:3000`;
 configure a reverse proxy or host firewall separately if exposing the service.
 
 The module has four options: `enable`, `package`, `settings`, and

@@ -4,6 +4,9 @@ export DATABASE_URL := "sqlite://./storage/sunday-slate.db"
 export NFLVERSE_DATABASE_FILE := "./storage/nflverse-cache.db"
 export NFLVERSE_DATABASE_URL := "sqlite://./storage/nflverse-cache.db"
 
+export FANDUEL_DATABASE_FILE := "./storage/fanduel-data.db"
+export FANDUEL_DATABASE_URL := "sqlite://./storage/fanduel-data.db"
+
 export SQLX_OFFLINE := "true"
 
 # List recipes
@@ -67,7 +70,7 @@ sqlx-cache:
     cargo sqlx prepare --workspace
 
 
-# run all migrations in both DBs. create the DBs if missing.
+# Run migrations for the application and both providers; create DBs if missing.
 [group('db')]
 db-migrate:
     mkdir -p storage
@@ -75,11 +78,13 @@ db-migrate:
     cargo sqlx migrate run --source crates/sunday-slate/migrations
     touch $NFLVERSE_DATABASE_FILE
     DATABASE_URL="$NFLVERSE_DATABASE_URL" cargo sqlx migrate run --source crates/nflverse-data/migrations
+    touch $FANDUEL_DATABASE_FILE
+    DATABASE_URL="$FANDUEL_DATABASE_URL" cargo sqlx migrate run --source crates/fanduel-data/migrations
 
-# Browse the app + nflverse cache DBs in a Datasette web UI (read-only).
+# Browse app + provider DBs in a Datasette web UI (read-only).
 [group('db')]
 db-browser:
-    uvx datasette serve --crossdb $DATABASE_FILE $NFLVERSE_DATABASE_FILE
+    uvx datasette serve --crossdb $DATABASE_FILE $NFLVERSE_DATABASE_FILE $FANDUEL_DATABASE_FILE
 
 # Fetch the latest nflverse data into storage/nflverse-cache.db
 [group('nfl')]

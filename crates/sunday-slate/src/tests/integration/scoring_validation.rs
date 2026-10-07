@@ -46,8 +46,13 @@ async fn full_season_scores_match_fanduel() {
     let fixtures = format!("{manifest}/src/tests/fixtures/fanduel");
 
     let db = Db::test(in_memory_pool().await);
+    let source_dir = tempfile::tempdir().unwrap();
     let nfl = NflData::connect(NflDataConfig {
         database_url: format!("sqlite://{nfl_db}"),
+        fanduel_database_url: format!(
+            "sqlite://{}",
+            source_dir.path().join("fanduel.db").display()
+        ),
         ..Default::default()
     })
     .await
