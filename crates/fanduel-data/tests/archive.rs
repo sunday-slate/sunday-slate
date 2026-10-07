@@ -49,6 +49,40 @@ async fn identical_receipts_create_distinct_uploads() {
 }
 
 #[tokio::test]
+async fn source_rows_preserve_original_salary_text_and_numeric_salary() {
+    let service = FanduelData::in_memory().await.unwrap();
+    let bytes = b"Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,Injury Indicator,Injury Details\n1,QB,A,,B,0,0,008200,BUF@NYJ,BUF,NYJ,,\n";
+    let received = service.receive(bytes, None).await.unwrap();
+
+    let Interpretation::Parsed(rows) = &received.interpretation else {
+        panic!("expected parsed upload");
+    };
+    assert_eq!(rows[0].raw.salary, 8200);
+    assert_eq!(rows[0].raw.quoted_salary, "008200");
+    let stored = service.source_rows(received.upload_id).await.unwrap();
+    assert_eq!(stored[0].interpreted.raw.salary, 8200);
+    assert_eq!(stored[0].interpreted.raw.quoted_salary, "008200");
+}
+
+#[tokio::test]
+async fn header_only_receipt_is_parsed_with_no_source_rows() {
+    let service = FanduelData::in_memory().await.unwrap();
+    let bytes = b"Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,Injury Indicator,Injury Details\n";
+    let received = service.receive(bytes, None).await.unwrap();
+
+    assert_eq!(received.interpretation, Interpretation::Empty);
+    let upload = service.upload(received.upload_id).await.unwrap().unwrap();
+    assert_eq!(upload.metadata.state, UploadState::Parsed);
+    assert!(
+        service
+            .source_rows(received.upload_id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
 async fn empty_receipt_is_parsed_with_no_source_rows() {
     let service = FanduelData::in_memory().await.unwrap();
     let received = service.receive(b"", None).await.unwrap();

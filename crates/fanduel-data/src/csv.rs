@@ -35,7 +35,12 @@ fn csv_diagnostic(error: csv::Error, headers: Option<&csv::StringRecord>) -> Csv
             .field()
             .and_then(|index| usize::try_from(index).ok())
             .and_then(|index| headers.and_then(|headers| headers.get(index)))
-            .map(str::to_owned),
+            .map(str::to_owned)
+            .or_else(|| {
+                err.to_string()
+                    .starts_with("FanDuel Salary:")
+                    .then(|| "Salary".to_owned())
+            }),
         _ => None,
     };
     CsvDiagnostic {

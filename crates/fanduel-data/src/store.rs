@@ -59,6 +59,7 @@ pub struct ReceivedUpload {
 struct StoredRow {
     row_number: u64,
     raw: RawSalaryRow,
+    salary: i64,
     team: TeamAbbr,
     position: Option<String>,
     matchup: Option<Matchup>,
@@ -70,6 +71,7 @@ impl From<&InterpretedRow> for StoredRow {
         Self {
             row_number: row.row_number,
             raw: row.raw.clone(),
+            salary: row.raw.salary,
             team: row.team.clone(),
             position: row.position.map(|position| position.label().to_owned()),
             matchup: row.matchup.clone(),
@@ -82,6 +84,8 @@ impl TryFrom<StoredRow> for InterpretedRow {
     type Error = FanduelDataError;
 
     fn try_from(row: StoredRow) -> Result<Self, Self::Error> {
+        let mut raw = row.raw;
+        raw.salary = row.salary;
         let position = row
             .position
             .map(|position| match position.as_str() {
@@ -95,7 +99,7 @@ impl TryFrom<StoredRow> for InterpretedRow {
             .transpose()?;
         Ok(Self {
             row_number: row.row_number,
-            raw: row.raw,
+            raw,
             team: row.team,
             position,
             matchup: row.matchup,
