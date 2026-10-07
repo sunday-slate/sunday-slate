@@ -34,16 +34,6 @@ struct RawPlayerWeek {
     sack_fumbles_lost: Option<f64>,
     special_teams_tds: Option<f64>,
     fumble_recovery_tds: Option<f64>,
-    fg_made_0_19: Option<f64>,
-    fg_made_20_29: Option<f64>,
-    fg_made_30_39: Option<f64>,
-    fg_made_40_49: Option<f64>,
-    fg_made_50_59: Option<f64>,
-    #[serde(rename = "fg_made_60_")]
-    fg_made_60_plus: Option<f64>,
-    fg_missed: Option<f64>,
-    pat_made: Option<f64>,
-    pat_missed: Option<f64>,
     fantasy_points: Option<f64>,
     fantasy_points_ppr: Option<f64>,
 }
@@ -82,15 +72,6 @@ pub(crate) fn parse(asset: &str, bytes: &[u8]) -> Result<Vec<PlayerWeekStats>, N
                 .saturating_add(count(raw.receiving_2pt_conversions)),
             special_teams_tds: count(raw.special_teams_tds),
             fumble_recovery_tds: count(raw.fumble_recovery_tds),
-            fg_made_0_19: count(raw.fg_made_0_19),
-            fg_made_20_29: count(raw.fg_made_20_29),
-            fg_made_30_39: count(raw.fg_made_30_39),
-            fg_made_40_49: count(raw.fg_made_40_49),
-            fg_made_50_59: count(raw.fg_made_50_59),
-            fg_made_60_plus: count(raw.fg_made_60_plus),
-            fg_missed: count(raw.fg_missed),
-            pat_made: count(raw.pat_made),
-            pat_missed: count(raw.pat_missed),
             fantasy_points: raw.fantasy_points.unwrap_or(0.0),
             fantasy_points_ppr: raw.fantasy_points_ppr.unwrap_or(0.0),
         }))
@@ -129,21 +110,19 @@ mod tests {
     }
 
     #[test]
-    fn maps_a_kicking_line_and_offense_only_fantasy_points() {
-        let stats = parse("stats_player_week_2025.csv", STATS_CSV.as_bytes()).unwrap();
-        let prater = stats.iter().find(|s| s.gsis_id == "00-0023853").unwrap();
+    fn ignores_upstream_kicking_columns() {
+        let csv = "player_id,season,week,season_type,team,opponent_team,\
+passing_yards,fg_made_0_19,fg_made_20_29,fg_made_30_39,fg_made_40_49,\
+fg_made_50_59,fg_made_60_,fg_missed,pat_made,pat_missed\n\
+00-0000001,2025,1,REG,GB,CHI,244,ignored,ignored,ignored,ignored,\
+ignored,ignored,ignored,ignored,ignored\n";
+        let stats = parse("stats_player_week_2025.csv", csv.as_bytes()).unwrap();
+        let without_kicking = "player_id,season,week,season_type,team,opponent_team,passing_yards\n\
+00-0000001,2025,1,REG,GB,CHI,244\n";
+        let expected = parse("stats_player_week_2025.csv", without_kicking.as_bytes()).unwrap();
 
-        assert_eq!(prater.team, TeamAbbr("BUF".into()));
-        assert_eq!(prater.fg_made_0_19, 0);
-        assert_eq!(prater.fg_made_20_29, 1);
-        assert_eq!(prater.fg_made_30_39, 1);
-        assert_eq!(prater.fg_made_40_49, 1);
-        assert_eq!(prater.fg_made_50_59, 0);
-        assert_eq!(prater.fg_made_60_plus, 0);
-        assert_eq!(prater.fg_missed, 0);
-        assert_eq!(prater.pat_made, 2);
-        assert_eq!(prater.pat_missed, 0);
-        assert_eq!(prater.fantasy_points, 0.0);
+        assert_eq!(stats, expected);
+        assert_eq!(stats[0].passing_yards, 244);
     }
 
     #[test]

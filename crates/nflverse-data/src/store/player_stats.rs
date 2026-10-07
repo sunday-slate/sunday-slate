@@ -33,11 +33,9 @@ pub(crate) async fn replace(
                         targets, receptions, receiving_yards, receiving_tds,
                         fumbles_lost, two_point_conversions, special_teams_tds,
                         fumble_recovery_tds,
-                        fg_made_0_19, fg_made_20_29, fg_made_30_39, fg_made_40_49,
-                        fg_made_50_59, fg_made_60_plus, fg_missed, pat_made, pat_missed,
                         fantasy_points, fantasy_points_ppr)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                               ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+                               ?, ?, ?, ?, ?, ?, ?)"#,
                     s.season,
                     s.week,
                     s.season_type,
@@ -60,15 +58,6 @@ pub(crate) async fn replace(
                     s.two_point_conversions,
                     s.special_teams_tds,
                     s.fumble_recovery_tds,
-                    s.fg_made_0_19,
-                    s.fg_made_20_29,
-                    s.fg_made_30_39,
-                    s.fg_made_40_49,
-                    s.fg_made_50_59,
-                    s.fg_made_60_plus,
-                    s.fg_missed,
-                    s.pat_made,
-                    s.pat_missed,
                     s.fantasy_points,
                     s.fantasy_points_ppr
                 )
@@ -111,15 +100,6 @@ pub(crate) async fn for_week(
                two_point_conversions AS "two_point_conversions: u32",
                special_teams_tds AS "special_teams_tds: u32",
                fumble_recovery_tds AS "fumble_recovery_tds: u32",
-               fg_made_0_19 AS "fg_made_0_19: u32",
-               fg_made_20_29 AS "fg_made_20_29: u32",
-               fg_made_30_39 AS "fg_made_30_39: u32",
-               fg_made_40_49 AS "fg_made_40_49: u32",
-               fg_made_50_59 AS "fg_made_50_59: u32",
-               fg_made_60_plus AS "fg_made_60_plus: u32",
-               fg_missed AS "fg_missed: u32",
-               pat_made AS "pat_made: u32",
-               pat_missed AS "pat_missed: u32",
                fantasy_points AS "fantasy_points: f64",
                fantasy_points_ppr AS "fantasy_points_ppr: f64"
            FROM player_week_stats
@@ -157,11 +137,9 @@ mod tests {
     use super::*;
     use crate::model::SeasonType;
 
-    /// Every numeric field gets a distinct value (including within the
-    /// fg_made_0_19..fg_made_60_plus run of six adjacent `u32`s) so that a
-    /// positional argument swap in the INSERT's VALUES list -- e.g.
-    /// transposing `s.fg_made_30_39` and `s.fg_made_40_49` -- would compile
-    /// cleanly but flip two field values and fail the roundtrip assertion.
+    /// Every numeric field gets a distinct value so that a positional
+    /// argument swap in the INSERT's VALUES list would compile cleanly but
+    /// flip two field values and fail the roundtrip assertion.
     fn stat_a() -> PlayerWeekStats {
         PlayerWeekStats {
             season: Season(2025),
@@ -186,15 +164,6 @@ mod tests {
             two_point_conversions: 2,
             special_teams_tds: 1,
             fumble_recovery_tds: 59,
-            fg_made_0_19: 19,
-            fg_made_20_29: 21,
-            fg_made_30_39: 23,
-            fg_made_40_49: 29,
-            fg_made_50_59: 31,
-            fg_made_60_plus: 37,
-            fg_missed: 43,
-            pat_made: 47,
-            pat_missed: 53,
             fantasy_points: 88.42,
             fantasy_points_ppr: 101.77,
         }
@@ -224,15 +193,6 @@ mod tests {
             two_point_conversions: 6,
             special_teams_tds: 2,
             fumble_recovery_tds: 109,
-            fg_made_0_19: 61,
-            fg_made_20_29: 67,
-            fg_made_30_39: 73,
-            fg_made_40_49: 79,
-            fg_made_50_59: 83,
-            fg_made_60_plus: 89,
-            fg_missed: 97,
-            pat_made: 103,
-            pat_missed: 107,
             fantasy_points: 12.5,
             fantasy_points_ppr: 19.25,
         }

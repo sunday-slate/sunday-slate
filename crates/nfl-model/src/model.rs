@@ -147,17 +147,7 @@ pub struct PlayerWeekStats {
     /// Offensive fumble-recovery TDs (recovering a fumble and scoring) —
     /// FanDuel's FU/TD.
     pub fumble_recovery_tds: u32,
-    pub fg_made_0_19: u32,
-    pub fg_made_20_29: u32,
-    pub fg_made_30_39: u32,
-    pub fg_made_40_49: u32,
-    pub fg_made_50_59: u32,
-    pub fg_made_60_plus: u32,
-    pub fg_missed: u32,
-    pub pat_made: u32,
-    pub pat_missed: u32,
-    /// Upstream scores offense only — kickers are 0 here. Score kicking from
-    /// the fg_*/pat_* columns.
+    /// Upstream offense-only fantasy points.
     pub fantasy_points: f64,
     pub fantasy_points_ppr: f64,
 }
