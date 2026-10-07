@@ -2159,6 +2159,7 @@ dependencies = [
  "axum",
  "axum-htmx",
  "axum-test",
+ "fanduel-data",
  "mime_guess",
  "nfl-model",
  "nflverse-data",

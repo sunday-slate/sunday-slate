@@ -5,6 +5,7 @@ use utils::Secret;
 #[derive(Debug, Clone)]
 pub struct NflDataConfig {
     pub database_url: String,
+    pub fanduel_database_url: String,
     /// Per-season datasets fetch seasons >= this. Lower bound only, so the
     /// exact NFL season boundary doesn't matter.
     pub earliest_season: u16,
@@ -32,6 +33,7 @@ impl Default for NflDataConfig {
         let config = nflverse_data::NflverseDataConfig::default();
         Self {
             database_url: config.database_url,
+            fanduel_database_url: "sqlite://./storage/fanduel-data.db".to_owned(),
             earliest_season: config.earliest_season,
             github_token: config.github_token,
             github_api_base: config.github_api_base,
