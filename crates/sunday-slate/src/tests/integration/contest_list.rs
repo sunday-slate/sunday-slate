@@ -77,17 +77,6 @@ fn rb(gsis: &str, week: u8, rush_yards: i32) -> NflPlayerWeekStats {
         two_point_conversions: 0,
         special_teams_tds: 0,
         fumble_recovery_tds: 0,
-        fg_made_0_19: 0,
-        fg_made_20_29: 0,
-        fg_made_30_39: 0,
-        fg_made_40_49: 0,
-        fg_made_50_59: 0,
-        fg_made_60_plus: 0,
-        fg_missed: 0,
-        pat_made: 0,
-        pat_missed: 0,
-        fantasy_points: 0.0,
-        fantasy_points_ppr: 0.0,
     }
 }
 

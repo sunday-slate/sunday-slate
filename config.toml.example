@@ -14,19 +14,22 @@ base_url = "http://localhost:3000"
 mail_from = "Sunday Slate <no-reply@example.com>"
 
 # NFL season the app serves. Contests, salaries and stats all resolve against it,
-# so nfl-data.db must hold this season's games (`just nfl-sync`). Overridable per
+# so nflverse-cache.db must hold this season's games (`just nfl-sync`). Overridable per
 # run with the SUNDAY_SLATE__SEASON environment variable — `just dev-data` does
 # exactly that, pinning the golden dump's season in storage/dev.env.
 season = 2026
 
+# Rebuildable nflverse cache, separate from managed Sunday Slate records.
+# nflverse_database_url = "sqlite://./storage/nflverse-cache.db"
+
 # Optional GitHub token for server-started /admin/nfl-sync runs.
-# Secret: prefer SUNDAY_SLATE__NFL_GITHUB_TOKEN from deployment secret storage;
+# Secret: prefer SUNDAY_SLATE__NFLVERSE_GITHUB_TOKEN from deployment secret storage;
 # never commit a token.
-# nfl_github_token = "..."
+# nflverse_github_token = "..."
 
 # Automatic refresh of the nflverse cache while the app runs, in seconds
 # (3600 = hourly). 0 or unset = manual only (admin button / `just nfl-sync`).
-# nfl_sync_interval_secs = 0
+# nflverse_sync_interval_secs = 0
 
 # Optional Tank01 live-score provider key. Without it, live score polling is
 # disabled and pages use official nflverse stats only.

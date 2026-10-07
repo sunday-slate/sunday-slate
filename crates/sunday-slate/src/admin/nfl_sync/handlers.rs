@@ -20,7 +20,7 @@ async fn show(
 }
 
 async fn start(hx: HxRequest, State(state): State<AppState>) -> Result<Response, AppError> {
-    crate::nfl_sync::start_nfl_sync(&state.sync_runner, state.nfl.clone()).await?;
+    state.nfl.request_refresh().await?;
     show(hx, State(state)).await
 }
 
@@ -47,14 +47,13 @@ mod tests {
         for dataset in [
             "schedules",
             "players",
-            "rosters",
             "weekly_rosters",
             "player_week_stats",
             "team_week_stats",
         ] {
             assert!(body.contains(&format!("<td>{dataset}</td>")), "{dataset}");
         }
-        assert_eq!(body.matches("Never synced").count(), 6);
+        assert_eq!(body.matches("Never synced").count(), 5);
     }
 
     #[tokio::test]

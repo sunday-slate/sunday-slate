@@ -6,19 +6,11 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-clap = { workspace = true }
-csv = { workspace = true }
-flate2 = { workspace = true }
-reqwest = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-sqlx = { workspace = true }
-thiserror = { workspace = true }
-time = { workspace = true }
-tokio = { workspace = true }
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
+nflverse-data = { path = "../nflverse-data" }
+nfl-model = { path = "../nfl-model" }
+utils = { path = "../utils" }
 
 [dev-dependencies]
+tokio = { workspace = true }
 tempfile = { workspace = true }
 wiremock = { workspace = true }

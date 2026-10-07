@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use nfl_data::Secret;
+use utils::Secret;
 
 const DEFAULT_API_BASE_URL: &str =
     "https://tank01-nfl-live-in-game-real-time-statistics-nfl.p.rapidapi.com";

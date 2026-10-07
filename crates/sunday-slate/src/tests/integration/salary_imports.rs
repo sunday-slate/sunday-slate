@@ -28,8 +28,6 @@ fn player(gsis: &str, name: &str, team: &str) -> Player {
         last_name: None,
         position: Some("WR".into()),
         latest_team: Some(NflTeamAbbr(team.into())),
-        status: None,
-        birth_date: None,
         headshot_url: None,
     }
 }

@@ -4,7 +4,7 @@ use std::{
     path::Path,
 };
 
-use nfl_data::{
+use nfl_model::{
     LiveGameSnapshot, LiveProviderError, LiveScoreboard, ProviderOutcome, ProviderResponse, RawBody,
 };
 use serde::{Deserialize, Serialize};
@@ -522,7 +522,7 @@ fn replay_scoreboard(
 
 fn replay_box(
     stored: &StoredEvent,
-    game: &nfl_data::LiveGame,
+    game: &nfl_model::LiveGame,
     response: &ProviderResponse<LiveGameSnapshot>,
     changed: bool,
     previous_projection: &mut BTreeMap<String, Value>,
@@ -596,7 +596,7 @@ fn classify_scoreboard(
 
 fn classify_box(
     response: &ProviderResponse<LiveGameSnapshot>,
-    game: &nfl_data::LiveGame,
+    game: &nfl_model::LiveGame,
 ) -> ReplayOutcome<LiveGameSnapshot> {
     if !is_success_status(response.http_status) {
         return ReplayOutcome::Error(OutcomeCategory::Http(response.http_status));
@@ -728,7 +728,7 @@ mod tests {
         capture::CaptureWriter,
         poll::{CompletionReason, PollRequest},
     };
-    use nfl_data::{
+    use nfl_model::{
         LiveGame, LiveGamePhase, LiveScoreboard, LiveScoreboardGame, LiveSlate, ProviderOutcome,
         ProviderResponse, Season, SeasonType, TeamAbbr, Week,
     };

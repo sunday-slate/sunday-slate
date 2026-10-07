@@ -1,45 +1,58 @@
-mod client;
 mod config;
-mod eastern;
-mod error;
-mod ingest;
-pub mod live;
-mod model;
-mod secret;
-mod store;
-mod sync;
+mod identity;
 
 use std::collections::HashMap;
 
-use sqlx::SqlitePool;
-use store::Store;
+use nflverse_data::NflverseData;
 
 pub use config::NflDataConfig;
-pub use eastern::{eastern_offset, to_eastern};
-pub use error::NflDataError;
+pub use identity::PlayerIdentity;
 pub use live::{
     EspnPlayerId, InjuryDesignation, InjuryEntry, InjuryProvider, InjuryReport, LiveGame,
     LiveGamePhase, LiveGameSnapshot, LivePlayerStats, LiveProviderError, LiveScoreProvider,
     LiveScoreboard, LiveScoreboardGame, LiveSlate, LiveTeamStats, ProviderOutcome,
     ProviderResponse, RawBody,
 };
-pub use model::{
-    Dataset, DatasetFreshness, DatasetReport, DatasetStatus, Game, Player, PlayerIdentity,
-    PlayerSeasonTotals, PlayerWeekStats, RosterEntry, Season, SeasonType, SyncReport, TeamAbbr,
-    TeamWeekStats, Week, WeeklyRosterEntry,
+pub use nfl_model::live;
+pub use nfl_model::{
+    Game, Player, PlayerWeekStats, Season, SeasonType, TeamAbbr, TeamWeekStats, Week,
+    WeeklyRosterEntry, eastern_offset, to_eastern,
 };
-pub use secret::Secret;
+pub use nflverse_data::{
+    Dataset, DatasetFreshness, DatasetReport, DatasetStatus, NflverseDataError as NflDataError,
+    RefreshStatus, SyncReport,
+};
 
 pub struct NflData {
-    store: Store,
-    config: NflDataConfig,
+    provider: NflverseData,
 }
 
 impl NflData {
+    /// Request a background refresh; false means a refresh is already running.
+    pub async fn request_refresh(&self) -> Result<bool, NflDataError> {
+        self.provider.request_refresh().await
+    }
+
+    /// Running start time/freshness or the last completed background refresh report.
+    pub fn refresh_status(&self) -> RefreshStatus {
+        self.provider.refresh_status()
+    }
+
+    /// Explicitly start the timer. Zero disables it; an existing timer is not replaced.
+    pub fn start_scheduler(&self, interval: std::time::Duration) -> bool {
+        self.provider.start_scheduler(interval)
+    }
+
+    /// Stop the timer without cancelling a running background refresh.
+    pub fn stop_scheduler(&self) -> bool {
+        self.provider.stop_scheduler()
+    }
+
     /// Opens (creating if missing) the cache database and runs migrations.
     pub async fn connect(config: NflDataConfig) -> Result<Self, NflDataError> {
-        let store = Store::open(&config.database_url).await?;
-        Ok(Self { store, config })
+        Ok(Self {
+            provider: NflverseData::connect(config.into()).await?,
+        })
     }
 
     /// A fresh, empty, in-memory cache — for tests and tooling that need an
@@ -47,8 +60,7 @@ impl NflData {
     /// is synced.
     pub async fn in_memory() -> Result<Self, NflDataError> {
         Ok(Self {
-            store: Store::in_memory().await?,
-            config: NflDataConfig::default(),
+            provider: NflverseData::in_memory().await?,
         })
     }
 
@@ -62,17 +74,7 @@ impl NflData {
         &self,
         ids: &[I],
     ) -> Result<HashMap<String, WeeklyRosterEntry>, NflDataError> {
-        let mut out = HashMap::with_capacity(ids.len());
-        for id in ids {
-            let gsis = id.as_ref();
-            if out.contains_key(gsis) {
-                continue;
-            }
-            if let Some(e) = store::weekly_rosters::by_gsis(self.store.reader(), gsis).await? {
-                out.insert(gsis.to_string(), e);
-            }
-        }
-        Ok(out)
+        self.provider.weekly_roster_entries_by_gsis(ids).await
     }
 
     /// Display facts for a set of gsis ids: the `players` table first, the
@@ -117,17 +119,7 @@ impl NflData {
         &self,
         entries: &[WeeklyRosterEntry],
     ) -> Result<(), NflDataError> {
-        self.store
-            .write_tx(async |conn| store::weekly_rosters::seed(conn, entries).await)
-            .await
-    }
-
-    /// Read-only pool access for tests and ad-hoc debugging. Not part of the
-    /// crate's stable API — bypasses the typed read methods and the schema-
-    /// stability guarantees they provide. Prefer `games()`/`players()`/etc.
-    #[doc(hidden)]
-    pub fn reader(&self) -> &SqlitePool {
-        self.store.reader()
+        self.provider.seed_weekly_roster_for_test(entries).await
     }
 
     /// Seed players and games directly, for tests and tooling. Not part of the
@@ -138,71 +130,37 @@ impl NflData {
         players: &[Player],
         games: &[Game],
     ) -> Result<(), NflDataError> {
-        self.store
-            .write_tx(async |conn| {
-                store::players::seed(conn, players).await?;
-                store::games::seed(conn, games).await?;
-                Ok(())
-            })
-            .await
+        self.provider.seed_for_test(players, games).await
     }
 
     /// All cached games for a season, ordered by week.
     pub async fn games(&self, season: Season) -> Result<Vec<Game>, NflDataError> {
-        store::games::for_season(self.store.reader(), season).await
+        self.provider.games(season).await
     }
 
     /// All cached players, ordered by name.
     pub async fn players(&self) -> Result<Vec<Player>, NflDataError> {
-        store::players::all(self.store.reader()).await
+        self.provider.players().await
     }
 
     /// Players for a small set of ids, keyed by gsis id. Ids with no player are
     /// absent from the map rather than an error — callers render a fallback.
     ///
-    /// One indexed seek per id — ~25µs for a nine-slot lineup, so the loop is
-    /// not worth batching at the sizes call sites actually pass. If that ever
-    /// changes, the set-based form is `WHERE gsis_id IN (SELECT value FROM
-    /// json_each(?))`: one bind parameter and static SQL, so `query_as!` still
-    /// applies and no `FromRow` impl is needed. It does require `gsis_id` to
-    /// lead an index — SQLite will not skip-scan an `IN` list, and drops to a
-    /// full table scan without one.
     pub async fn players_by_gsis<I: AsRef<str>>(
         &self,
         ids: &[I],
     ) -> Result<HashMap<String, Player>, NflDataError> {
-        let mut out = HashMap::with_capacity(ids.len());
-        for id in ids {
-            let gsis = id.as_ref();
-            if out.contains_key(gsis) {
-                continue;
-            }
-            if let Some(p) = store::players::by_gsis(self.store.reader(), gsis).await? {
-                out.insert(gsis.to_string(), p);
-            }
-        }
-        Ok(out)
+        self.provider.players_by_gsis(ids).await
     }
 
-    /// A team's cached roster for a season, ordered by player name.
-    pub async fn roster(
-        &self,
-        season: Season,
-        team: &TeamAbbr,
-    ) -> Result<Vec<RosterEntry>, NflDataError> {
-        store::rosters::for_team(self.store.reader(), season, team).await
-    }
-
-    /// A team's cached roster for one week, ordered by player name. Prefer this
-    /// over [`Self::roster`] when the question is "who was on this team *then*" —
-    /// the season roster reflects only where each player ended up.
+    /// A team's cached roster for one week, ordered by player name.
     pub async fn weekly_roster(
         &self,
         season: Season,
         week: Week,
         team: &TeamAbbr,
     ) -> Result<Vec<WeeklyRosterEntry>, NflDataError> {
-        store::weekly_rosters::for_team_week(self.store.reader(), season, week, team).await
+        self.provider.weekly_roster(season, week, team).await
     }
 
     /// All players' cached stat lines for one week, ordered by player GSIS id.
@@ -211,17 +169,7 @@ impl NflData {
         season: Season,
         week: Week,
     ) -> Result<Vec<PlayerWeekStats>, NflDataError> {
-        store::player_stats::for_week(self.store.reader(), season, week).await
-    }
-
-    /// Each player's summed PPR points and games played for the season's
-    /// weeks before `before`. Players with no stat rows are absent.
-    pub async fn player_season_totals(
-        &self,
-        season: Season,
-        before: Week,
-    ) -> Result<Vec<PlayerSeasonTotals>, NflDataError> {
-        store::player_stats::totals_before(self.store.reader(), season, before).await
+        self.provider.player_week_stats(season, week).await
     }
 
     /// All teams' pbp-derived D/ST lines for one week (sacks, takeaways, TDs,
@@ -232,24 +180,11 @@ impl NflData {
         season: Season,
         week: Week,
     ) -> Result<Vec<TeamWeekStats>, NflDataError> {
-        store::team_stats::for_week(self.store.reader(), season, week).await
+        self.provider.team_week_stats(season, week).await
     }
     /// Freshness for every dataset, in sync order.
     pub async fn freshness(&self) -> Result<Vec<DatasetFreshness>, NflDataError> {
-        let rows = store::sync_state::freshness(self.store.reader()).await?;
-        Ok(Dataset::ALL
-            .into_iter()
-            .map(|dataset| {
-                let row = rows
-                    .iter()
-                    .find(|row| row.release_tag == dataset.release_tag());
-                DatasetFreshness {
-                    dataset,
-                    assets: row.map_or(0, |row| row.assets),
-                    last_synced_at: row.map(|row| row.last_synced_at),
-                }
-            })
-            .collect())
+        self.provider.freshness().await
     }
 
     /// Fetch all datasets from nflverse, skipping assets whose upstream
@@ -259,7 +194,7 @@ impl NflData {
     /// asset doesn't block the other seasons in the same dataset from
     /// updating.
     pub async fn sync(&self) -> Result<SyncReport, NflDataError> {
-        sync::run(&self.store, &self.config).await
+        self.provider.sync().await
     }
 
     /// Seed player and team week stats directly, for tests and tooling. Reuses the
@@ -272,57 +207,16 @@ impl NflData {
         players: &[PlayerWeekStats],
         teams: &[TeamWeekStats],
     ) -> Result<(), NflDataError> {
-        let asset = store::sync_state::SyncedAsset {
-            release_tag: "test",
-            asset_name: "test",
-            updated_at: "1970-01-01T00:00:00Z",
-        };
-        store::player_stats::replace(&self.store, &asset, season, players).await?;
-        store::team_stats::replace(&self.store, &asset, season, teams).await?;
-        Ok(())
-    }
-}
-
-#[cfg(test)]
-mod freshness_tests {
-    use crate::{Dataset, NflData};
-
-    #[tokio::test]
-    async fn returns_fixed_order_and_ignores_unknown_tags() {
-        let nfl = NflData::in_memory().await.unwrap();
-        for (tag, asset) in [
-            ("test", "ignored"),
-            ("schedules", "games.csv"),
-            ("schedules", "extra.csv"),
-        ] {
-            sqlx::query(
-                "INSERT INTO sync_state (release_tag, asset_name, upstream_updated_at) \
-                 VALUES (?, ?, ?)",
-            )
-            .bind(tag)
-            .bind(asset)
-            .bind("2026-01-01T00:00:00Z")
-            .execute(nfl.reader())
+        self.provider
+            .seed_week_stats_for_test(season, players, teams)
             .await
-            .unwrap();
-        }
-
-        let rows = nfl.freshness().await.unwrap();
-        assert_eq!(
-            rows.iter().map(|row| row.dataset).collect::<Vec<_>>(),
-            Dataset::ALL
-        );
-        assert_eq!(rows[0].assets, 2);
-        assert!(rows[0].last_synced_at.is_some());
-        assert_eq!(rows[1].assets, 0);
-        assert!(rows[1].last_synced_at.is_none());
     }
 }
 
 #[cfg(test)]
 mod identify_tests {
-    use crate::model::{Player, TeamAbbr, WeeklyRosterEntry};
     use crate::{NflData, Season, Week};
+    use crate::{Player, TeamAbbr, WeeklyRosterEntry};
 
     fn player(gsis: &str, name: &str) -> Player {
         Player {
@@ -333,8 +227,6 @@ mod identify_tests {
             last_name: None,
             position: Some("RB".into()),
             latest_team: Some(TeamAbbr("KC".into())),
-            status: None,
-            birth_date: None,
             headshot_url: None,
         }
     }
@@ -349,7 +241,6 @@ mod identify_tests {
             full_name: name.into(),
             last_name: None,
             position: Some("WR".into()),
-            status: "ACT".into(),
         }
     }
 
@@ -390,8 +281,6 @@ mod identify_tests {
             last_name: None,
             position: Some("QB".into()),
             latest_team: Some(TeamAbbr("KC".into())),
-            status: None,
-            birth_date: None,
             headshot_url: Some("https://img.example/photo.png".into()),
         };
         nfl.seed_for_test(&[player], &[]).await.unwrap();
@@ -412,12 +301,12 @@ mod seed_week_stats_tests {
     #[tokio::test]
     async fn seeds_player_and_team_week_stats() {
         let nfl = NflData::in_memory().await.unwrap();
-        let mut p = crate::model::PlayerWeekStats {
+        let mut p = crate::PlayerWeekStats {
             season: Season(2025),
             week: Week(1),
-            season_type: crate::model::SeasonType::Reg,
+            season_type: crate::SeasonType::Reg,
             gsis_id: "00-RB".into(),
-            team: crate::model::TeamAbbr("KC".into()),
+            team: crate::TeamAbbr("KC".into()),
             opponent: None,
             completions: 0,
             attempts: 0,
@@ -435,26 +324,44 @@ mod seed_week_stats_tests {
             two_point_conversions: 0,
             special_teams_tds: 0,
             fumble_recovery_tds: 0,
-            fg_made_0_19: 0,
-            fg_made_20_29: 0,
-            fg_made_30_39: 0,
-            fg_made_40_49: 0,
-            fg_made_50_59: 0,
-            fg_made_60_plus: 0,
-            fg_missed: 0,
-            pat_made: 0,
-            pat_missed: 0,
-            fantasy_points: 0.0,
-            fantasy_points_ppr: 0.0,
         };
         p.rushing_yards = 42;
 
-        nfl.seed_week_stats_for_test(Season(2025), &[p], &[])
+        let team = crate::TeamWeekStats {
+            season: Season(2025),
+            week: Week(1),
+            season_type: crate::SeasonType::Reg,
+            team: crate::TeamAbbr("KC".into()),
+            opponent: crate::TeamAbbr("BUF".into()),
+            gsis_game_id: "2025_01_BUF_KC".into(),
+            sacks: 3,
+            interceptions: 1,
+            fumble_recoveries: 0,
+            safeties: 0,
+            touchdowns: 0,
+            blocked_kicks: 0,
+            conversion_returns: 0,
+            points_allowed: 17,
+        };
+        p.rushing_tds = 1;
+        nfl.seed_week_stats_for_test(Season(2025), &[p], std::slice::from_ref(&team))
             .await
             .unwrap();
         let got = nfl.player_week_stats(Season(2025), Week(1)).await.unwrap();
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].gsis_id, "00-RB");
         assert_eq!(got[0].rushing_yards, 42);
+        assert_eq!(
+            nfl.team_week_stats(Season(2025), Week(1)).await.unwrap(),
+            [team]
+        );
+        assert_eq!(got[0].rushing_tds, 1);
+        assert!(
+            nfl.freshness()
+                .await
+                .unwrap()
+                .iter()
+                .all(|row| row.assets == 0)
+        );
     }
 }

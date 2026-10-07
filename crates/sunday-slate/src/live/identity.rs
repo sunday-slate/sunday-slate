@@ -250,8 +250,6 @@ mod tests {
             last_name: None,
             position: Some(position.into()),
             latest_team: Some(TeamAbbr(team.into())),
-            status: None,
-            birth_date: None,
             headshot_url: None,
         }
     }
@@ -272,7 +270,6 @@ mod tests {
             full_name: name.into(),
             last_name: None,
             position: Some(position.into()),
-            status: "ACT".into(),
         }
     }
 

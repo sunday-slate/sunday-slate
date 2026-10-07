@@ -5,7 +5,6 @@ use tank01_data::{Tank01Client, Tank01Config};
 use tower_sessions::ExpiredDeletion;
 
 use crate::mail::Mailer;
-use crate::nfl_sync::NflverseSyncRunner;
 use crate::sessions;
 use crate::{AppState, Config, Db};
 pub struct App {
@@ -32,13 +31,12 @@ impl App {
 
         let nfl = Arc::new(
             nfl_data::NflData::connect(nfl_data::NflDataConfig {
-                database_url: config.nfl_database_url.clone(),
-                github_token: config.nfl_github_token.clone(),
+                database_url: config.nflverse_database_url.clone(),
+                github_token: config.nflverse_github_token.clone(),
                 ..Default::default()
             })
             .await?,
         );
-        let sync_runner = Arc::new(NflverseSyncRunner::new());
         let avatar_runner = Arc::new(crate::avatars::AvatarFetchRunner::new());
         let live_enabled = config.tank01_api_key.is_some() || config.live_dev_feed;
         let live = Arc::new(crate::live::LiveContestHub::new(live_enabled));
@@ -49,7 +47,6 @@ impl App {
             config: Arc::new(config),
             mailer,
             nfl,
-            sync_runner,
             avatar_runner,
             live,
             injuries: Arc::new(crate::injuries::InjuryReports::new()),
@@ -88,29 +85,22 @@ impl App {
             None => None,
         };
         let coordinator_task = Arc::new(tokio::sync::Mutex::new(live_task));
-        let scheduler_task = state.config.nfl_sync_interval().map(|interval| {
-            tokio::spawn(crate::nfl_sync::run_scheduler(
-                state.nfl.clone(),
-                state.sync_runner.clone(),
-                interval,
-            ))
-            .abort_handle()
-        });
+        if let Some(interval) = state.config.nflverse_sync_interval() {
+            state.nfl.start_scheduler(interval);
+        }
         let serve_result = axum::serve(listener, router)
             .with_graceful_shutdown(wait_for_shutdown_signal(
                 deletion_task.abort_handle(),
                 state.live.clone(),
                 Arc::clone(&coordinator_task),
-                scheduler_task.clone(),
+                state.nfl.clone(),
             ))
             .await;
 
         if serve_result.is_err() {
             state.live.shutdown();
             deletion_task.abort();
-            if let Some(task) = scheduler_task {
-                task.abort();
-            }
+            state.nfl.stop_scheduler();
         }
 
         match deletion_task.await {
@@ -139,7 +129,7 @@ async fn wait_for_shutdown_signal(
     abort_handle: tokio::task::AbortHandle,
     live: Arc<crate::live::LiveContestHub>,
     coordinator_task: Arc<tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>,
-    scheduler_task: Option<tokio::task::AbortHandle>,
+    nfl: Arc<nfl_data::NflData>,
 ) {
     let ctrl_c = async {
         match tokio::signal::ctrl_c().await {
@@ -170,12 +160,7 @@ async fn wait_for_shutdown_signal(
     tracing::info!("shutdown signal received, draining");
     live.shutdown();
     abort_handle.abort();
-    // The ticker loop never returns, so joining would hang shutdown — abort
-    // is required. Its sync jobs run detached (Runner::try_start) and are not
-    // what a join would wait on.
-    if let Some(handle) = scheduler_task {
-        handle.abort();
-    }
+    nfl.stop_scheduler();
     if let Some(task) = coordinator_task.lock().await.take() {
         match task.await {
             Ok(()) => {}

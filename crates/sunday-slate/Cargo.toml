@@ -13,6 +13,7 @@ name = "sunday-slate"
 path = "src/main.rs"
 
 [dependencies]
+utils = { path = "../utils" }
 anyhow.workspace = true
 nfl-data = { path = "../nfl-data" }
 tank01-data = { path = "../tank01-data" }
@@ -62,6 +63,7 @@ debug-embed = ["rust-embed/debug-embed"]
 test-support = []
 
 [dev-dependencies]
+utils = { path = "../utils", features = ["test-support"] }
 axum-test = { workspace = true }
 fake = { workspace = true, features = ["derive", "http", "uuid", "time", "url"] }
 tokio = { workspace = true, features = ["test-util", "macros"] }

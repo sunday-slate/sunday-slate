@@ -71,12 +71,12 @@ impl TestApp {
             bind_addr: "127.0.0.1:0".to_string(),
             base_url: "http://localhost:3000".to_string(),
             mail_from: "Sunday Slate <no-reply@example.com>".to_string(),
-            nfl_github_token: None,
+            nflverse_github_token: None,
             tank01_api_key: None,
             live_dev_feed,
             live_dev_feed_tick_ms: 3000,
-            nfl_sync_interval_secs: 0,
-            nfl_database_url: "sqlite://./storage/nfl-data.db".to_string(),
+            nflverse_sync_interval_secs: 0,
+            nflverse_database_url: "sqlite://./storage/nflverse-cache.db".to_string(),
             season: 2025,
             media_dir: media_dir.path().to_path_buf(),
             smtp: None,
@@ -95,7 +95,6 @@ impl TestApp {
                 .expect("in-memory nfl-data"),
         );
 
-        let sync_runner = Arc::new(crate::nfl_sync::NflverseSyncRunner::new());
         let avatar_runner = Arc::new(crate::avatars::AvatarFetchRunner::new());
 
         let state = AppState {
@@ -104,7 +103,6 @@ impl TestApp {
             config: Arc::new(config),
             mailer: mailer.clone(),
             nfl: nfl.clone(),
-            sync_runner,
             avatar_runner,
             live: Arc::new(crate::live::LiveContestHub::new(true)),
             injuries: Arc::new(crate::injuries::InjuryReports::new()),

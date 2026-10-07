@@ -1,6 +1,4 @@
-use time::OffsetDateTime;
-
-use crate::Secret;
+use utils::Secret;
 
 #[derive(Debug, Clone)]
 pub struct NflDataConfig {
@@ -14,13 +12,25 @@ pub struct NflDataConfig {
     pub github_api_base: String,
 }
 
+impl From<NflDataConfig> for nflverse_data::NflverseDataConfig {
+    fn from(config: NflDataConfig) -> Self {
+        Self {
+            database_url: config.database_url,
+            earliest_season: config.earliest_season,
+            github_token: config.github_token,
+            github_api_base: config.github_api_base,
+        }
+    }
+}
+
 impl Default for NflDataConfig {
     fn default() -> Self {
+        let config = nflverse_data::NflverseDataConfig::default();
         Self {
-            database_url: "sqlite://storage/nfl-data.db".into(),
-            earliest_season: (OffsetDateTime::now_utc().year() - 2) as u16,
-            github_token: None,
-            github_api_base: "https://api.github.com".into(),
+            database_url: config.database_url,
+            earliest_season: config.earliest_season,
+            github_token: config.github_token,
+            github_api_base: config.github_api_base,
         }
     }
 }

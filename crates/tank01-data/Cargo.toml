@@ -6,7 +6,8 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-nfl-data = { path = "../nfl-data" }
+utils = { path = "../utils" }
+nfl-model = { path = "../nfl-model" }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -16,5 +17,7 @@ tokio = { workspace = true }
 tracing.workspace = true
 
 [dev-dependencies]
+time = { workspace = true, features = ["serde-human-readable"] }
+tokio = { workspace = true, features = ["test-util"] }
 tempfile = { workspace = true }
 wiremock = { workspace = true }

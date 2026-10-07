@@ -5,7 +5,7 @@ use std::{
 };
 
 use ::time::Date;
-use nfl_data::{
+use nfl_model::{
     LiveGame, LiveGamePhase, LiveGameSnapshot, LiveScoreProvider, LiveScoreboard, LiveSlate,
     ProviderOutcome, ProviderResponse,
 };
@@ -595,7 +595,7 @@ mod tests {
         OffsetDateTime,
         macros::{date, datetime},
     };
-    use nfl_data::{
+    use nfl_model::{
         EspnPlayerId, LiveGamePhase, LiveGameSnapshot, LivePlayerStats, LiveProviderError,
         LiveScoreboardGame, LiveTeamStats, RawBody, Season, SeasonType, TeamAbbr, Week,
     };

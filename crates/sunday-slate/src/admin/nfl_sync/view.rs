@@ -2,10 +2,11 @@ use askama::Template;
 use nfl_data::DatasetFreshness;
 use time::OffsetDateTime;
 
-use crate::background::{LastRun, LastRunView, RunnerState, format_timestamp};
+use crate::background::{LastRunExt, LastRunView, format_timestamp};
 use crate::chrome::Chrome;
 use crate::web::FormView;
 use crate::{AppError, AppState};
+use utils::background::{LastRun, RunnerState};
 
 #[derive(Template)]
 #[template(path = "admin/nfl_sync.html", blocks = ["panel"])]
@@ -35,14 +36,14 @@ impl NflSyncTemplate {
         if let RunnerState::Running {
             started_at,
             progress: freshness,
-        } = state.sync_runner.snapshot()
+        } = state.nfl.refresh_status()
         {
             return Ok(Self::running(started_at, freshness));
         }
         let freshness = state.nfl.freshness().await?;
-        match state.sync_runner.snapshot() {
+        match state.nfl.refresh_status() {
             RunnerState::Idle { last } => {
-                let scheduler_line = state.config.nfl_sync_interval().map(|interval| {
+                let scheduler_line = state.config.nflverse_sync_interval().map(|interval| {
                     format!(
                         "Automatic refresh {}.",
                         crate::nfl_sync::interval_label(interval.as_secs())
@@ -110,7 +111,7 @@ mod tests {
     use time::macros::datetime;
 
     use super::NflSyncTemplate;
-    use crate::background::LastRun;
+    use utils::background::LastRun;
 
     fn freshness() -> Vec<DatasetFreshness> {
         vec![DatasetFreshness {

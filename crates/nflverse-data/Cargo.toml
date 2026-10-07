@@ -1,0 +1,28 @@
+[package]
+name = "nflverse-data"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+clap.workspace = true
+tracing-subscriber.workspace = true
+nfl-model = { path = "../nfl-model" }
+utils = { path = "../utils" }
+csv.workspace = true
+flate2.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+utils = { path = "../utils", features = ["test-support"] }
+tempfile.workspace = true
+wiremock.workspace = true

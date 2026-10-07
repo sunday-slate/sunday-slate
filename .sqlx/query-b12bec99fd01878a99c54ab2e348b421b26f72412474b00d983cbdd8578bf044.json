@@ -1,0 +1,278 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n               season AS \"season: Season\",\n               week AS \"week: Week\",\n               season_type AS \"season_type: SeasonType\",\n               gsis_id,\n               team AS \"team: TeamAbbr\",\n               opponent AS \"opponent: TeamAbbr\",\n               completions AS \"completions: u32\",\n               attempts AS \"attempts: u32\",\n               passing_yards AS \"passing_yards: i32\",\n               passing_tds AS \"passing_tds: u32\",\n               passing_interceptions AS \"passing_interceptions: u32\",\n               rushing_attempts AS \"rushing_attempts: u32\",\n               rushing_yards AS \"rushing_yards: i32\",\n               rushing_tds AS \"rushing_tds: u32\",\n               targets AS \"targets: u32\",\n               receptions AS \"receptions: u32\",\n               receiving_yards AS \"receiving_yards: i32\",\n               receiving_tds AS \"receiving_tds: u32\",\n               fumbles_lost AS \"fumbles_lost: u32\",\n               two_point_conversions AS \"two_point_conversions: u32\",\n               special_teams_tds AS \"special_teams_tds: u32\",\n               fumble_recovery_tds AS \"fumble_recovery_tds: u32\"\n           FROM player_week_stats\n           WHERE season = ? AND week = ?\n           ORDER BY gsis_id, season_type",
+  "describe": {
+    "columns": [
+      {
+        "name": "season: Season",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "player_week_stats",
+            "name": "season"
+          }
+        }
+      },
+      {
+        "name": "week: Week",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "player_week_stats",
+            "name": "week"
+          }
+        }
+      },
+      {
+        "name": "season_type: SeasonType",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "player_week_stats",
+            "name": "season_type"
+          }
+        }
+      },
+      {
+        "name": "gsis_id",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "player_week_stats",
+            "name": "gsis_id"
+          }
+        }
+      },
+      {
+        "name": "team: TeamAbbr",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "player_week_stats",
+            "name": "team"
+          }
+        }
+      },
+      {
+        "name": "opponent: TeamAbbr",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "player_week_stats",
+            "name": "opponent"
+          }
+        }
+      },
+      {
+        "name": "completions: u32",
+        "ordinal": 6,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "player_week_stats",
+            "name": "completions"
+          }
+        }
+      },
+      {
+        "name": "attempts: u32",
+        "ordinal": 7,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "player_week_stats",
+            "name": "attempts"
+          }
+        }
+      },
+      {
+        "name": "passing_yards: i32",
+        "ordinal": 8,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "player_week_stats",
+            "name": "passing_yards"
+          }
+        }
+      },
+      {
+        "name": "passing_tds: u32",
+        "ordinal": 9,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "player_week_stats",
+            "name": "passing_tds"
+          }
+        }
+      },
+      {
+        "name": "passing_interceptions: u32",
+        "ordinal": 10,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "player_week_stats",
+            "name": "passing_interceptions"
+          }
+        }
+      },
+      {
+        "name": "rushing_attempts: u32",
+        "ordinal": 11,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "player_week_stats",
+            "name": "rushing_attempts"
+          }
+        }
+      },
+      {
+        "name": "rushing_yards: i32",
+        "ordinal": 12,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "player_week_stats",
+            "name": "rushing_yards"
+          }
+        }
+      },
+      {
+        "name": "rushing_tds: u32",
+        "ordinal": 13,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "player_week_stats",
+            "name": "rushing_tds"
+          }
+        }
+      },
+      {
+        "name": "targets: u32",
+        "ordinal": 14,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "player_week_stats",
+            "name": "targets"
+          }
+        }
+      },
+      {
+        "name": "receptions: u32",
+        "ordinal": 15,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "player_week_stats",
+            "name": "receptions"
+          }
+        }
+      },
+      {
+        "name": "receiving_yards: i32",
+        "ordinal": 16,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "player_week_stats",
+            "name": "receiving_yards"
+          }
+        }
+      },
+      {
+        "name": "receiving_tds: u32",
+        "ordinal": 17,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "player_week_stats",
+            "name": "receiving_tds"
+          }
+        }
+      },
+      {
+        "name": "fumbles_lost: u32",
+        "ordinal": 18,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "player_week_stats",
+            "name": "fumbles_lost"
+          }
+        }
+      },
+      {
+        "name": "two_point_conversions: u32",
+        "ordinal": 19,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "player_week_stats",
+            "name": "two_point_conversions"
+          }
+        }
+      },
+      {
+        "name": "special_teams_tds: u32",
+        "ordinal": 20,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "player_week_stats",
+            "name": "special_teams_tds"
+          }
+        }
+      },
+      {
+        "name": "fumble_recovery_tds: u32",
+        "ordinal": 21,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "player_week_stats",
+            "name": "fumble_recovery_tds"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "b12bec99fd01878a99c54ab2e348b421b26f72412474b00d983cbdd8578bf044"
+}

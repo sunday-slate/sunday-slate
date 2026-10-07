@@ -1,4 +1,4 @@
-use nfl_data::Secret;
+use utils::Secret;
 
 use lettre::{
     AsyncSmtpTransport, Tokio1Executor,

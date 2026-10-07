@@ -4,7 +4,7 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use crate::mail::transport::SmtpConfig;
-use nfl_data::Secret;
+use utils::Secret;
 
 fn default_database_url() -> String {
     "sqlite://./storage/sunday-slate.db".to_string()
@@ -18,8 +18,8 @@ fn default_bind_addr() -> String {
 fn default_mail_from() -> String {
     "Sunday Slate <no-reply@example.com>".to_string()
 }
-fn default_nfl_database_url() -> String {
-    "sqlite://./storage/nfl-data.db".to_string()
+fn default_nflverse_database_url() -> String {
+    "sqlite://./storage/nflverse-cache.db".to_string()
 }
 fn default_season() -> u16 {
     2026
@@ -54,11 +54,11 @@ pub struct Config {
     #[serde(default = "default_mail_from")]
     pub mail_from: String,
 
-    #[serde(default = "default_nfl_database_url")]
-    pub nfl_database_url: String,
+    #[serde(default = "default_nflverse_database_url")]
+    pub nflverse_database_url: String,
 
     #[serde(default)]
-    pub nfl_github_token: Option<Secret>,
+    pub nflverse_github_token: Option<Secret>,
     #[serde(default)]
     pub tank01_api_key: Option<Secret>,
     #[serde(default)]
@@ -66,7 +66,7 @@ pub struct Config {
     #[serde(default = "default_live_dev_tick_ms")]
     pub live_dev_feed_tick_ms: u64,
     #[serde(default)]
-    pub nfl_sync_interval_secs: u64,
+    pub nflverse_sync_interval_secs: u64,
     #[serde(default = "default_season")]
     pub season: u16,
 
@@ -113,9 +113,9 @@ impl Config {
     }
 
     /// Automatic nflverse-sync cadence, or None when disabled.
-    pub fn nfl_sync_interval(&self) -> Option<std::time::Duration> {
-        (self.nfl_sync_interval_secs > 0)
-            .then(|| std::time::Duration::from_secs(self.nfl_sync_interval_secs))
+    pub fn nflverse_sync_interval(&self) -> Option<std::time::Duration> {
+        (self.nflverse_sync_interval_secs > 0)
+            .then(|| std::time::Duration::from_secs(self.nflverse_sync_interval_secs))
     }
 }
 
@@ -138,7 +138,18 @@ mod tests {
             ("SUNDAY_SLATE__SMTP__PASSWORD".into(), "secret".into()),
             ("SUNDAY_SLATE__LIVE_DEV_FEED".into(), "true".into()),
             ("SUNDAY_SLATE__LIVE_DEV_FEED_TICK_MS".into(), "1500".into()),
-            ("SUNDAY_SLATE__NFL_SYNC_INTERVAL_SECS".into(), "3600".into()),
+            (
+                "SUNDAY_SLATE__NFLVERSE_SYNC_INTERVAL_SECS".into(),
+                "3600".into(),
+            ),
+            (
+                "SUNDAY_SLATE__NFLVERSE_DATABASE_URL".into(),
+                "sqlite://cache.db".into(),
+            ),
+            (
+                "SUNDAY_SLATE__NFLVERSE_GITHUB_TOKEN".into(),
+                "nfl-token-sentinel".into(),
+            ),
         ]);
         let cfg: super::Config = config::Config::builder()
             .add_source(environment_source().source(Some(source)))
@@ -151,11 +162,19 @@ mod tests {
         assert_eq!(cfg.season, 2025);
         assert!(cfg.live_dev_feed);
         assert_eq!(cfg.live_dev_feed_tick_ms, 1500);
-        assert_eq!(cfg.nfl_sync_interval_secs, 3600);
+        assert_eq!(cfg.nflverse_sync_interval_secs, 3600);
         assert_eq!(
-            cfg.nfl_sync_interval(),
+            cfg.nflverse_sync_interval(),
             Some(std::time::Duration::from_secs(3600))
         );
+        assert_eq!(cfg.nflverse_database_url, "sqlite://cache.db");
+        assert_eq!(
+            cfg.nflverse_github_token.as_ref().unwrap().expose(),
+            "nfl-token-sentinel"
+        );
+        let debug = format!("{cfg:?}");
+        assert!(!debug.contains("nfl-token-sentinel"));
+        assert!(!debug.contains("secret"));
         let smtp = cfg.smtp.expect("prefixed SMTP configuration");
         assert_eq!(smtp.host, "smtp.example.com");
         assert_eq!(smtp.port, 2525);
@@ -164,7 +183,7 @@ mod tests {
     }
 
     #[test]
-    fn nfl_sync_interval_defaults_to_disabled() {
+    fn nflverse_sync_interval_defaults_to_disabled() {
         let cfg: super::Config = config::Config::builder()
             .add_source(environment_source().source(Some(HashMap::new())))
             .build()
@@ -172,15 +191,15 @@ mod tests {
             .try_deserialize()
             .unwrap();
 
-        assert_eq!(cfg.nfl_sync_interval_secs, 0);
-        assert_eq!(cfg.nfl_sync_interval(), None);
+        assert_eq!(cfg.nflverse_sync_interval_secs, 0);
+        assert_eq!(cfg.nflverse_sync_interval(), None);
     }
 
     #[test]
-    fn nfl_sync_interval_zero_is_off() {
+    fn nflverse_sync_interval_zero_is_off() {
         let cfg: super::Config = config::Config::builder()
             .add_source(environment_source().source(Some(HashMap::from([(
-                "SUNDAY_SLATE__NFL_SYNC_INTERVAL_SECS".into(),
+                "SUNDAY_SLATE__NFLVERSE_SYNC_INTERVAL_SECS".into(),
                 "0".into(),
             )]))))
             .build()
@@ -188,8 +207,34 @@ mod tests {
             .try_deserialize()
             .unwrap();
 
-        assert_eq!(cfg.nfl_sync_interval_secs, 0);
-        assert_eq!(cfg.nfl_sync_interval(), None);
+        assert_eq!(cfg.nflverse_sync_interval_secs, 0);
+        assert_eq!(cfg.nflverse_sync_interval(), None);
+    }
+
+    #[test]
+    fn legacy_nfl_settings_have_no_aliases() {
+        let cfg: super::Config = config::Config::builder()
+            .add_source(environment_source().source(Some(HashMap::from([
+                (
+                    "SUNDAY_SLATE__NFL_DATABASE_URL".into(),
+                    "sqlite://legacy.db".into(),
+                ),
+                (
+                    "SUNDAY_SLATE__NFL_GITHUB_TOKEN".into(),
+                    "legacy-token".into(),
+                ),
+                ("SUNDAY_SLATE__NFL_SYNC_INTERVAL_SECS".into(), "3600".into()),
+            ]))))
+            .build()
+            .unwrap()
+            .try_deserialize()
+            .unwrap();
+        assert_eq!(
+            cfg.nflverse_database_url,
+            "sqlite://./storage/nflverse-cache.db"
+        );
+        assert!(cfg.nflverse_github_token.is_none());
+        assert_eq!(cfg.nflverse_sync_interval(), None);
     }
 
     #[test]
@@ -214,12 +259,12 @@ mod tests {
             bind_addr: "127.0.0.1:3000".into(),
             base_url: "http://localhost:3000".into(),
             mail_from: "Sunday Slate <no-reply@example.com>".into(),
-            nfl_database_url: "sqlite://./storage/nfl-data.db".into(),
-            nfl_github_token: None,
+            nflverse_database_url: "sqlite://./storage/nflverse-cache.db".into(),
+            nflverse_github_token: None,
             tank01_api_key: None,
             live_dev_feed: false,
             live_dev_feed_tick_ms: 3000,
-            nfl_sync_interval_secs: 0,
+            nflverse_sync_interval_secs: 0,
             season: 2025,
             media_dir: "./storage/media".into(),
             smtp: None,

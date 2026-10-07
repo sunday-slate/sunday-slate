@@ -366,8 +366,6 @@ mod tests {
             last_name: None,
             position: None,
             latest_team: Some(NflTeamAbbr(team.into())),
-            status: None,
-            birth_date: None,
             headshot_url: None,
         }
     }
@@ -427,7 +425,6 @@ mod tests {
             full_name: name.into(),
             last_name: name.split_whitespace().next_back().map(String::from),
             position: Some(pos.into()),
-            status: "ACT".into(),
         }
     }
 
