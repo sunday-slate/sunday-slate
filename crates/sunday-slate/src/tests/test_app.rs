@@ -76,7 +76,7 @@ impl TestApp {
             live_dev_feed,
             live_dev_feed_tick_ms: 3000,
             nflverse_sync_interval_secs: 0,
-            nflverse_database_url: "sqlite://./storage/nflverse-data.db".to_string(),
+            nflverse_database_url: "sqlite://./storage/nflverse-cache.db".to_string(),
             season: 2025,
             media_dir: media_dir.path().to_path_buf(),
             smtp: None,

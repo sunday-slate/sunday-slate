@@ -10,7 +10,7 @@ struct Args {
     #[arg(
         long,
         env = "NFLVERSE_DATABASE_URL",
-        default_value = "sqlite://storage/nflverse-data.db"
+        default_value = "sqlite://storage/nflverse-cache.db"
     )]
     database_url: String,
 

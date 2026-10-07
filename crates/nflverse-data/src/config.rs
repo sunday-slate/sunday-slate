@@ -17,7 +17,7 @@ pub struct NflDataConfig {
 impl Default for NflDataConfig {
     fn default() -> Self {
         Self {
-            database_url: "sqlite://storage/nflverse-data.db".into(),
+            database_url: "sqlite://storage/nflverse-cache.db".into(),
             earliest_season: (OffsetDateTime::now_utc().year() - 2) as u16,
             github_token: None,
             github_api_base: "https://api.github.com".into(),

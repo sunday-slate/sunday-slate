@@ -96,7 +96,7 @@ async fn mock_nflverse(assets: &[FakeAsset]) -> MockServer {
 
 fn config(server: &MockServer, dir: &tempfile::TempDir) -> NflverseDataConfig {
     NflverseDataConfig {
-        database_url: format!("sqlite://{}/nflverse-data.db", dir.path().display()),
+        database_url: format!("sqlite://{}/nflverse-cache.db", dir.path().display()),
         earliest_season: 2025,
         github_token: None,
         github_api_base: server.uri(),

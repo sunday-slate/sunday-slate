@@ -4,7 +4,7 @@ use nflverse_data::{NflverseData, NflverseDataConfig};
 async fn connect_creates_database_and_schema() {
     let dir = tempfile::tempdir().unwrap();
     let config = NflverseDataConfig {
-        database_url: format!("sqlite://{}/nflverse-data.db", dir.path().display()),
+        database_url: format!("sqlite://{}/nflverse-cache.db", dir.path().display()),
         ..Default::default()
     };
 

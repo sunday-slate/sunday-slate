@@ -19,7 +19,7 @@ fn default_mail_from() -> String {
     "Sunday Slate <no-reply@example.com>".to_string()
 }
 fn default_nflverse_database_url() -> String {
-    "sqlite://./storage/nflverse-data.db".to_string()
+    "sqlite://./storage/nflverse-cache.db".to_string()
 }
 fn default_season() -> u16 {
     2026
@@ -231,7 +231,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             cfg.nflverse_database_url,
-            "sqlite://./storage/nflverse-data.db"
+            "sqlite://./storage/nflverse-cache.db"
         );
         assert!(cfg.nflverse_github_token.is_none());
         assert_eq!(cfg.nflverse_sync_interval(), None);
@@ -259,7 +259,7 @@ mod tests {
             bind_addr: "127.0.0.1:3000".into(),
             base_url: "http://localhost:3000".into(),
             mail_from: "Sunday Slate <no-reply@example.com>".into(),
-            nflverse_database_url: "sqlite://./storage/nflverse-data.db".into(),
+            nflverse_database_url: "sqlite://./storage/nflverse-cache.db".into(),
             nflverse_github_token: None,
             tank01_api_key: None,
             live_dev_feed: false,

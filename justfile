@@ -1,8 +1,8 @@
 export DATABASE_FILE := "./storage/sunday-slate.db"
 export DATABASE_URL := "sqlite://./storage/sunday-slate.db"
 
-export NFLVERSE_DATABASE_FILE := "./storage/nflverse-data.db"
-export NFLVERSE_DATABASE_URL := "sqlite://./storage/nflverse-data.db"
+export NFLVERSE_DATABASE_FILE := "./storage/nflverse-cache.db"
+export NFLVERSE_DATABASE_URL := "sqlite://./storage/nflverse-cache.db"
 
 export SQLX_OFFLINE := "true"
 
@@ -80,7 +80,7 @@ db-migrate:
 db-browser:
     uvx datasette serve --crossdb $DATABASE_FILE $NFLVERSE_DATABASE_FILE
 
-# Fetch the latest nflverse data into storage/nflverse-data.db
+# Fetch the latest nflverse data into storage/nflverse-cache.db
 [group('nfl')]
 nfl-sync *ARGS:
     cargo run -p nflverse-data --bin nfl-sync -- {{ARGS}}

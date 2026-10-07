@@ -14,7 +14,7 @@ Not required for Sunday Slate, but useful on gameday. The app considers Nflverse
 ## Fresh Cache Setup
 
 The nflverse provider stores its rebuildable source cache in
-`storage/nflverse-data.db`. Sunday Slate's managed players, teams, contests,
+`storage/nflverse-cache.db`. Sunday Slate's managed players, teams, contests,
 salaries, and identifier links remain in `storage/sunday-slate.db`.
 
 For Rust consumers, `nfl-data` retains its facade API and re-exports shared model
@@ -35,7 +35,7 @@ The new cache uses a single baseline migration. Do not point it at an existing
 against it. Leave the old database untouched and fetch a fresh cache instead.
 Only the new provider cache may be removed and recreated; never delete the
 application database to refresh NFL data. SQLx preparation and the database
-browser now use `NFLVERSE_DATABASE_URL` and `storage/nflverse-data.db`.
+browser now use `NFLVERSE_DATABASE_URL` and `storage/nflverse-cache.db`.
 
 ## Application Settings
 
@@ -44,7 +44,7 @@ These TOML keys replace the former `nfl_database_url`, `nfl_github_token`, and
 
 | TOML key | Environment variable | Default |
 | --- | --- | --- |
-| `nflverse_database_url` | `SUNDAY_SLATE__NFLVERSE_DATABASE_URL` | `sqlite://./storage/nflverse-data.db` |
+| `nflverse_database_url` | `SUNDAY_SLATE__NFLVERSE_DATABASE_URL` | `sqlite://./storage/nflverse-cache.db` |
 | `nflverse_github_token` | `SUNDAY_SLATE__NFLVERSE_GITHUB_TOKEN` | Unset (public GitHub access) |
 | `nflverse_sync_interval_secs` | `SUNDAY_SLATE__NFLVERSE_SYNC_INTERVAL_SECS` | `0` (manual only) |
 
