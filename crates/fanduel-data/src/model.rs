@@ -1,7 +1,7 @@
 use nfl_model::{DfsPosition, TeamAbbr};
 use serde::Deserialize;
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, Deserialize)]
 pub struct RawSalaryRow {
     #[serde(rename = "Id")]
     pub id: String,
@@ -52,7 +52,7 @@ impl RawSalaryRow {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Matchup {
     pub away: TeamAbbr,
     pub home: TeamAbbr,
@@ -68,7 +68,7 @@ pub struct InterpretedRow {
     pub diagnostics: Vec<RowDiagnostic>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RowDiagnostic {
     pub row_number: u64,
     pub field: String,

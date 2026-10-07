@@ -9,3 +9,12 @@ license.workspace = true
 csv.workspace = true
 nfl-model = { path = "../nfl-model" }
 serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
