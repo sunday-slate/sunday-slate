@@ -117,11 +117,6 @@ async fn sync_one_asset(
             let players = ingest::players::parse(&asset.name, &bytes)?;
             store::players::replace(store, &synced, &players).await?
         }
-        Dataset::Rosters => {
-            let entries = ingest::rosters::parse(&asset.name, &bytes)?;
-            let season = season.expect("per-season datasets always carry a season");
-            store::rosters::replace(store, &synced, Season(season), &entries).await?
-        }
         Dataset::WeeklyRosters => {
             let entries = ingest::weekly_rosters::parse(&asset.name, &bytes)?;
             let season = season.expect("per-season datasets always carry a season");
@@ -154,7 +149,6 @@ fn select_assets<'a>(
     match dataset {
         Dataset::Schedules => single_asset(release, dataset, "games"),
         Dataset::Players => single_asset(release, dataset, "players"),
-        Dataset::Rosters => Ok(per_season_assets(release, "roster_", earliest_season)),
         Dataset::WeeklyRosters => Ok(per_season_assets(
             release,
             "roster_weekly_",

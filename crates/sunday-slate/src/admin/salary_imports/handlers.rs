@@ -410,8 +410,6 @@ mod tests {
             last_name: Some(last.into()).filter(|l: &String| !l.is_empty()),
             position: Some(pos.into()),
             latest_team: Some(NflTeamAbbr(team.into())),
-            status: None,
-            birth_date: None,
             headshot_url: None,
         }
     }
@@ -695,7 +693,6 @@ mod tests {
             full_name: name.into(),
             last_name: Some(last.into()).filter(|l: &String| !l.is_empty()),
             position: Some(pos.into()),
-            status: "ACT".into(),
         }
     }
 

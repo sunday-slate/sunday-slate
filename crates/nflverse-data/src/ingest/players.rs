@@ -1,6 +1,4 @@
 use serde::Deserialize;
-use time::Date;
-use time::macros::format_description;
 
 use crate::error::NflDataError;
 use crate::ingest::{optional_espn_id, parse_csv};
@@ -16,8 +14,6 @@ struct RawPlayer {
     last_name: Option<String>,
     position: Option<String>,
     latest_team: Option<String>,
-    status: Option<String>,
-    birth_date: Option<String>,
     headshot: Option<String>,
 }
 
@@ -26,13 +22,6 @@ pub(crate) fn parse(asset: &str, bytes: &[u8]) -> Result<Vec<Player>, NflDataErr
         // gsis_id keys this dataset and joins it to rosters/stats; verified
         // always present upstream — treat absence as malformed, not skippable.
         let gsis_id = raw.gsis_id.ok_or_else(|| "missing gsis_id".to_string())?;
-        let birth_date = match raw.birth_date.as_deref() {
-            None | Some("") => None,
-            Some(d) => Some(
-                Date::parse(d, format_description!("[year]-[month]-[day]"))
-                    .map_err(|e| format!("bad birth_date {d:?}: {e}"))?,
-            ),
-        };
         Ok(Some(Player {
             gsis_id,
             espn_id: optional_espn_id(raw.espn_id)?,
@@ -41,8 +30,6 @@ pub(crate) fn parse(asset: &str, bytes: &[u8]) -> Result<Vec<Player>, NflDataErr
             last_name: raw.last_name,
             position: raw.position,
             latest_team: raw.latest_team.map(TeamAbbr),
-            status: raw.status,
-            birth_date,
             headshot_url: raw.headshot,
         }))
     })
@@ -50,8 +37,6 @@ pub(crate) fn parse(asset: &str, bytes: &[u8]) -> Result<Vec<Player>, NflDataErr
 
 #[cfg(test)]
 mod tests {
-    use time::macros::date;
-
     use super::*;
 
     // Header + rows verbatim from nflverse players.csv (2026-07-01).
@@ -72,25 +57,11 @@ gsis_id,display_name,common_first_name,first_name,last_name,short_name,football_
         assert_eq!(love.espn_id.as_deref(), Some("4036378"));
         assert_eq!(love.position.as_deref(), Some("QB"));
         assert_eq!(love.latest_team, Some(TeamAbbr("GB".into())));
-        assert_eq!(love.status.as_deref(), Some("ACT"));
-        assert_eq!(love.birth_date, Some(date!(1998 - 11 - 02)));
         assert!(
             love.headshot_url
                 .as_deref()
                 .unwrap()
                 .starts_with("https://")
-        );
-    }
-
-    #[test]
-    fn malformed_birth_date_names_asset_and_row() {
-        let csv = "gsis_id,display_name,espn_id,first_name,last_name,position,latest_team,status,birth_date,headshot\n\
-00-0000001,Bad Date,123,Bad,Date,QB,GB,ACT,not-a-date,\n";
-        let err = parse("players.csv", csv.as_bytes()).unwrap_err();
-        let rendered = err.to_string();
-        assert!(
-            rendered.contains("players.csv") && rendered.contains("row 2"),
-            "{rendered}"
         );
     }
 

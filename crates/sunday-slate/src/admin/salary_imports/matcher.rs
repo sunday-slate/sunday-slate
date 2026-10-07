@@ -202,8 +202,6 @@ mod tests {
             last_name: None,
             position: None,
             latest_team: Some(NflTeamAbbr(team.into())),
-            status: None,
-            birth_date: None,
             headshot_url: None,
         }
     }
@@ -249,7 +247,6 @@ mod tests {
             full_name: name.into(),
             last_name: None,
             position: pos.map(Into::into),
-            status: "ACT".into(),
         }
     }
 

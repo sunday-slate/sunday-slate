@@ -17,8 +17,6 @@ fn player() -> Player {
         last_name: None,
         position: Some("RB".into()),
         latest_team: Some(TeamAbbr("KC".into())),
-        status: None,
-        birth_date: None,
         headshot_url: Some("https://example.test/player.png".into()),
     }
 }
@@ -51,7 +49,6 @@ async fn empty_provider_reads_preserve_missing_result_behavior() {
     );
     assert!(nfl.identify(&["missing"]).await.unwrap().is_empty());
     let team = TeamAbbr("KC".into());
-    assert!(nfl.roster(Season(2025), &team).await.unwrap().is_empty());
     assert!(
         nfl.weekly_roster(Season(2025), Week(1), &team)
             .await
@@ -77,7 +74,7 @@ async fn empty_provider_reads_preserve_missing_result_behavior() {
             .is_empty()
     );
     let freshness = nfl.freshness().await.unwrap();
-    assert_eq!(freshness.len(), 6);
+    assert_eq!(freshness.len(), 5);
     assert!(
         freshness
             .iter()
@@ -103,7 +100,6 @@ async fn seeded_records_survive_reopening_and_identity_prefers_players() {
         full_name: "Roster Name".into(),
         last_name: None,
         position: Some("WR".into()),
-        status: "ACT".into(),
     };
     nfl.seed_weekly_roster_for_test(&[roster("00-P"), roster("00-R")])
         .await
@@ -148,7 +144,6 @@ async fn sync_forwards_upstream_configuration_and_preserves_partial_failure_repo
     let tags = [
         "schedules",
         "players",
-        "rosters",
         "weekly_rosters",
         "stats_player",
         "pbp",
@@ -186,7 +181,7 @@ async fn sync_forwards_upstream_configuration_and_preserves_partial_failure_repo
     .unwrap();
     let report = nfl.sync().await.unwrap();
     assert!(!report.all_ok());
-    assert_eq!(report.datasets.len(), 6);
+    assert_eq!(report.datasets.len(), 5);
     assert!(matches!(
         report.datasets[0].status,
         DatasetStatus::Updated { assets: 1, rows: 1 }

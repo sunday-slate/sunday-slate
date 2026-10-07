@@ -99,8 +99,6 @@ mod tests {
                     last_name: None,
                     position: Some("QB".into()),
                     latest_team: Some(nfl_data::TeamAbbr("KC".into())),
-                    status: None,
-                    birth_date: None,
                     headshot_url: None,
                 }],
                 &[],

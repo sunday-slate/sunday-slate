@@ -15,7 +15,7 @@ pub use live::{
 };
 pub use nfl_model::live;
 pub use nfl_model::{
-    Game, Player, PlayerWeekStats, RosterEntry, Season, SeasonType, TeamAbbr, TeamWeekStats, Week,
+    Game, Player, PlayerWeekStats, Season, SeasonType, TeamAbbr, TeamWeekStats, Week,
     WeeklyRosterEntry, eastern_offset, to_eastern,
 };
 pub use nflverse_data::{
@@ -153,18 +153,7 @@ impl NflData {
         self.provider.players_by_gsis(ids).await
     }
 
-    /// A team's cached roster for a season, ordered by player name.
-    pub async fn roster(
-        &self,
-        season: Season,
-        team: &TeamAbbr,
-    ) -> Result<Vec<RosterEntry>, NflDataError> {
-        self.provider.roster(season, team).await
-    }
-
-    /// A team's cached roster for one week, ordered by player name. Prefer this
-    /// over [`Self::roster`] when the question is "who was on this team *then*" —
-    /// the season roster reflects only where each player ended up.
+    /// A team's cached roster for one week, ordered by player name.
     pub async fn weekly_roster(
         &self,
         season: Season,
@@ -248,8 +237,6 @@ mod identify_tests {
             last_name: None,
             position: Some("RB".into()),
             latest_team: Some(TeamAbbr("KC".into())),
-            status: None,
-            birth_date: None,
             headshot_url: None,
         }
     }
@@ -264,7 +251,6 @@ mod identify_tests {
             full_name: name.into(),
             last_name: None,
             position: Some("WR".into()),
-            status: "ACT".into(),
         }
     }
 
@@ -305,8 +291,6 @@ mod identify_tests {
             last_name: None,
             position: Some("QB".into()),
             latest_team: Some(TeamAbbr("KC".into())),
-            status: None,
-            birth_date: None,
             headshot_url: Some("https://img.example/photo.png".into()),
         };
         nfl.seed_for_test(&[player], &[]).await.unwrap();

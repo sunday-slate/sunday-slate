@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT\n               season AS \"season: Season\",\n               week AS \"week: Week\",\n               team AS \"team: TeamAbbr\",\n               gsis_id,\n               espn_id,\n               full_name,\n               last_name,\n               position,\n               status\n           FROM weekly_roster_entries\n           WHERE season = ? AND week = ? AND team = ?\n           ORDER BY last_name, full_name, id",
+  "query": "SELECT\n               season AS \"season: Season\",\n               week AS \"week: Week\",\n               team AS \"team: TeamAbbr\",\n               gsis_id,\n               espn_id,\n               full_name,\n               last_name,\n               position\n           FROM weekly_roster_entries\n           WHERE season = ? AND week = ? AND team = ?\n           ORDER BY last_name, full_name, id",
   "describe": {
     "columns": [
       {
@@ -90,17 +90,6 @@
             "name": "position"
           }
         }
-      },
-      {
-        "name": "status",
-        "ordinal": 8,
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "weekly_roster_entries",
-            "name": "status"
-          }
-        }
       }
     ],
     "parameters": {
@@ -114,9 +103,8 @@
       true,
       false,
       true,
-      true,
-      false
+      true
     ]
   },
-  "hash": "ec6d3791bf57fae5a22a90bd4259a8e1045eb4b27c6759d34ed6658ea7974e91"
+  "hash": "ac43f331b953a71264cbfdb38f46722f2c630f4693995674ad34c5dd6ff5d46b"
 }

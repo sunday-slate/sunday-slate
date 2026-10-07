@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO players\n                       (gsis_id, espn_id, full_name, first_name, last_name, position,\n                        latest_team, headshot_url)\n                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 8
+    },
+    "nullable": []
+  },
+  "hash": "3616d5e67870da0c9055fede3c1995224503027b905a23d099c602d3437976dc"
+}

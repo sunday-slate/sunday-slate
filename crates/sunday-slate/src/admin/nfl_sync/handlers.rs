@@ -47,14 +47,13 @@ mod tests {
         for dataset in [
             "schedules",
             "players",
-            "rosters",
             "weekly_rosters",
             "player_week_stats",
             "team_week_stats",
         ] {
             assert!(body.contains(&format!("<td>{dataset}</td>")), "{dataset}");
         }
-        assert_eq!(body.matches("Never synced").count(), 6);
+        assert_eq!(body.matches("Never synced").count(), 5);
     }
 
     #[tokio::test]

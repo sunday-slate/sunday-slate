@@ -5,10 +5,9 @@ use time::macros::datetime;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-const TAGS: [&str; 6] = [
+const TAGS: [&str; 5] = [
     "schedules",
     "players",
-    "rosters",
     "weekly_rosters",
     "stats_player",
     "pbp",
@@ -35,12 +34,6 @@ fn fixtures() -> Vec<FakeAsset> {
             name: "players.csv",
             updated_at: "2026-07-01T11:22:19Z",
             body: include_bytes!("fixtures/players.csv").to_vec(),
-        },
-        FakeAsset {
-            tag: "rosters",
-            name: "roster_2025.csv",
-            updated_at: "2026-06-20T00:00:00Z",
-            body: include_bytes!("fixtures/roster_2025.csv").to_vec(),
         },
         FakeAsset {
             tag: "weekly_rosters",
@@ -148,15 +141,6 @@ async fn fresh_sync_populates_every_dataset() {
     let players = nfl.players().await.unwrap();
     assert_eq!(players.len(), 2);
     assert_eq!(players[1].full_name, "Jordan Love");
-
-    // Roster, including the row with no gsis_id.
-    let roster = nfl
-        .roster(Season(2025), &TeamAbbr("GB".into()))
-        .await
-        .unwrap();
-    assert_eq!(roster.len(), 2);
-    assert_eq!(roster[0].full_name, "Dante Barnett");
-    assert_eq!(roster[0].gsis_id, None);
 
     // Weekly roster: Thielen syncs onto the team he was on that week, so the
     // week-13 MIN row and the week-14 PIT row are both retrievable.
@@ -313,16 +297,17 @@ async fn failing_dataset_is_isolated_and_keeps_previous_data() {
 
 #[tokio::test]
 async fn one_bad_season_does_not_block_other_seasons_in_the_same_dataset() {
-    // Two seasons in the window for a per-season dataset (rosters): 2024's
-    // asset is malformed and fails to parse, 2025's asset is valid. Before
-    // the fix, the ascending-season loop tried 2024 first, hit `?`, and
+    // Two seasons in the window for a per-season dataset (weekly rosters):
+    // 2024's asset is malformed and fails to parse, 2025's asset is valid.
+    // Before the fix, the ascending-season loop tried 2024 first, hit `?`, and
     // aborted before ever attempting 2025 — so 2025's perfectly good data
     // never got stored. After the fix, both assets are attempted, so 2025's
-    // roster is stored even though the dataset is reported Failed overall.
+    // weekly roster is stored even though the dataset is reported Failed
+    // overall.
     let mut assets = fixtures();
     assets.push(FakeAsset {
-        tag: "rosters",
-        name: "roster_2024.csv",
+        tag: "weekly_rosters",
+        name: "roster_weekly_2024.csv",
         updated_at: "2026-06-19T00:00:00Z",
         body: b"this,is,not,the,schema\n1,2,3,4,5\n".to_vec(),
     });
@@ -339,9 +324,9 @@ async fn one_bad_season_does_not_block_other_seasons_in_the_same_dataset() {
     assert!(!report.all_ok());
     for d in &report.datasets {
         match d.dataset.name() {
-            "rosters" => assert!(
+            "weekly_rosters" => assert!(
                 matches!(d.status, DatasetStatus::Failed(_)),
-                "expected rosters Failed, got {:?}",
+                "expected weekly_rosters Failed, got {:?}",
                 d.status
             ),
             name => assert!(
@@ -354,10 +339,10 @@ async fn one_bad_season_does_not_block_other_seasons_in_the_same_dataset() {
 
     // The good 2025 season was still attempted and stored, despite the
     // dataset-level status being Failed because of the bad 2024 asset.
-    let roster = nfl
-        .roster(Season(2025), &TeamAbbr("GB".into()))
+    let min_13 = nfl
+        .weekly_roster(Season(2025), Week(13), &TeamAbbr("MIN".into()))
         .await
         .unwrap();
-    assert_eq!(roster.len(), 2);
-    assert_eq!(roster[0].full_name, "Dante Barnett");
+    assert_eq!(min_13.len(), 1);
+    assert_eq!(min_13[0].full_name, "Adam Thielen");
 }

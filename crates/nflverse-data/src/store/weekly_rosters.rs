@@ -15,8 +15,8 @@ pub(crate) async fn seed(
     for e in entries {
         sqlx::query!(
             r#"INSERT INTO weekly_roster_entries
-               (season, week, team, gsis_id, espn_id, full_name, last_name, position, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+               (season, week, team, gsis_id, espn_id, full_name, last_name, position)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
             e.season,
             e.week,
             e.team,
@@ -24,8 +24,7 @@ pub(crate) async fn seed(
             e.espn_id,
             e.full_name,
             e.last_name,
-            e.position,
-            e.status
+            e.position
         )
         .execute(&mut *conn)
         .await?;
@@ -54,8 +53,8 @@ pub(crate) async fn replace(
             for e in entries {
                 sqlx::query!(
                     r#"INSERT INTO weekly_roster_entries
-                       (season, week, team, gsis_id, espn_id, full_name, last_name, position, status)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+                       (season, week, team, gsis_id, espn_id, full_name, last_name, position)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
                     e.season,
                     e.week,
                     e.team,
@@ -63,8 +62,7 @@ pub(crate) async fn replace(
                     e.espn_id,
                     e.full_name,
                     e.last_name,
-                    e.position,
-                    e.status
+                    e.position
                 )
                 .execute(&mut *conn)
                 .await?;
@@ -91,8 +89,7 @@ pub(crate) async fn for_team_week(
                espn_id,
                full_name,
                last_name,
-               position,
-               status
+               position
            FROM weekly_roster_entries
            WHERE season = ? AND week = ? AND team = ?
            ORDER BY last_name, full_name, id"#,
@@ -121,8 +118,7 @@ pub(crate) async fn by_gsis(
                espn_id,
                full_name,
                last_name,
-               position,
-               status
+               position
            FROM weekly_roster_entries
            WHERE gsis_id = ?
            ORDER BY season DESC, week DESC
@@ -147,7 +143,6 @@ mod tests {
             full_name: name.into(),
             last_name: name.split_whitespace().next_back().map(String::from),
             position: Some("WR".into()),
-            status: "ACT".into(),
         }
     }
 
@@ -177,7 +172,7 @@ mod tests {
         let (_dir, store) = store().await;
         let plan: Vec<(i64, i64, i64, String)> = sqlx::query_as(
             r#"EXPLAIN QUERY PLAN
-               SELECT season, week, team, gsis_id, full_name, last_name, position, status
+               SELECT season, week, team, gsis_id, full_name, last_name, position
                FROM weekly_roster_entries
                WHERE gsis_id = ?
                ORDER BY season DESC, week DESC

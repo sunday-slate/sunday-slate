@@ -1,7 +1,6 @@
 pub(crate) mod games;
 pub(crate) mod player_stats;
 pub(crate) mod players;
-pub(crate) mod rosters;
 pub(crate) mod sync_state;
 pub(crate) mod team_stats;
 pub(crate) mod weekly_rosters;

@@ -105,8 +105,6 @@ pub fn player(gsis: &str, name: &str) -> Player {
         last_name: None,
         position: None,
         latest_team: Some(NflTeamAbbr("KC".into())),
-        status: None,
-        birth_date: None,
         headshot_url: None,
     }
 }
@@ -123,7 +121,6 @@ pub fn weekly_roster_entry(gsis: &str, name: &str, week: u8) -> WeeklyRosterEntr
         full_name: name.into(),
         last_name: None,
         position: None,
-        status: "ACT".into(),
     }
 }
 

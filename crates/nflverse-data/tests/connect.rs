@@ -22,7 +22,6 @@ async fn connect_creates_database_and_schema() {
             "games",
             "player_week_stats",
             "players",
-            "roster_entries",
             "sync_state",
             "team_week_stats",
             "weekly_roster_entries"
@@ -106,7 +105,6 @@ async fn baseline_contains_final_columns_defaults_and_indexes_and_can_be_reverse
         [
             "idx_games_season_week",
             "idx_player_week_stats_season_week",
-            "idx_roster_entries_season_team",
             "idx_team_week_stats_season_week",
             "idx_weekly_roster_entries_gsis",
             "idx_weekly_roster_entries_season_week_team",

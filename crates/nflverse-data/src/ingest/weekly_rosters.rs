@@ -12,7 +12,6 @@ struct RawWeeklyRosterRow {
     week: u8,
     team: String,
     position: Option<String>,
-    status: String,
     full_name: String,
     last_name: Option<String>,
     gsis_id: Option<String>,
@@ -33,7 +32,6 @@ pub(crate) fn parse(asset: &str, bytes: &[u8]) -> Result<Vec<WeeklyRosterEntry>,
             full_name: raw.full_name,
             last_name: raw.last_name.filter(|n| !n.is_empty()),
             position: raw.position,
-            status: raw.status,
         }))
     })
 }
@@ -60,7 +58,6 @@ mod tests {
         assert_eq!(pit.team, TeamAbbr("PIT".into()));
         assert_eq!(pit.gsis_id.as_deref(), Some("00-0030035"));
         assert_eq!(pit.position.as_deref(), Some("WR"));
-        assert_eq!(pit.status, "ACT");
         assert_eq!(pit.last_name.as_deref(), Some("Thielen"));
 
         // Same player, same season, earlier week, different team.
@@ -84,7 +81,7 @@ mod tests {
 
     #[test]
     fn requires_numeric_espn_id_column() {
-        let malformed = "season,week,team,status,full_name,espn_id\n2025,1,GB,ACT,Player,N/A\n";
+        let malformed = "season,week,team,full_name,espn_id\n2025,1,GB,Player,N/A\n";
         let err = parse("roster_weekly_2025.csv", malformed.as_bytes()).unwrap_err();
         let rendered = err.to_string();
         assert!(

@@ -51,22 +51,8 @@ CREATE TABLE players (
     last_name    TEXT,
     position     TEXT,
     latest_team  TEXT,
-    status       TEXT,
-    birth_date   TEXT,
     headshot_url TEXT,
     espn_id      TEXT
-);
-
-CREATE TABLE roster_entries (
-    id            INTEGER PRIMARY KEY,
-    season        INTEGER NOT NULL,
-    team          TEXT    NOT NULL,
-    gsis_id       TEXT,
-    full_name     TEXT    NOT NULL,
-    position      TEXT,
-    jersey_number INTEGER,
-    status        TEXT    NOT NULL,
-    UNIQUE (season, team, gsis_id)
 );
 
 CREATE TABLE sync_state (
@@ -106,7 +92,6 @@ CREATE TABLE weekly_roster_entries (
     full_name TEXT    NOT NULL,
     last_name TEXT,
     position  TEXT,
-    status    TEXT    NOT NULL,
     espn_id   TEXT,
     UNIQUE (season, week, team, gsis_id)
 );
@@ -114,8 +99,6 @@ CREATE TABLE weekly_roster_entries (
 CREATE INDEX idx_games_season_week ON games (season, week);
 
 CREATE INDEX idx_player_week_stats_season_week ON player_week_stats (season, week);
-
-CREATE INDEX idx_roster_entries_season_team ON roster_entries (season, team);
 
 CREATE INDEX idx_team_week_stats_season_week ON team_week_stats (season, week);
 

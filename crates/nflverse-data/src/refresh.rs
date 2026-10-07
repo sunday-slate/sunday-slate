@@ -149,7 +149,6 @@ mod tests {
         for tag in [
             "schedules",
             "players",
-            "rosters",
             "weekly_rosters",
             "stats_player",
             "pbp",
@@ -279,7 +278,7 @@ mod tests {
         assert_ne!(first.unwrap(), second.unwrap());
         match provider.refresh_status() {
             RunnerState::Running { progress, .. } => {
-                assert_eq!(progress.len(), 6);
+                assert_eq!(progress.len(), 5);
                 assert!(progress.iter().all(|row| row.assets == 0));
             }
             other => panic!("expected running, got {other:?}"),

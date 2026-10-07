@@ -1,4 +1,4 @@
-use time::{Date, OffsetDateTime};
+use time::OffsetDateTime;
 
 #[derive(
     Debug,
@@ -83,26 +83,12 @@ pub struct Player {
     pub last_name: Option<String>,
     pub position: Option<String>,
     pub latest_team: Option<TeamAbbr>,
-    pub status: Option<String>,
-    pub birth_date: Option<Date>,
     pub headshot_url: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct RosterEntry {
-    pub season: Season,
-    pub team: TeamAbbr,
-    /// None for players without a GSIS assignment yet (upstream leaves it empty).
-    pub gsis_id: Option<String>,
-    pub full_name: String,
-    pub position: Option<String>,
-    pub jersey_number: Option<u16>,
-    pub status: String,
-}
-
-/// One player's place on a team's roster in a single week. Unlike
-/// [`RosterEntry`], this survives mid-season trades: a player appears under
-/// each team for the weeks he was actually there.
+/// One player's place on a team's roster in a single week. This survives
+/// mid-season trades: a player appears under each team for the weeks he was
+/// actually there.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WeeklyRosterEntry {
     pub season: Season,
@@ -116,7 +102,6 @@ pub struct WeeklyRosterEntry {
     /// ("Dante Fowler Jr." -> "Fowler"). Sort candidate lists on this.
     pub last_name: Option<String>,
     pub position: Option<String>,
-    pub status: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]

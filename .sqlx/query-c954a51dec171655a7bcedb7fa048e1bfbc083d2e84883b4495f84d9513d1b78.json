@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT\n               gsis_id,\n               espn_id,\n               full_name,\n               first_name,\n               last_name,\n               position,\n               latest_team AS \"latest_team: TeamAbbr\",\n               status,\n               birth_date AS \"birth_date: Date\",\n               headshot_url\n           FROM players\n           WHERE gsis_id = ?",
+  "query": "SELECT\n               gsis_id,\n               espn_id,\n               full_name,\n               first_name,\n               last_name,\n               position,\n               latest_team AS \"latest_team: TeamAbbr\",\n               headshot_url\n           FROM players\n           ORDER BY full_name, gsis_id",
   "describe": {
     "columns": [
       {
@@ -81,30 +81,8 @@
         }
       },
       {
-        "name": "status",
-        "ordinal": 7,
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "players",
-            "name": "status"
-          }
-        }
-      },
-      {
-        "name": "birth_date: Date",
-        "ordinal": 8,
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "players",
-            "name": "birth_date"
-          }
-        }
-      },
-      {
         "name": "headshot_url",
-        "ordinal": 9,
+        "ordinal": 7,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -115,7 +93,7 @@
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 0
     },
     "nullable": [
       false,
@@ -125,10 +103,8 @@
       true,
       true,
       true,
-      true,
-      true,
       true
     ]
   },
-  "hash": "db429e2ae613d784149a1efe3c16985c3dd2adb573f65060f1f35570bf5f4aa9"
+  "hash": "c954a51dec171655a7bcedb7fa048e1bfbc083d2e84883b4495f84d9513d1b78"
 }

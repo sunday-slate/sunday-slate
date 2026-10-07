@@ -88,7 +88,6 @@ mod tests {
         for tag in [
             "schedules",
             "players",
-            "rosters",
             "weekly_rosters",
             "stats_player",
             "pbp",

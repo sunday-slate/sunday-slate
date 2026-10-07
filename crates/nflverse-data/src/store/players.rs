@@ -1,5 +1,4 @@
 use sqlx::{SqliteConnection, SqlitePool};
-use time::Date;
 
 use crate::error::NflDataError;
 use crate::model::{Player, TeamAbbr};
@@ -17,8 +16,8 @@ pub(crate) async fn seed(
         sqlx::query!(
             r#"INSERT INTO players
                (gsis_id, espn_id, full_name, first_name, last_name, position,
-                latest_team, status, birth_date, headshot_url)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+                latest_team, headshot_url)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
             p.gsis_id,
             p.espn_id,
             p.full_name,
@@ -26,8 +25,6 @@ pub(crate) async fn seed(
             p.last_name,
             p.position,
             p.latest_team,
-            p.status,
-            p.birth_date,
             p.headshot_url
         )
         .execute(&mut *conn)
@@ -50,8 +47,8 @@ pub(crate) async fn replace(
                 sqlx::query!(
                     r#"INSERT INTO players
                        (gsis_id, espn_id, full_name, first_name, last_name, position,
-                        latest_team, status, birth_date, headshot_url)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+                        latest_team, headshot_url)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
                     p.gsis_id,
                     p.espn_id,
                     p.full_name,
@@ -59,8 +56,6 @@ pub(crate) async fn replace(
                     p.last_name,
                     p.position,
                     p.latest_team,
-                    p.status,
-                    p.birth_date,
                     p.headshot_url
                 )
                 .execute(&mut *conn)
@@ -83,8 +78,6 @@ pub(crate) async fn all(pool: &SqlitePool) -> Result<Vec<Player>, NflDataError> 
                last_name,
                position,
                latest_team AS "latest_team: TeamAbbr",
-               status,
-               birth_date AS "birth_date: Date",
                headshot_url
            FROM players
            ORDER BY full_name, gsis_id"#
@@ -107,8 +100,6 @@ pub(crate) async fn by_gsis(
                last_name,
                position,
                latest_team AS "latest_team: TeamAbbr",
-               status,
-               birth_date AS "birth_date: Date",
                headshot_url
            FROM players
            WHERE gsis_id = ?"#,
@@ -140,8 +131,6 @@ mod tests {
             last_name: Some("Love".into()),
             position: Some("QB".into()),
             latest_team: Some(TeamAbbr("GB".into())),
-            status: Some("ACT".into()),
-            birth_date: Some(time::macros::date!(1998 - 11 - 02)),
             espn_id: Some("4036378".into()),
             headshot_url: None,
         };
@@ -171,9 +160,7 @@ mod tests {
             last_name: Some("Love".into()),
             position: Some("QB".into()),
             latest_team: Some(TeamAbbr("GB".into())),
-            status: None,
             espn_id: Some("4036378".into()),
-            birth_date: None,
             headshot_url: None,
         };
         replace(&store, &asset, std::slice::from_ref(&jordan))

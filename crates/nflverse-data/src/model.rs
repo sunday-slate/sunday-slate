@@ -5,7 +5,7 @@ use time::OffsetDateTime;
 use crate::error::NflDataError;
 
 pub use nfl_model::{
-    Game, Player, PlayerWeekStats, RosterEntry, Season, SeasonType, TeamAbbr, TeamWeekStats, Week,
+    Game, Player, PlayerWeekStats, Season, SeasonType, TeamAbbr, TeamWeekStats, Week,
     WeeklyRosterEntry,
 };
 
@@ -21,17 +21,15 @@ pub struct PlayerSeasonTotals {
 pub enum Dataset {
     Schedules,
     Players,
-    Rosters,
     WeeklyRosters,
     PlayerWeekStats,
     Pbp,
 }
 
 impl Dataset {
-    pub(crate) const ALL: [Dataset; 6] = [
+    pub(crate) const ALL: [Dataset; 5] = [
         Dataset::Schedules,
         Dataset::Players,
-        Dataset::Rosters,
         Dataset::WeeklyRosters,
         Dataset::PlayerWeekStats,
         Dataset::Pbp,
@@ -41,7 +39,6 @@ impl Dataset {
         match self {
             Dataset::Schedules => "schedules",
             Dataset::Players => "players",
-            Dataset::Rosters => "rosters",
             Dataset::WeeklyRosters => "weekly_rosters",
             Dataset::PlayerWeekStats => "player_week_stats",
             Dataset::Pbp => "team_week_stats",
@@ -52,7 +49,6 @@ impl Dataset {
         match self {
             Dataset::Schedules => "schedules",
             Dataset::Players => "players",
-            Dataset::Rosters => "rosters",
             Dataset::WeeklyRosters => "weekly_rosters",
             Dataset::PlayerWeekStats => "stats_player",
             Dataset::Pbp => "pbp",

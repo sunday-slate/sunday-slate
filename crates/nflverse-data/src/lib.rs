@@ -27,7 +27,7 @@ pub use live::{
 };
 pub use model::{
     Dataset, DatasetFreshness, DatasetReport, DatasetStatus, Game, Player, PlayerSeasonTotals,
-    PlayerWeekStats, RosterEntry, Season, SeasonType, SyncReport, TeamAbbr, TeamWeekStats, Week,
+    PlayerWeekStats, Season, SeasonType, SyncReport, TeamAbbr, TeamWeekStats, Week,
     WeeklyRosterEntry,
 };
 
@@ -160,18 +160,7 @@ impl NflverseData {
         Ok(out)
     }
 
-    /// A team's cached roster for a season, ordered by player name.
-    pub async fn roster(
-        &self,
-        season: Season,
-        team: &TeamAbbr,
-    ) -> Result<Vec<RosterEntry>, NflverseDataError> {
-        store::rosters::for_team(self.inner.store.reader(), season, team).await
-    }
-
-    /// A team's cached roster for one week, ordered by player name. Prefer this
-    /// over [`Self::roster`] when the question is "who was on this team *then*" —
-    /// the season roster reflects only where each player ended up.
+    /// A team's cached roster for one week, ordered by player name.
     pub async fn weekly_roster(
         &self,
         season: Season,

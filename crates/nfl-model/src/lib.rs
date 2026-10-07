@@ -12,6 +12,6 @@ pub use live::{
     ProviderResponse, RawBody,
 };
 pub use model::{
-    Game, Player, PlayerWeekStats, RosterEntry, Season, SeasonType, TeamAbbr, TeamWeekStats, Week,
+    Game, Player, PlayerWeekStats, Season, SeasonType, TeamAbbr, TeamWeekStats, Week,
     WeeklyRosterEntry,
 };
