@@ -11,3 +11,6 @@ serde_json.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
 time.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
