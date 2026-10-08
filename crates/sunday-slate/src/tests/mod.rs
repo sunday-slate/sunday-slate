@@ -1,6 +1,6 @@
 pub mod factories;
 mod integration;
-mod nfl;
+pub(crate) mod nfl;
 mod test_app;
 pub(crate) mod utils;
 

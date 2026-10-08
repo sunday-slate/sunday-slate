@@ -170,3 +170,41 @@ async fn wait_for_shutdown_signal(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use axum::Router;
+    use axum_test::TestServer;
+
+    use super::App;
+    use crate::mail::Mailer;
+    use crate::tests::TestApp;
+
+    #[tokio::test]
+    async fn host_configuration_preserves_refresh_cadence() {
+        let fixture = TestApp::new().await;
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = (*fixture.state.config).clone();
+        config.database_url = format!("sqlite://{}/app.db", dir.path().display());
+        config.nflverse_database_url = format!("sqlite://{}/nflverse.db", dir.path().display());
+        config.media_dir = dir.path().join("media");
+        config.nflverse_sync_interval_secs = 3600;
+
+        let app = App::build_with_mailer(
+            config,
+            Mailer::capture("Sunday Slate <no-reply@example.com>"),
+        )
+        .await
+        .unwrap();
+        let router = Router::new().nest(
+            "/nfl-data-admin",
+            nfl_data::admin_router::<()>(Arc::clone(&app.state.nfl)),
+        );
+        let server = TestServer::builder().build(router);
+        let response = server.get("/nfl-data-admin/nflverse").await;
+        response.assert_status_ok();
+        assert!(response.text().contains("Automatic refresh every hour."));
+    }
+}
