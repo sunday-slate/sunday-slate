@@ -47,7 +47,7 @@ pub struct SalaryPlan {
     pub games: usize,
     pub rows: Vec<PlannedRow>,
     /// Human-readable descriptions of rows that could not be classified at all
-    /// (bad position, or a game string without a resolvable team).
+    /// (bad position, bad salary, or a game string without a resolvable team).
     pub offending: Vec<String>,
     /// Provider diagnostics, including non-blocking malformed matchup details.
     pub diagnostics: Vec<nfl_data::SalaryRowDiagnostic>,
@@ -184,6 +184,11 @@ async fn plan_rows(
             ));
             continue;
         };
+        let Some(salary) = row.salary else {
+            plan.offending
+                .push(format!("{} (bad salary {})", row.name, row.original_salary));
+            continue;
+        };
         let team = row.team.0.clone();
         let Some(gsis_game_id) = game_of.get(&team).cloned() else {
             plan.offending
@@ -197,7 +202,7 @@ async fn plan_rows(
                 fd_name: row.name.clone(),
                 fd_team: team,
                 dfs_position: DfsPosition::Dst,
-                salary: row.salary,
+                salary,
                 gsis_game_id,
                 gsis_player_id: None,
                 state: RowState::Dst,
@@ -226,7 +231,7 @@ async fn plan_rows(
             fd_name: row.name.clone(),
             fd_team: team,
             dfs_position: position,
-            salary: row.salary,
+            salary,
             gsis_game_id,
             gsis_player_id,
             state,
@@ -813,6 +818,27 @@ mod tests {
             .expect("plan");
         assert!(plan.rows.is_empty());
         assert_eq!(plan.offending.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn plan_reports_unparseable_salary_as_offending() {
+        let db = crate::Db::test(crate::tests::utils::in_memory_pool().await);
+        let nfl = nfl_data::NflData::in_memory().await.unwrap();
+        nfl.seed_for_test(&[], &[game("2025_01_BUF_NYJ", 1, "BUF", "NYJ")])
+            .await
+            .unwrap();
+        let csv = format!(
+            "{HEADER}\n\
+             \"1-400\",\"WR\",\"Bad\",\"\",\"Salary\",\"0\",\"0\",\"zap\",\"BUF@NYJ\",\"BUF\",\"NYJ\",\"\",\"\"\n"
+        );
+        let plan = super::plan(&db, &nfl, csv.as_bytes(), 2025)
+            .await
+            .expect("plan");
+        assert!(plan.rows.is_empty());
+        assert_eq!(plan.offending.len(), 1);
+        assert_eq!(plan.offending[0], "Bad Salary (bad salary zap)");
+        assert_eq!(plan.diagnostics.len(), 1);
+        assert_eq!(plan.diagnostics[0].field, "Salary");
     }
 
     struct FailingReader;

@@ -2,7 +2,7 @@ use fanduel_data::{FanduelData, FanduelDataConfig};
 use nfl_data::{DfsPosition, NflData, NflDataConfig, SalaryMatchup, SalaryUploadOutcome, TeamAbbr};
 
 const CSV: &[u8] = b"Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,Injury Indicator,Injury Details\n123506-62239,QB,Josh,,Allen,22,0,8200,BUF@NYJ,BUF,NYJ,,\n";
-const INVALID_CSV: &[u8] = b"Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,Injury Indicator,Injury Details\n123506-62239,QB,Josh,,Allen,22,0,not-a-salary,BUF@NYJ,BUF,NYJ,,\n";
+const INVALID_CSV: &[u8] = b"Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,Injury Indicator,Injury Details\n123506-62239,QB,Josh,,Allen,22,0,8200,BUF@NYJ,BUF,NYJ,,,future-column\n";
 const ROW_DIAGNOSTICS_CSV: &[u8] = b"Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,Injury Indicator,Injury Details\n123506-62239,CPT,Josh,,Allen,22,0,8200,BUF-NYJ,BUF,NYJ,,\n";
 
 fn config(nflverse: &std::path::Path, fanduel: &std::path::Path) -> NflDataConfig {
@@ -37,7 +37,8 @@ async fn upload_projects_id_free_salary_and_archives_exact_source_facts() {
                 away: TeamAbbr("BUF".into()),
                 home: TeamAbbr("NYJ".into()),
             }),
-            salary: 8200,
+            original_salary: "8200".into(),
+            salary: Some(8200),
             diagnostics: vec![],
         }])
     );
@@ -84,7 +85,8 @@ async fn in_memory_facades_keep_fanduel_receipts_independent() {
                 away: TeamAbbr("BUF".into()),
                 home: TeamAbbr("NYJ".into()),
             }),
-            salary: 8200,
+            original_salary: "8200".into(),
+            salary: Some(8200),
             diagnostics: vec![],
         }])
     );
@@ -101,6 +103,21 @@ async fn facade_preserves_empty_and_malformed_csv_outcomes() {
         nfl.receive_salary_upload(INVALID_CSV, None).await.unwrap(),
         SalaryUploadOutcome::InvalidCsv(_)
     ));
+}
+
+#[tokio::test]
+async fn facade_row_diagnostics_cover_unparseable_salary() {
+    let nfl = NflData::in_memory().await.unwrap();
+    let bytes = b"Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,Injury Indicator,Injury Details\n123506-62239,QB,Josh,,Allen,22,0,not-a-salary,BUF@NYJ,BUF,NYJ,,\n";
+    let SalaryUploadOutcome::Parsed(rows) = nfl.receive_salary_upload(bytes, None).await.unwrap()
+    else {
+        panic!("expected parsed outcome");
+    };
+    assert_eq!(rows[0].original_salary, "not-a-salary");
+    assert_eq!(rows[0].salary, None);
+    assert_eq!(rows[0].diagnostics.len(), 1);
+    assert_eq!(rows[0].diagnostics[0].field, "Salary");
+    assert_eq!(rows[0].diagnostics[0].row_number, 1);
 }
 
 #[tokio::test]

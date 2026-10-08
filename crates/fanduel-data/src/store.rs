@@ -59,7 +59,7 @@ pub struct ReceivedUpload {
 struct StoredRow {
     row_number: u64,
     raw: RawSalaryRow,
-    salary: i64,
+    salary: Option<i64>,
     team: TeamAbbr,
     position: Option<String>,
     matchup: Option<Matchup>,
@@ -71,7 +71,7 @@ impl From<&InterpretedRow> for StoredRow {
         Self {
             row_number: row.row_number,
             raw: row.raw.clone(),
-            salary: row.raw.salary,
+            salary: row.salary,
             team: row.team.clone(),
             position: row.position.map(|position| position.label().to_owned()),
             matchup: row.matchup.clone(),
@@ -84,8 +84,6 @@ impl TryFrom<StoredRow> for InterpretedRow {
     type Error = FanduelDataError;
 
     fn try_from(row: StoredRow) -> Result<Self, Self::Error> {
-        let mut raw = row.raw;
-        raw.salary = row.salary;
         let position = row
             .position
             .map(|position| match position.as_str() {
@@ -99,8 +97,9 @@ impl TryFrom<StoredRow> for InterpretedRow {
             .transpose()?;
         Ok(Self {
             row_number: row.row_number,
-            raw,
+            raw: row.raw,
             team: row.team,
+            salary: row.salary,
             position,
             matchup: row.matchup,
             diagnostics: row.diagnostics,
@@ -382,9 +381,11 @@ mod tests {
             let rows = store.source_rows(first.upload_id).await.unwrap();
             assert_eq!(rows.len(), 2, "{name}");
             assert_eq!(rows[0].interpreted.raw.id, "123506-62239", "{name}");
-            assert_eq!(rows[0].interpreted.raw.salary, 8200, "{name}");
+            assert_eq!(rows[0].interpreted.raw.salary, "8200", "{name}");
+            assert_eq!(rows[0].interpreted.salary, Some(8200), "{name}");
             assert_eq!(rows[1].interpreted.raw.id, "119110-12543", "{name}");
-            assert_eq!(rows[1].interpreted.raw.salary, 3000, "{name}");
+            assert_eq!(rows[1].interpreted.raw.salary, "3000", "{name}");
+            assert_eq!(rows[1].interpreted.salary, Some(3000), "{name}");
 
             let second = store.receive(CSV, Some("retirement.csv")).await.unwrap();
             assert_ne!(second.upload_id, first.upload_id, "{name}");

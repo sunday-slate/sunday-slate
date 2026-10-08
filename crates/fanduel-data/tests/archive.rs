@@ -29,7 +29,8 @@ async fn archives_exact_blob_name_hash_and_interpreted_source_facts() {
     assert_eq!(rows[0].interpreted.raw.fd_player_id(), "62239");
     assert_eq!(rows[0].interpreted.raw.first_name, "Josh");
     assert_eq!(rows[0].interpreted.raw.last_name, "Allen");
-    assert_eq!(rows[0].interpreted.raw.salary, 8200);
+    assert_eq!(rows[0].interpreted.raw.salary, "8200");
+    assert_eq!(rows[0].interpreted.salary, Some(8200));
     assert_eq!(rows[1].interpreted.row_number, 2);
     assert_eq!(rows[1].interpreted.raw.id, "119110-12543");
 }
@@ -46,38 +47,6 @@ async fn identical_receipts_create_distinct_uploads() {
         assert_eq!(upload.bytes, CSV);
         assert_eq!(upload.metadata.content_hash, CSV_SHA256);
     }
-}
-
-#[tokio::test]
-async fn source_rows_preserve_original_salary_text_and_numeric_salary() {
-    let service = FanduelData::in_memory().await.unwrap();
-    let bytes = b"Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,Injury Indicator,Injury Details\n1,QB,A,,B,0,0,008200,BUF@NYJ,BUF,NYJ,,\n";
-    let received = service.receive(bytes, None).await.unwrap();
-
-    let Interpretation::Parsed(rows) = &received.interpretation else {
-        panic!("expected parsed upload");
-    };
-    assert_eq!(rows[0].raw.salary, 8200);
-    assert_eq!(rows[0].raw.quoted_salary, "008200");
-    let stored = service.source_rows(received.upload_id).await.unwrap();
-    assert_eq!(stored[0].interpreted.raw.salary, 8200);
-    assert_eq!(stored[0].interpreted.raw.quoted_salary, "008200");
-}
-
-#[tokio::test]
-async fn hexadecimal_salary_keeps_quoted_value_and_persists_numeric_value() {
-    let service = FanduelData::in_memory().await.unwrap();
-    let bytes = b"Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,Injury Indicator,Injury Details\n1,QB,A,,B,0,0,0x2008,BUF@NYJ,BUF,NYJ,,\n";
-    let received = service.receive(bytes, None).await.unwrap();
-    let Interpretation::Parsed(rows) = &received.interpretation else {
-        panic!("expected hexadecimal salary to parse");
-    };
-    assert_eq!(rows[0].raw.salary, 8200);
-    assert_eq!(rows[0].raw.quoted_salary, "0x2008");
-
-    let stored = service.source_rows(received.upload_id).await.unwrap();
-    assert_eq!(stored[0].interpreted.raw.salary, 8200);
-    assert_eq!(stored[0].interpreted.raw.quoted_salary, "0x2008");
 }
 
 #[tokio::test]
@@ -166,6 +135,34 @@ async fn empty_receipt_is_parsed_with_no_source_rows() {
             .unwrap()
             .is_empty()
     );
+}
+
+#[tokio::test]
+async fn unparseable_salary_rows_survive_reopen_with_their_diagnostics() {
+    let directory = tempfile::tempdir().unwrap();
+    let config = FanduelDataConfig {
+        database_url: format!("sqlite://{}", directory.path().join("fanduel.db").display()),
+    };
+    let bytes = b"Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,Injury Indicator,Injury Details\n1,QB,A,,B,0,0,8200,BUF@NYJ,BUF,NYJ,,\n2,RB,C,,D,0,0,zap,SEA@DET,SEA,DET,,\n";
+    let upload_id = {
+        let service = FanduelData::connect(config.clone()).await.unwrap();
+        service.receive(bytes, None).await.unwrap().upload_id
+    };
+    let rows = FanduelData::connect(config)
+        .await
+        .unwrap()
+        .source_rows(upload_id)
+        .await
+        .unwrap();
+    assert_eq!(rows[0].interpreted.raw.salary, "8200");
+    assert_eq!(rows[0].interpreted.salary, Some(8200));
+    assert_eq!(rows[0].interpreted.diagnostics, Vec::new());
+    assert_eq!(rows[1].interpreted.raw.salary, "zap");
+    assert_eq!(rows[1].interpreted.salary, None);
+    let diagnostic = &rows[1].interpreted.diagnostics[0];
+    assert_eq!(diagnostic.field, "Salary");
+    assert!(diagnostic.message.contains("zap"));
+    assert!(diagnostic.message.contains("C D"));
 }
 
 #[tokio::test]

@@ -35,12 +35,7 @@ fn csv_diagnostic(error: csv::Error, headers: Option<&csv::StringRecord>) -> Csv
             .field()
             .and_then(|index| usize::try_from(index).ok())
             .and_then(|index| headers.and_then(|headers| headers.get(index)))
-            .map(str::to_owned)
-            .or_else(|| {
-                err.to_string()
-                    .starts_with("FanDuel Salary:")
-                    .then(|| "Salary".to_owned())
-            }),
+            .map(str::to_owned),
         _ => None,
     };
     CsvDiagnostic {
@@ -57,6 +52,7 @@ fn interpret_row(row_number: u64, raw: RawSalaryRow) -> InterpretedRow {
         away: TeamAbbr(normalize_team(away).to_owned()),
         home: TeamAbbr(normalize_team(home).to_owned()),
     });
+    let salary = raw.parsed_salary();
     let mut diagnostics = Vec::new();
     if position.is_none() {
         diagnostics.push(RowDiagnostic {
@@ -65,6 +61,17 @@ fn interpret_row(row_number: u64, raw: RawSalaryRow) -> InterpretedRow {
             message: format!(
                 "Unrecognized FanDuel position {:?} for {}",
                 raw.position,
+                raw.name()
+            ),
+        });
+    }
+    if salary.is_none() {
+        diagnostics.push(RowDiagnostic {
+            row_number,
+            field: "Salary".to_owned(),
+            message: format!(
+                "Could not interpret FanDuel salary {:?} for {}",
+                raw.salary,
                 raw.name()
             ),
         });
@@ -86,6 +93,7 @@ fn interpret_row(row_number: u64, raw: RawSalaryRow) -> InterpretedRow {
         team,
         position,
         matchup,
+        salary,
         diagnostics,
     }
 }
@@ -121,14 +129,16 @@ mod tests {
         let player_matchup = rows[0].matchup.as_ref().unwrap();
         assert_eq!(player_matchup.away.0, "BUF");
         assert_eq!(player_matchup.home.0, "NYJ");
-        assert_eq!(rows[0].raw.salary, 8200);
+        assert_eq!(rows[0].raw.salary, "8200");
+        assert_eq!(rows[0].salary, Some(8200));
         assert_eq!(rows[1].raw.fd_player_id(), "12543");
         assert_eq!(rows[1].raw.name(), "New York Giants");
         assert_eq!(
             rows[1].position.map(|position| position.label()),
             Some("D/ST")
         );
-        assert_eq!(rows[1].raw.salary, 3000);
+        assert_eq!(rows[1].raw.salary, "3000");
+        assert_eq!(rows[1].salary, Some(3000));
     }
 
     #[test]
@@ -172,13 +182,18 @@ mod tests {
     }
 
     #[test]
-    fn reports_invalid_numeric_salary_as_invalid_csv() {
+    fn reports_unparseable_salary_with_row_diagnostic() {
         let bytes = format!("{HEADER}\n1,QB,A,,B,0,0,not-a-number,BUF@NYJ,BUF,NYJ,,\n");
-        let Interpretation::InvalidCsv(diagnostic) = interpret(bytes.as_bytes()) else {
-            panic!("expected invalid CSV");
+        let Interpretation::Parsed(rows) = interpret(bytes.as_bytes()) else {
+            panic!("expected parsed rows");
         };
-        assert_eq!(diagnostic.row_number, Some(1));
-        assert_eq!(diagnostic.field.as_deref(), Some("Salary"));
+        assert_eq!(rows[0].salary, None);
+        assert_eq!(rows[0].raw.salary, "not-a-number");
+        assert_eq!(rows[0].diagnostics.len(), 1);
+        let diagnostic = &rows[0].diagnostics[0];
+        assert_eq!(diagnostic.row_number, 1);
+        assert_eq!(diagnostic.field, "Salary");
+        assert!(diagnostic.message.contains("not-a-number"));
     }
 
     #[test]

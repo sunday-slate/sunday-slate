@@ -8,7 +8,8 @@ pub struct SalaryRow {
     pub original_position: String,
     pub position: Option<DfsPosition>,
     pub matchup: Option<SalaryMatchup>,
-    pub salary: i64,
+    pub original_salary: String,
+    pub salary: Option<i64>,
     pub diagnostics: Vec<SalaryRowDiagnostic>,
 }
 
@@ -66,7 +67,8 @@ impl From<fanduel_data::Interpretation> for SalaryUploadOutcome {
                             away: matchup.away,
                             home: matchup.home,
                         }),
-                        salary: row.raw.salary,
+                        original_salary: row.raw.salary,
+                        salary: row.salary,
                         diagnostics: row
                             .diagnostics
                             .into_iter()

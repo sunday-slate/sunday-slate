@@ -14,10 +14,10 @@ async fn malformed_later_record_keeps_blob_failed_without_partial_rows() {
     let directory = tempfile::tempdir().unwrap();
     let service = FanduelData::connect(config(&directory)).await.unwrap();
     let bytes = format!(
-        "{HEADER}\n1,QB,Josh,,Allen,0,0,8200,BUF@NYJ,BUF,NYJ,,\n2,RB,James,,Cook,0,0,bad,BUF@NYJ,BUF,NYJ,,\n"
+        "{HEADER}\n1,QB,Josh,,Allen,0,0,8200,BUF@NYJ,BUF,NYJ,,\n2,RB,James,,Cook,0,0,6000,BUF@NYJ,BUF,NYJ,,,unexpected\n"
     );
     let received = service
-        .receive(bytes.as_bytes(), Some("bad-salary.csv"))
+        .receive(bytes.as_bytes(), Some("malformed.csv"))
         .await
         .unwrap();
 
@@ -28,16 +28,8 @@ async fn malformed_later_record_keeps_blob_failed_without_partial_rows() {
     let upload = service.upload(received.upload_id).await.unwrap().unwrap();
     assert_eq!(upload.bytes, bytes.as_bytes());
     assert_eq!(upload.metadata.state, UploadState::Failed);
-    assert_eq!(
-        upload
-            .metadata
-            .diagnostic
-            .as_ref()
-            .unwrap()
-            .field
-            .as_deref(),
-        Some("Salary")
-    );
+    // Unequal-length records carry no offending field index.
+    assert!(upload.metadata.diagnostic.as_ref().unwrap().field.is_none());
     assert!(
         service
             .source_rows(received.upload_id)
@@ -141,7 +133,7 @@ async fn failed_diagnostic_update_surfaces_storage_error_and_keeps_bytes() {
         .unwrap();
     sqlx::query("CREATE TRIGGER reject_failed_update BEFORE UPDATE ON uploads WHEN NEW.state = 'failed' BEGIN SELECT RAISE(ABORT, 'failure update rejected'); END")
         .execute(&pool).await.unwrap();
-    let bytes = format!("{HEADER}\n1,QB,A,,B,0,0,bad,BUF@NYJ,BUF,NYJ,,\n");
+    let bytes = format!("{HEADER}\n1,QB,A,,B,0,0,1,BUF@NYJ,BUF,NYJ,,,extra\n");
 
     assert!(service.receive(bytes.as_bytes(), None).await.is_err());
     let uploads = service.recent_uploads(10).await.unwrap();

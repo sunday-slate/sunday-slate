@@ -127,7 +127,7 @@ async fn multipart_upload_retains_filename_and_exact_bytes_once() {
 }
 
 #[tokio::test]
-async fn invalid_csv_is_archived_without_staging_an_import() {
+async fn unparseable_salary_rows_archive_without_staging_an_import() {
     let (dir, app) = isolated_app().await;
     let bytes = format!("{HDR}\n1-200,WR,J.,,Smith-Njigba,0,0,not-a-number,BUF@NYJ,BUF,NYJ,,\n")
         .into_bytes();
@@ -152,10 +152,8 @@ async fn invalid_csv_is_archived_without_staging_an_import() {
     let uploads = archived_uploads(&dir).await;
     assert_eq!(uploads.len(), 1);
     assert_eq!(uploads[0].filename.as_deref(), Some("broken.csv"));
-    assert_eq!(uploads[0].state, UploadState::Failed);
-    let diagnostic = uploads[0].diagnostic.as_ref().unwrap();
-    assert_eq!(diagnostic.field.as_deref(), Some("Salary"));
-    assert_eq!(diagnostic.row_number, Some(1));
+    assert_eq!(uploads[0].state, UploadState::Parsed);
+    assert!(uploads[0].diagnostic.is_none());
     let archive = FanduelData::connect(FanduelDataConfig {
         database_url: format!("sqlite://{}", dir.path().join("fanduel.db").display()),
     })
@@ -165,7 +163,10 @@ async fn invalid_csv_is_archived_without_staging_an_import() {
         archive.upload(uploads[0].id).await.unwrap().unwrap().bytes,
         bytes
     );
-    assert!(archive.source_rows(uploads[0].id).await.unwrap().is_empty());
+    let rows = archive.source_rows(uploads[0].id).await.unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].interpreted.raw.salary, "not-a-number");
+    assert_eq!(rows[0].interpreted.salary, None);
 }
 
 #[tokio::test]
