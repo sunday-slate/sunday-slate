@@ -1,35 +1,3 @@
-# Third-party asset notices
-
-The files in `assets/static/vendor/` are vendored only for the NFL-data admin
-shell.
-
-- HTMX 4.0.0 (`vendor/js/htmx.min.js`): Zero-Clause BSD (0BSD). Upstream: `https://github.com/bigskysoftware/htmx`; pinned source: `https://raw.githubusercontent.com/bigskysoftware/htmx/v4.0.0/LICENSE`. The complete upstream license is also served as `vendor/js/LICENSE.txt`.
-- Geist and Geist Mono (`vendor/fonts/*.woff2`): SIL Open Font License 1.1. Copyright 2024 The Geist Project Authors (`https://github.com/vercel/geist-font`). Upstream: `https://github.com/vercel/geist-font`; the complete upstream license is also served as `vendor/fonts/OFL.txt`. The WOFF2 name ID 13 metadata was not verified; no claim is made that the fonts' binary metadata carries this notice.
-- DaisyUI plugin sources in `styles/daisyui*.mjs`: MIT License. Upstream: `https://github.com/saadeghi/daisyui`.
-
-The DaisyUI sources are build-time inputs; they are not runtime browser assets.
-
-## HTMX 4.0.0: Zero-Clause BSD
-
-```text
-Zero-Clause BSD
-=============
-
-Permission to use, copy, modify, and/or distribute this software for
-any purpose with or without fee is hereby granted.
-
-THE SOFTWARE IS PROVIDED “AS IS” AND THE AUTHOR DISCLAIMS ALL
-WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES
-OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE
-FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY
-DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN
-AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT
-OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-```
-
-## Geist: SIL Open Font License 1.1
-
-```text
 Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font)
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
@@ -122,4 +90,3 @@ INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL
 DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
 OTHER DEALINGS IN THE FONT SOFTWARE.
-```

@@ -89,6 +89,54 @@ async fn assets_support_get_head_and_conditional_revalidation() {
 }
 
 #[tokio::test]
+async fn vendor_licenses_are_embedded_and_notices_identify_upstream_terms() {
+    let server = TestServer::new(app().await);
+    let htmx_path = "/nfl-data-admin/static/vendor/js/LICENSE.txt";
+    let htmx = server.get(htmx_path).await;
+    assert_eq!(htmx.status_code(), StatusCode::OK, "{htmx_path}");
+    let htmx = htmx.text();
+    for marker in [
+        "Zero-Clause BSD",
+        "Permission to use, copy, modify, and/or distribute this software",
+        "THE SOFTWARE IS PROVIDED",
+        "LOSS OF USE, DATA OR PROFITS",
+    ] {
+        assert!(
+            htmx.contains(marker),
+            "missing HTMX license marker: {marker}"
+        );
+    }
+
+    let font_path = "/nfl-data-admin/static/vendor/fonts/OFL.txt";
+    let ofl = server.get(font_path).await;
+    assert_eq!(ofl.status_code(), StatusCode::OK, "{font_path}");
+    let ofl = ofl.text();
+    for marker in [
+        "Copyright 2024 The Geist Project Authors",
+        "SIL Open Font License, Version 1.1",
+        "SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007",
+        "PERMISSION & CONDITIONS",
+        "THE FONT SOFTWARE IS PROVIDED",
+    ] {
+        assert!(
+            ofl.contains(marker),
+            "missing Geist license marker: {marker}"
+        );
+    }
+
+    let notices = include_str!("../assets/THIRD_PARTY_NOTICES.md");
+    for marker in [
+        "HTMX 4.0.0",
+        "Zero-Clause BSD (0BSD)",
+        "Copyright 2024 The Geist Project Authors",
+        "SIL Open Font License 1.1",
+    ] {
+        assert!(notices.contains(marker), "missing notice marker: {marker}");
+    }
+    assert!(!notices.contains("BSD 2-Clause"));
+}
+
+#[tokio::test]
 async fn unknown_and_traversal_asset_paths_are_not_served() {
     let server = TestServer::new(app().await);
     for path in [
