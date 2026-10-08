@@ -1,16 +1,16 @@
-mod web;
 mod config;
-mod identity;
 mod data_revision;
+mod identity;
 #[cfg(test)]
 mod test;
+mod web;
 
 use std::collections::HashMap;
 
 use nflverse_data::NflverseData;
 
-pub use web::router as admin_router;
 pub use config::NflDataConfig;
+pub use data_revision::DataRevision;
 pub use identity::PlayerIdentity;
 pub use live::{
     EspnPlayerId, InjuryDesignation, InjuryEntry, InjuryProvider, InjuryReport, LiveGame,
@@ -24,7 +24,7 @@ pub use nfl_model::{
     WeeklyRosterEntry, eastern_offset, to_eastern,
 };
 pub use nflverse_data::NflverseDataError as NflDataError;
-pub use data_revision::DataRevision;
+pub use web::router as admin_router;
 
 pub struct NflData {
     provider: NflverseData,
