@@ -33,6 +33,7 @@ impl App {
             nfl_data::NflData::connect(nfl_data::NflDataConfig {
                 database_url: config.nflverse_database_url.clone(),
                 github_token: config.nflverse_github_token.clone(),
+                refresh_interval: config.nflverse_sync_interval(),
                 ..Default::default()
             })
             .await?,
@@ -85,9 +86,7 @@ impl App {
             None => None,
         };
         let coordinator_task = Arc::new(tokio::sync::Mutex::new(live_task));
-        if let Some(interval) = state.config.nflverse_sync_interval() {
-            state.nfl.start_scheduler(interval);
-        }
+        state.nfl.start_background_tasks();
         let serve_result = axum::serve(listener, router)
             .with_graceful_shutdown(wait_for_shutdown_signal(
                 deletion_task.abort_handle(),
@@ -100,7 +99,7 @@ impl App {
         if serve_result.is_err() {
             state.live.shutdown();
             deletion_task.abort();
-            state.nfl.stop_scheduler();
+            state.nfl.stop_background_tasks();
         }
 
         match deletion_task.await {
@@ -160,7 +159,7 @@ async fn wait_for_shutdown_signal(
     tracing::info!("shutdown signal received, draining");
     live.shutdown();
     abort_handle.abort();
-    nfl.stop_scheduler();
+    nfl.stop_background_tasks();
     if let Some(task) = coordinator_task.lock().await.take() {
         match task.await {
             Ok(()) => {}
@@ -169,5 +168,43 @@ async fn wait_for_shutdown_signal(
             }
             Err(error) => tracing::error!(error = ?error, "live coordinator exited with error"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use axum::Router;
+    use axum_test::TestServer;
+
+    use super::App;
+    use crate::mail::Mailer;
+    use crate::tests::TestApp;
+
+    #[tokio::test]
+    async fn host_configuration_preserves_refresh_cadence() {
+        let fixture = TestApp::new().await;
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = (*fixture.state.config).clone();
+        config.database_url = format!("sqlite://{}/app.db", dir.path().display());
+        config.nflverse_database_url = format!("sqlite://{}/nflverse.db", dir.path().display());
+        config.media_dir = dir.path().join("media");
+        config.nflverse_sync_interval_secs = 3600;
+
+        let app = App::build_with_mailer(
+            config,
+            Mailer::capture("Sunday Slate <no-reply@example.com>"),
+        )
+        .await
+        .unwrap();
+        let router = Router::new().nest(
+            "/nfl-data-admin",
+            nfl_data::admin_router::<()>(Arc::clone(&app.state.nfl)),
+        );
+        let server = TestServer::builder().build(router);
+        let response = server.get("/nfl-data-admin/nflverse").await;
+        response.assert_status_ok();
+        assert!(response.text().contains("Automatic refresh every hour."));
     }
 }

@@ -1,0 +1,15 @@
+/* Geist and Geist Mono are distributed under the SIL Open Font License 1.1. */
+@font-face {
+  font-family: "Geist";
+  src: url("/nfl-data-admin/static/vendor/fonts/geist.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist Mono";
+  src: url("/nfl-data-admin/static/vendor/fonts/geist-mono.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}

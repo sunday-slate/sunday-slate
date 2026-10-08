@@ -1,13 +1,21 @@
-{% extends "app.html" %}
+{% extends "admin/layout.html" %}
+
+{% block title %}NFLverse Sync{% endblock %}
 
 {% block content %}
-<div class="mx-auto max-w-2xl">
+<div class="mx-auto max-w-3xl">
+  <div class="mb-5 flex items-center justify-between gap-4">
+    <div>
+      <p class="text-sm text-base-content/60">NFL Data Admin</p>
+      <h1 class="text-2xl font-semibold tracking-tight">NFLverse sync</h1>
+    </div>
+  </div>
   <p class="mb-4 text-sm text-base-content/60">
     Refresh the local nflverse cache and see when each dataset last synced.
   </p>
 
   {% block panel %}
-  <div id="nfl-sync-panel"{% if running %} hx-get="/admin/nfl-sync" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+  <div id="nfl-sync-panel"{% if running %} hx-get="/nfl-data-admin/nflverse" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
     <div class="card border border-base-300 bg-base-100">
       <div class="card-body gap-4">
         {% if running %}
@@ -28,25 +36,15 @@
 
         <div class="overflow-x-auto">
           <table class="table table-sm">
-            <thead>
-              <tr>
-                <th>Dataset</th>
-                <th>Assets</th>
-                <th>Last synced</th>
-              </tr>
-            </thead>
+            <thead><tr><th>Dataset</th><th>Assets</th><th>Last synced</th></tr></thead>
             <tbody>
               {% for row in rows %}
-              <tr>
-                <td>{{ row.dataset }}</td>
-                <td>{{ row.assets }}</td>
-                <td>
-                  {% match row.last_synced_at %}
-                  {% when Some with (timestamp) %}{{ timestamp }}
-                  {% when None %}Never synced
-                  {% endmatch %}
-                </td>
-              </tr>
+              <tr><td>{{ row.dataset }}</td><td>{{ row.assets }}</td><td>
+                {% match row.last_synced_at %}
+                {% when Some with (timestamp) %}{{ timestamp }}
+                {% when None %}Never synced
+                {% endmatch %}
+              </td></tr>
               {% endfor %}
             </tbody>
           </table>
@@ -55,14 +53,12 @@
         {% if running %}
         <button type="button" class="btn btn-primary" disabled>Sync now</button>
         {% else %}
-        <form method="post" action="/admin/nfl-sync"
-              hx-post="/admin/nfl-sync" hx-target="#nfl-sync-panel" hx-swap="outerHTML">
+        <form method="post" action="/nfl-data-admin/nflverse" hx-post="/nfl-data-admin/nflverse" hx-target="#nfl-sync-panel" hx-swap="outerHTML">
           <button type="submit" class="btn btn-primary">Sync now</button>
         </form>
         {% endif %}
       </div>
     </div>
-
     {% if let Some(last) = last_run %}
     <div class="alert {% if last.ok %}alert-success{% else %}alert-error{% endif %} mt-4">
       <div>

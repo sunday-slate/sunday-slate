@@ -27,7 +27,6 @@ pub mod live;
 pub mod mail;
 pub mod media;
 pub mod nfl_players;
-pub mod nfl_sync;
 pub mod nfl_teams;
 pub(crate) mod player_identity;
 pub mod player_salaries;

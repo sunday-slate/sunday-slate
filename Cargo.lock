@@ -2139,10 +2139,21 @@ checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 name = "nfl-data"
 version = "0.1.0"
 dependencies = [
+ "askama",
+ "axum",
+ "axum-htmx",
+ "axum-test",
+ "mime_guess",
  "nfl-model",
  "nflverse-data",
+ "rust-embed",
+ "sha2 0.11.0",
+ "sqlx",
  "tempfile",
+ "thiserror",
+ "time",
  "tokio",
+ "tracing",
  "utils",
  "wiremock",
 ]

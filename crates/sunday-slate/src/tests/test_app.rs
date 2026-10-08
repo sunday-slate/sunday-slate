@@ -29,7 +29,7 @@ impl TestApp {
 
     /// Like `from_pool` but accepts a custom `Mailer` (e.g. `failing_mailer()`).
     pub async fn from_pool_with_mailer(pool: SqlitePool, mailer: Mailer) -> Self {
-        Self::build(pool, mailer, None, false).await
+        Self::build(pool, mailer, None, false, None).await
     }
 
     /// Like `from_pool` but with the config clock pinned to `now`.
@@ -39,6 +39,7 @@ impl TestApp {
             Mailer::capture("Sunday Slate <no-reply@example.com>"),
             Some(now),
             false,
+            None,
         )
         .await
     }
@@ -54,6 +55,7 @@ impl TestApp {
             Mailer::capture("Sunday Slate <no-reply@example.com>"),
             Some(now),
             live_dev_feed,
+            None,
         )
         .await
     }
@@ -63,6 +65,7 @@ impl TestApp {
         mailer: Mailer,
         now_override: Option<time::OffsetDateTime>,
         live_dev_feed: bool,
+        nfl_override: Option<Arc<nfl_data::NflData>>,
     ) -> Self {
         let media_dir = tempfile::tempdir().expect("temp media dir");
 
@@ -89,11 +92,14 @@ impl TestApp {
 
         let db = Db::test(pool.clone());
 
-        let nfl = Arc::new(
-            nfl_data::NflData::in_memory()
-                .await
-                .expect("in-memory nfl-data"),
-        );
+        let nfl = match nfl_override {
+            Some(nfl) => nfl,
+            None => Arc::new(
+                nfl_data::NflData::in_memory()
+                    .await
+                    .expect("in-memory nfl-data"),
+            ),
+        };
 
         let avatar_runner = Arc::new(crate::avatars::AvatarFetchRunner::new());
 
@@ -135,6 +141,18 @@ impl TestApp {
     /// `&app.pool` afterward if you do. Uses `Mailer::capture`.
     pub async fn new() -> Self {
         Self::from_pool(crate::tests::utils::in_memory_pool().await).await
+    }
+
+    /// Build a host test app around a mock-configured NFL-data instance.
+    pub async fn new_with_nfl(nfl: Arc<nfl_data::NflData>) -> Self {
+        Self::build(
+            crate::tests::utils::in_memory_pool().await,
+            Mailer::capture("Sunday Slate <no-reply@example.com>"),
+            None,
+            false,
+            Some(nfl),
+        )
+        .await
     }
 
     /// Like `new` but accepts a custom `Mailer` (e.g. `failing_mailer()`).

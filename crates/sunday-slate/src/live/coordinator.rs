@@ -191,7 +191,7 @@ struct CoordinatorState {
     replays: HashMap<FeedKey, FeedReplay>,
     started: HashSet<ContestId>,
     identity: HashMap<(Season, Week, SeasonType, Vec<String>), Arc<LiveIdentityIndex>>,
-    freshness: Option<Vec<(nfl_data::Dataset, u32, Option<OffsetDateTime>)>>,
+    revision: Option<nfl_data::DataRevision>,
 }
 
 pub async fn run_coordinator(state: AppState, provider: tank01_data::Tank01Client) {
@@ -257,16 +257,10 @@ where
 {
     let now = state.now_eastern();
     let schedule = state.nfl.games(Season(state.config.season)).await?;
-    let freshness = state
-        .nfl
-        .freshness()
-        .await?
-        .into_iter()
-        .map(|fresh| (fresh.dataset, fresh.assets, fresh.last_synced_at))
-        .collect::<Vec<_>>();
-    if coordinator.freshness.as_ref() != Some(&freshness) {
+    let revision = state.nfl.data_revision().await?;
+    if coordinator.revision.as_ref() != Some(&revision) {
         coordinator.identity.clear();
-        coordinator.freshness = Some(freshness);
+        coordinator.revision = Some(revision);
     }
 
     let materialized = store::materialized_games(state.db.reader()).await?;
@@ -957,6 +951,12 @@ mod tests {
         (app, ContestId(contest))
     }
 
+    async fn mocked_nfl_host() -> (TestApp, wiremock::MockServer, tempfile::TempDir) {
+        let (nfl, server, dir) = crate::tests::nfl::mocked_nfl().await;
+        let app = TestApp::new_with_nfl(nfl).await;
+        (app, server, dir)
+    }
+
     async fn seed_alpha_runner(app: &TestApp) {
         let mut alpha = factories::player("00-A", "Alpha Runner");
         alpha.position = Some("RB".into());
@@ -975,6 +975,144 @@ mod tests {
                 designation: InjuryDesignation::Questionable,
             }],
         }
+    }
+
+    const REVISION_CSV: &str = "game_id,season,week,game_type,gameday,gametime,home_team,away_team,home_score,away_score\n2025_01_BUF_KC,2025,1,REG,2025-09-07,13:00,KC,BUF,,\n";
+
+    async fn await_revision_change(
+        nfl: &nfl_data::NflData,
+        previous: &nfl_data::DataRevision,
+    ) -> nfl_data::DataRevision {
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let current = nfl.data_revision().await.unwrap();
+                if &current != previous {
+                    return current;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("mocked refresh changes the revision")
+    }
+
+    async fn abort_feeds(coordinator: &mut CoordinatorState) {
+        for (_, runner) in coordinator.feeds.drain() {
+            runner.handle.abort();
+            let _ = runner.handle.await;
+        }
+    }
+
+    #[sqlx::test]
+    async fn coordinator_reuses_identity_for_equal_revision_and_rebuilds_after_sync(
+        _pool: SqlitePool,
+    ) {
+        let (app, server, _dir) = mocked_nfl_host().await;
+        crate::tests::nfl::mount_schedule_release(&server, "2026-01-01T00:00:00Z", REVISION_CSV)
+            .await;
+        app.login_admin().await;
+        app.post("/nfl-data-admin/nflverse", "")
+            .await
+            .assert_status_ok();
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                if !app.nfl.games(Season(2025)).await.unwrap().is_empty() {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("initial mocked schedule sync completes");
+        let first_revision = app.nfl.data_revision().await.unwrap();
+
+        let games = app.nfl.games(Season(2025)).await.unwrap();
+        let game = games.first().expect("mocked schedule game").clone();
+        let contest = factories::contest_with_games(
+            &app.pool,
+            "Revision identity",
+            &[game.gsis_game_id.as_str()],
+        )
+        .await;
+        let contest = ContestId(contest);
+        let provider = FakeProvider::for_game(&game);
+        let mut coordinator = CoordinatorState::default();
+        coordinator.started.insert(contest);
+        reconcile_once(&app.state, &provider, &mut coordinator)
+            .await
+            .unwrap();
+        let cached = coordinator
+            .identity
+            .values()
+            .next()
+            .expect("identity index cached")
+            .clone();
+
+        reconcile_once(&app.state, &provider, &mut coordinator)
+            .await
+            .unwrap();
+        let reused = coordinator.identity.values().next().unwrap();
+        assert!(Arc::ptr_eq(&cached, reused));
+
+        tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+        crate::tests::nfl::mount_schedule_release(&server, "2026-01-02T00:00:00Z", REVISION_CSV)
+            .await;
+        app.post("/nfl-data-admin/nflverse", "")
+            .await
+            .assert_status_ok();
+        let _updated_revision = await_revision_change(&app.nfl, &first_revision).await;
+        reconcile_once(&app.state, &provider, &mut coordinator)
+            .await
+            .unwrap();
+        let rebuilt = coordinator.identity.values().next().unwrap();
+        assert!(!Arc::ptr_eq(&cached, rebuilt));
+
+        abort_feeds(&mut coordinator).await;
+        app.state.live.shutdown();
+    }
+
+    #[sqlx::test]
+    async fn coordinator_revision_errors_follow_reconciliation_error_path(_pool: SqlitePool) {
+        let (app, _server, dir) = mocked_nfl_host().await;
+        let mut game = factories::game_at("2025_01_BUF_KC", 1, KICKOFF);
+        game.kickoff = None;
+        let contest = factories::contest_with_games(
+            &app.pool,
+            "Revision error",
+            &[game.gsis_game_id.as_str()],
+        )
+        .await;
+        app.nfl
+            .seed_for_test(&[], std::slice::from_ref(&game))
+            .await
+            .unwrap();
+        let provider = FakeProvider::for_game(&factories::game_at("2025_01_BUF_KC", 1, KICKOFF));
+        let mut coordinator = CoordinatorState::default();
+        coordinator.started.insert(ContestId(contest));
+        reconcile_once(&app.state, &provider, &mut coordinator)
+            .await
+            .unwrap();
+        let cached_revision = coordinator.revision.clone().expect("revision stored");
+        let cached_index = coordinator.identity.values().next().unwrap().clone();
+
+        let db_url = format!("sqlite://{}/cache.db", dir.path().display());
+        let fault = sqlx::SqlitePool::connect(&db_url).await.unwrap();
+        sqlx::query("DROP TABLE sync_state")
+            .execute(&fault)
+            .await
+            .unwrap();
+        assert!(
+            reconcile_once(&app.state, &provider, &mut coordinator)
+                .await
+                .is_err()
+        );
+        assert_eq!(coordinator.revision.as_ref(), Some(&cached_revision));
+        assert!(Arc::ptr_eq(
+            &cached_index,
+            coordinator.identity.values().next().unwrap()
+        ));
+        fault.close().await;
+        app.state.live.shutdown();
     }
 
     #[sqlx::test]

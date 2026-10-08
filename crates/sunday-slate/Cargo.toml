@@ -57,7 +57,7 @@ http.workspace = true
 # Force rust-embed to embed at compile time even in debug builds, so
 # `cargo test --features debug-embed` exercises the embedded byte path
 # (templates + static) that a plain debug build reads from disk instead.
-debug-embed = ["rust-embed/debug-embed"]
+debug-embed = ["rust-embed/debug-embed", "nfl-data/debug-embed"]
 # Exposes Db::test to out-of-crate consumers (the sister dev-tooling crate's
 # query tests); the public build surface is unchanged without it.
 test-support = []

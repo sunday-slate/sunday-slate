@@ -22,6 +22,7 @@ pub fn build(state: AppState, session_layer: sessions::Layer) -> Router {
         .merge(fantasy_teams::router())
         .merge(invites::commissioner_router())
         .merge(admin::router(state.clone()))
+        .merge(admin::nfl_data_router(state.clone()))
         .route_layer(login_required!(Db, login_url = "/login"));
 
     let mut session_routes = protected
