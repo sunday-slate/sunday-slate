@@ -3,6 +3,7 @@ use nfl_data::{DfsPosition, NflData, NflDataConfig, SalaryMatchup, SalaryUploadO
 
 const CSV: &[u8] = b"Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,Injury Indicator,Injury Details\n123506-62239,QB,Josh,,Allen,22,0,8200,BUF@NYJ,BUF,NYJ,,\n";
 const INVALID_CSV: &[u8] = b"Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,Injury Indicator,Injury Details\n123506-62239,QB,Josh,,Allen,22,0,not-a-salary,BUF@NYJ,BUF,NYJ,,\n";
+const ROW_DIAGNOSTICS_CSV: &[u8] = b"Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,Injury Indicator,Injury Details\n123506-62239,CPT,Josh,,Allen,22,0,8200,BUF-NYJ,BUF,NYJ,,\n";
 
 fn config(nflverse: &std::path::Path, fanduel: &std::path::Path) -> NflDataConfig {
     NflDataConfig {
@@ -100,6 +101,23 @@ async fn facade_preserves_empty_and_malformed_csv_outcomes() {
         nfl.receive_salary_upload(INVALID_CSV, None).await.unwrap(),
         SalaryUploadOutcome::InvalidCsv(_)
     ));
+}
+
+#[tokio::test]
+async fn facade_row_diagnostics_preserve_source_name_and_original_values() {
+    let nfl = NflData::in_memory().await.unwrap();
+    let SalaryUploadOutcome::Parsed(rows) = nfl
+        .receive_salary_upload(ROW_DIAGNOSTICS_CSV, None)
+        .await
+        .unwrap()
+    else {
+        panic!("expected row diagnostics in parsed outcome");
+    };
+    assert_eq!(rows[0].diagnostics.len(), 2);
+    assert!(rows[0].diagnostics[0].message.contains("Josh Allen"));
+    assert!(rows[0].diagnostics[0].message.contains("CPT"));
+    assert!(rows[0].diagnostics[1].message.contains("Josh Allen"));
+    assert!(rows[0].diagnostics[1].message.contains("BUF-NYJ"));
 }
 
 #[tokio::test]

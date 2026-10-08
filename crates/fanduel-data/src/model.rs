@@ -100,7 +100,13 @@ impl<'de> Deserialize<'de> for SalaryValue {
             {
                 let numeric = value
                     .parse()
-                    .map_err(|error| E::custom(format!("FanDuel Salary: {error}")))?;
+                    .or_else(|_| {
+                        value
+                            .strip_prefix("0x")
+                            .ok_or(())
+                            .and_then(|hex| i64::from_str_radix(hex, 16).map_err(|_| ()))
+                    })
+                    .map_err(|_| E::custom(format!("FanDuel Salary: invalid integer {value:?}")))?;
                 Ok(SalaryValue {
                     value: numeric,
                     text: value.to_owned(),
@@ -150,6 +156,10 @@ impl serde::Serialize for RawSalaryRow {
 impl RawSalaryRow {
     pub fn fd_player_id(&self) -> &str {
         self.id.rsplit('-').next().unwrap_or(&self.id)
+    }
+
+    pub fn fd_list_id(&self) -> Option<&str> {
+        self.id.split_once('-').map(|(list_id, _)| list_id)
     }
 
     pub fn name(&self) -> String {

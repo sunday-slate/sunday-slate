@@ -62,14 +62,22 @@ fn interpret_row(row_number: u64, raw: RawSalaryRow) -> InterpretedRow {
         diagnostics.push(RowDiagnostic {
             row_number,
             field: "Position".to_owned(),
-            message: format!("Unrecognized FanDuel position {:?}", raw.position),
+            message: format!(
+                "Unrecognized FanDuel position {:?} for {}",
+                raw.position,
+                raw.name()
+            ),
         });
     }
     if matchup.is_none() {
         diagnostics.push(RowDiagnostic {
             row_number,
             field: "Game".to_owned(),
-            message: format!("Could not interpret FanDuel matchup {:?}", raw.game),
+            message: format!(
+                "Could not interpret FanDuel matchup {:?} for {}",
+                raw.game,
+                raw.name()
+            ),
         });
     }
     InterpretedRow {

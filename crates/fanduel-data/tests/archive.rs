@@ -65,6 +65,75 @@ async fn source_rows_preserve_original_salary_text_and_numeric_salary() {
 }
 
 #[tokio::test]
+async fn hexadecimal_salary_keeps_quoted_value_and_persists_numeric_value() {
+    let service = FanduelData::in_memory().await.unwrap();
+    let bytes = b"Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,Injury Indicator,Injury Details\n1,QB,A,,B,0,0,0x2008,BUF@NYJ,BUF,NYJ,,\n";
+    let received = service.receive(bytes, None).await.unwrap();
+    let Interpretation::Parsed(rows) = &received.interpretation else {
+        panic!("expected hexadecimal salary to parse");
+    };
+    assert_eq!(rows[0].raw.salary, 8200);
+    assert_eq!(rows[0].raw.quoted_salary, "0x2008");
+
+    let stored = service.source_rows(received.upload_id).await.unwrap();
+    assert_eq!(stored[0].interpreted.raw.salary, 8200);
+    assert_eq!(stored[0].interpreted.raw.quoted_salary, "0x2008");
+}
+
+#[tokio::test]
+async fn raw_row_exposes_optional_composite_list_id() {
+    let service = FanduelData::in_memory().await.unwrap();
+    let received = service.receive(CSV, None).await.unwrap();
+    let rows = service.source_rows(received.upload_id).await.unwrap();
+    assert_eq!(rows[0].interpreted.raw.fd_list_id(), Some("123506"));
+
+    let bare = service
+        .receive(b"Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,Injury Indicator,Injury Details\n62239,QB,A,,B,0,0,8200,BUF@NYJ,BUF,NYJ,,\n", None)
+        .await
+        .unwrap();
+    let rows = service.source_rows(bare.upload_id).await.unwrap();
+    assert_eq!(rows[0].interpreted.raw.fd_list_id(), None);
+}
+
+#[tokio::test]
+async fn source_diagnostic_messages_retain_player_name_after_reopen() {
+    let directory = tempfile::tempdir().unwrap();
+    let config = FanduelDataConfig {
+        database_url: format!("sqlite://{}", directory.path().join("fanduel.db").display()),
+    };
+    let bytes = b"Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,Injury Indicator,Injury Details\n1,CPT,Josh,,Allen,0,0,8200,BUF-NYJ,BUF,NYJ,,\n";
+    let upload_id = FanduelData::connect(config.clone())
+        .await
+        .unwrap()
+        .receive(bytes, None)
+        .await
+        .unwrap()
+        .upload_id;
+    let rows = FanduelData::connect(config)
+        .await
+        .unwrap()
+        .source_rows(upload_id)
+        .await
+        .unwrap();
+    assert!(
+        rows[0].interpreted.diagnostics[0]
+            .message
+            .contains("Josh Allen")
+    );
+    assert!(
+        rows[0].interpreted.diagnostics[1]
+            .message
+            .contains("Josh Allen")
+    );
+    assert!(rows[0].interpreted.diagnostics[0].message.contains("CPT"));
+    assert!(
+        rows[0].interpreted.diagnostics[1]
+            .message
+            .contains("BUF-NYJ")
+    );
+}
+
+#[tokio::test]
 async fn header_only_receipt_is_parsed_with_no_source_rows() {
     let service = FanduelData::in_memory().await.unwrap();
     let bytes = b"Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,Injury Indicator,Injury Details\n";
