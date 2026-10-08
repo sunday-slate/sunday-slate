@@ -1,4 +1,6 @@
 mod assets;
+mod error;
+mod nflverse;
 mod view;
 
 use std::sync::Arc;
@@ -17,6 +19,10 @@ where
 {
     Router::new()
         .route("/", axum::routing::get(view::index))
+        .route(
+            "/nflverse",
+            axum::routing::get(nflverse::show).post(nflverse::start),
+        )
         .route(
             "/static/{*path}",
             axum::routing::get(assets::serve).head(assets::serve),

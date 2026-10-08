@@ -2141,6 +2141,7 @@ version = "0.1.0"
 dependencies = [
  "askama",
  "axum",
+ "axum-htmx",
  "axum-test",
  "mime_guess",
  "nfl-model",
@@ -2149,6 +2150,7 @@ dependencies = [
  "sha2 0.11.0",
  "sqlx",
  "tempfile",
+ "thiserror",
  "time",
  "tokio",
  "tracing",

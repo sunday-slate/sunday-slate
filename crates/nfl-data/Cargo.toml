@@ -12,10 +12,12 @@ debug-embed = ["rust-embed/debug-embed"]
 [dependencies]
 askama = { workspace = true }
 axum = { workspace = true }
+axum-htmx = { workspace = true }
 mime_guess = { workspace = true }
 rust-embed = { workspace = true }
 sha2 = { workspace = true }
 tracing = { workspace = true }
+thiserror = { workspace = true }
 nflverse-data = { path = "../nflverse-data" }
 nfl-model = { path = "../nfl-model" }
 utils = { path = "../utils" }
