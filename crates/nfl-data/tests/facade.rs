@@ -170,6 +170,7 @@ async fn sync_forwards_upstream_configuration_and_preserves_partial_failure_repo
         earliest_season: 2025,
         github_token: Some(Secret::new("sentinel")),
         github_api_base: server.uri(),
+        refresh_interval: None,
     })
     .await
     .unwrap();

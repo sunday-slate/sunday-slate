@@ -1,5 +1,9 @@
 mod config;
 mod identity;
+mod lifecycle;
+mod revision;
+#[cfg(test)]
+mod test_support;
 
 use std::collections::HashMap;
 
@@ -22,12 +26,37 @@ pub use nflverse_data::{
     Dataset, DatasetFreshness, DatasetReport, DatasetStatus, NflverseDataError as NflDataError,
     RefreshStatus, SyncReport,
 };
+pub use revision::DataRevision;
 
 pub struct NflData {
     provider: NflverseData,
+    refresh_interval: Option<std::time::Duration>,
 }
 
 impl NflData {
+    /// Start configured internal background work. Repeated calls are safe.
+    pub fn start_background_tasks(&self) {
+        if let Some(interval) = self.refresh_interval {
+            self.provider.start_scheduler(interval);
+        }
+    }
+
+    /// Stop future automatic task triggers without cancelling an active refresh.
+    pub fn stop_background_tasks(&self) {
+        self.provider.stop_scheduler();
+    }
+
+    /// Read an opaque hint for changes in the complete provider freshness snapshot.
+    pub async fn data_revision(&self) -> Result<DataRevision, NflDataError> {
+        let snapshot = self.provider.freshness().await?;
+        Ok(DataRevision::from_snapshot(
+            snapshot
+                .into_iter()
+                .map(|row| (row.dataset, row.assets, row.last_synced_at))
+                .collect(),
+        ))
+    }
+
     /// Request a background refresh; false means a refresh is already running.
     pub async fn request_refresh(&self) -> Result<bool, NflDataError> {
         self.provider.request_refresh().await
@@ -50,8 +79,12 @@ impl NflData {
 
     /// Opens (creating if missing) the cache database and runs migrations.
     pub async fn connect(config: NflDataConfig) -> Result<Self, NflDataError> {
+        let refresh_interval = config
+            .refresh_interval
+            .filter(|interval| !interval.is_zero());
         Ok(Self {
             provider: NflverseData::connect(config.into()).await?,
+            refresh_interval,
         })
     }
 
@@ -61,6 +94,7 @@ impl NflData {
     pub async fn in_memory() -> Result<Self, NflDataError> {
         Ok(Self {
             provider: NflverseData::in_memory().await?,
+            refresh_interval: None,
         })
     }
 

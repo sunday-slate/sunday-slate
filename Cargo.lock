@@ -2141,7 +2141,9 @@ version = "0.1.0"
 dependencies = [
  "nfl-model",
  "nflverse-data",
+ "sqlx",
  "tempfile",
+ "time",
  "tokio",
  "utils",
  "wiremock",
