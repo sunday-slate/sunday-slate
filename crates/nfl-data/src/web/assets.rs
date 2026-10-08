@@ -8,7 +8,7 @@ use rust_embed::RustEmbed;
 use sha2::{Digest, Sha256};
 
 #[derive(RustEmbed)]
-#[folder = "assets/static/"]
+#[folder = "src/web/assets/static/"]
 struct AdminAssets;
 
 pub(super) async fn serve(
@@ -29,13 +29,20 @@ fn asset_response(method: &Method, path: &str, headers: &HeaderMap, bytes: &[u8]
     let digest = Sha256::digest(bytes);
     let etag = format!("\"{}\"", hex_digest(&digest));
     let mut response = if headers
-        .get(header::IF_NONE_MATCH)
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| if_none_match(value, &etag))
+        .get_all(header::IF_NONE_MATCH)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .any(|value| if_none_match(value, &etag))
     {
         StatusCode::NOT_MODIFIED.into_response()
     } else if method == Method::HEAD {
-        Response::new(Body::empty())
+        let mut response = Response::new(Body::empty());
+        response.headers_mut().insert(
+            header::CONTENT_LENGTH,
+            HeaderValue::from_str(&bytes.len().to_string())
+                .expect("asset length is a valid header"),
+        );
+        response
     } else {
         Response::new(Body::from(bytes.to_vec()))
     };

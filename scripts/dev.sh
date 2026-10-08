@@ -47,8 +47,8 @@ tailwindcss \
     --watch=always </dev/null >/dev/null 2>&1 &
 host_css_pid=$!
 tailwindcss \
-    -i crates/nfl-data/styles/input.css \
-    -o crates/nfl-data/assets/static/css/admin.css \
+    -i crates/nfl-data/src/web/styles/input.css \
+    -o crates/nfl-data/src/web/assets/static/css/admin.css \
     --watch=always </dev/null >/dev/null 2>&1 &
 nfl_css_pid=$!
 trap 'kill "$host_css_pid" "$nfl_css_pid" 2>/dev/null || true' EXIT

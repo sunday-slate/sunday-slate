@@ -3,11 +3,15 @@ use nflverse_data::DatasetFreshness;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use utils::background::{LastRun, RunnerState};
 
-use crate::{NflData, admin::error::AdminError};
+use crate::{NflData, web::error::AdminError};
 
 #[derive(Template)]
-#[template(path = "admin/nflverse.html", blocks = ["panel"])]
-pub(super) struct NflverseTemplate {
+#[template(
+    path = "admin/nflverse.html",
+    config = "src/web/askama.toml",
+    blocks = ["panel"]
+)]
+pub(crate) struct NflverseTemplate {
     running: bool,
     elapsed: String,
     rows: Vec<DatasetRow>,
@@ -16,7 +20,7 @@ pub(super) struct NflverseTemplate {
 }
 
 impl NflverseTemplate {
-    pub(super) async fn load(nfl: &NflData) -> Result<Self, AdminError> {
+    pub(crate) async fn load(nfl: &NflData) -> Result<Self, AdminError> {
         let status = nfl.provider.refresh_status();
         if let RunnerState::Running {
             started_at,
@@ -130,7 +134,7 @@ pub(super) fn interval_label(secs: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::{NflverseTemplate, format_timestamp, interval_label};
-    use crate::test_support::{mock_nfl, mock_nfl_delayed};
+    use crate::test::test_support::{mock_nfl, mock_nfl_delayed};
     use askama::Template;
     use std::time::Duration;
     use time::{OffsetDateTime, macros::datetime};
@@ -189,8 +193,8 @@ mod tests {
         use utils::background::RunnerState;
 
         for succeeds in [false, true] {
-            let (nfl, _, _cache) =
-                crate::test_support::mock_nfl_with_schedule(None, succeeds).await;
+            let (nfl, _server, _cache) =
+                crate::test::test_support::mock_nfl_with_schedule(None, succeeds).await;
             assert!(nfl.provider.request_refresh().await.unwrap());
             let mut completed = false;
             for _ in 0..200 {

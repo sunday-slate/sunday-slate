@@ -5,11 +5,11 @@ use std::time::SystemTime;
 
 fn main() {
     let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-    let input = format!("{manifest}/styles/input.css");
-    let output = format!("{manifest}/assets/static/css/admin.css");
-    println!("cargo:rerun-if-changed=styles");
-    println!("cargo:rerun-if-changed=templates");
-    println!("cargo:rerun-if-changed=assets");
+    let input = format!("{manifest}/src/web/styles/input.css");
+    let output = format!("{manifest}/src/web/assets/static/css/admin.css");
+    println!("cargo:rerun-if-changed=src/web/styles");
+    println!("cargo:rerun-if-changed=src/web/templates");
+    println!("cargo:rerun-if-changed=src/web/assets");
     println!("cargo:rerun-if-env-changed=TAILWINDCSS");
 
     let release = std::env::var("PROFILE").as_deref() == Ok("release");
@@ -39,8 +39,8 @@ fn css_is_fresh(output: &str, manifest: &str) -> bool {
         return false;
     };
     [
-        format!("{manifest}/styles"),
-        format!("{manifest}/templates"),
+        format!("{manifest}/src/web/styles"),
+        format!("{manifest}/src/web/templates"),
     ]
     .iter()
     .filter_map(|directory| newest_mtime(Path::new(directory)))

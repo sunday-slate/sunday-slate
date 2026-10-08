@@ -4,7 +4,7 @@ mod tests {
 
     use crate::{
         NflData,
-        test_support::{mock_nfl, mock_nfl_delayed},
+        test::test_support::{mock_nfl, mock_nfl_delayed},
     };
     use utils::background::RunnerState;
 

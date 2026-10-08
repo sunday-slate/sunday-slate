@@ -6,18 +6,18 @@ use axum::{
 };
 use axum_htmx::HxRequest;
 
-use crate::{NflData, admin::error::AdminError};
+use crate::{NflData, web::error::AdminError};
 
 use super::view::NflverseTemplate;
 
-pub(in crate::admin) async fn show(
+pub(crate) async fn show(
     HxRequest(is_htmx): HxRequest,
     State(nfl): State<Arc<NflData>>,
 ) -> Result<Response, AdminError> {
     render(is_htmx, &nfl).await
 }
 
-pub(in crate::admin) async fn start(
+pub(crate) async fn start(
     HxRequest(is_htmx): HxRequest,
     State(nfl): State<Arc<NflData>>,
 ) -> Result<Response, AdminError> {

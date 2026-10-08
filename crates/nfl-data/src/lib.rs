@@ -1,56 +1,15 @@
-//! NFL-data facade; provider synchronization controls remain crate-private.
-//!
-//! Removed API boundary checks:
-//!
-//! ```compile_fail
-//! fn forbidden(nfl: &nfl_data::NflData) { let _ = nfl.sync(); }
-//! ```
-//! ```compile_fail
-//! fn forbidden(nfl: &nfl_data::NflData) { let _ = nfl.request_refresh(); }
-//! ```
-//! ```compile_fail
-//! fn forbidden(nfl: &nfl_data::NflData) { let _ = nfl.refresh_status(); }
-//! ```
-//! ```compile_fail
-//! fn forbidden(nfl: &nfl_data::NflData) { let _ = nfl.freshness(); }
-//! ```
-//! ```compile_fail
-//! fn forbidden(nfl: &nfl_data::NflData) { let _ = nfl.start_scheduler(std::time::Duration::ZERO); }
-//! ```
-//! ```compile_fail
-//! fn forbidden(nfl: &nfl_data::NflData) { let _ = nfl.stop_scheduler(); }
-//! ```
-//! ```compile_fail
-//! use nfl_data::Dataset;
-//! ```
-//! ```compile_fail
-//! use nfl_data::DatasetFreshness;
-//! ```
-//! ```compile_fail
-//! use nfl_data::DatasetReport;
-//! ```
-//! ```compile_fail
-//! use nfl_data::DatasetStatus;
-//! ```
-//! ```compile_fail
-//! use nfl_data::RefreshStatus;
-//! ```
-//! ```compile_fail
-//! use nfl_data::SyncReport;
-//! ```
-mod admin;
+mod web;
 mod config;
 mod identity;
-mod lifecycle;
-mod revision;
+mod data_revision;
 #[cfg(test)]
-mod test_support;
+mod test;
 
 use std::collections::HashMap;
 
 use nflverse_data::NflverseData;
 
-pub use admin::router as admin_router;
+pub use web::router as admin_router;
 pub use config::NflDataConfig;
 pub use identity::PlayerIdentity;
 pub use live::{
@@ -65,7 +24,7 @@ pub use nfl_model::{
     WeeklyRosterEntry, eastern_offset, to_eastern,
 };
 pub use nflverse_data::NflverseDataError as NflDataError;
-pub use revision::DataRevision;
+pub use data_revision::DataRevision;
 
 pub struct NflData {
     provider: NflverseData,

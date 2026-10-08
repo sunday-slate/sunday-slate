@@ -27,7 +27,7 @@ serve PORT=env("SUNDAY_SLATE_PORT", "3000"):
 [group('dev')]
 css:
     tailwindcss -i crates/sunday-slate/styles/input.css -o crates/sunday-slate/assets/static/css/app.css --minify
-    tailwindcss -i crates/nfl-data/styles/input.css -o crates/nfl-data/assets/static/css/admin.css --minify
+    tailwindcss -i crates/nfl-data/src/web/styles/input.css -o crates/nfl-data/src/web/assets/static/css/admin.css --minify
 
 # Re-download vendored frontend assets (htmx, Alpine, Geist, Phosphor, DaisyUI)
 [group('dev')]

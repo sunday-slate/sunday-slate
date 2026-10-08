@@ -4,6 +4,15 @@ version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+build = "src/web/build.rs"
+
+[[test]]
+name = "admin_assets"
+path = "src/web/tests/admin_assets.rs"
+
+[[test]]
+name = "admin_router"
+path = "src/web/tests/admin_router.rs"
 
 [features]
 default = []

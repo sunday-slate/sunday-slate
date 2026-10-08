@@ -6,7 +6,7 @@ use axum::{extract::State, http::StatusCode, response::Html};
 use crate::NflData;
 
 #[derive(Template)]
-#[template(path = "admin/index.html")]
+#[template(path = "admin/index.html", config = "src/web/askama.toml")]
 struct IndexTemplate;
 
 pub(super) async fn index(

@@ -14,7 +14,7 @@ impl DataRevision {
 #[cfg(test)]
 mod tests {
     use super::Dataset;
-    use crate::{NflDataConfig, test_support::mock_nfl_with_schedule};
+    use crate::{NflDataConfig, test::test_support::mock_nfl_with_schedule};
     use utils::Secret;
     use wiremock::{
         Mock, MockServer, ResponseTemplate,

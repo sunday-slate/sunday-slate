@@ -56,6 +56,17 @@ async fn assets_support_get_head_and_conditional_revalidation() {
         let response = server.get(&path).await;
         assert_eq!(response.status_code(), StatusCode::OK, "{path}");
         let etag = response.header("etag").to_str().unwrap().to_owned();
+        let asset = response.as_bytes().to_vec();
+        let asset_length = asset.len();
+        assert_eq!(
+            response
+                .header("content-length")
+                .to_str()
+                .unwrap()
+                .parse::<usize>()
+                .unwrap(),
+            asset_length
+        );
         assert!(etag.starts_with('"') && etag.ends_with('"'));
         assert!(
             response
@@ -77,14 +88,58 @@ async fn assets_support_get_head_and_conditional_revalidation() {
                     .method(Method::from_bytes(method.as_bytes()).unwrap(), &path)
                     .add_header("if-none-match", tag.clone())
                     .await;
+                assert_eq!(conditional.header("etag"), etag);
+                assert_eq!(conditional.header("cache-control"), "no-cache");
+                assert!(conditional.as_bytes().is_empty());
+            }
+        }
+        for method in ["GET", "HEAD"] {
+            for matching_tag in [etag.clone(), format!("W/{etag}")] {
+                let conditional = server
+                    .method(Method::from_bytes(method.as_bytes()).unwrap(), &path)
+                    .add_header("if-none-match", "\"stale\"")
+                    .add_header("if-none-match", matching_tag)
+                    .await;
                 assert_eq!(conditional.status_code(), StatusCode::NOT_MODIFIED);
                 assert_eq!(conditional.header("etag"), etag);
                 assert_eq!(conditional.header("cache-control"), "no-cache");
+                assert!(conditional.as_bytes().is_empty());
             }
         }
+        let stale_get = server
+            .get(&path)
+            .add_header("if-none-match", "\"stale\"")
+            .add_header("if-none-match", "\"also-stale\"")
+            .await;
+        assert_eq!(stale_get.status_code(), StatusCode::OK);
+        assert_eq!(stale_get.as_bytes().as_ref(), asset.as_slice());
+        let stale_head = server
+            .method(Method::HEAD, &path)
+            .add_header("if-none-match", "\"stale\"")
+            .add_header("if-none-match", "\"also-stale\"")
+            .await;
+        assert_eq!(stale_head.status_code(), StatusCode::OK);
+        assert!(stale_head.as_bytes().is_empty());
+        assert_eq!(
+            stale_head
+                .header("content-length")
+                .to_str()
+                .unwrap()
+                .parse::<usize>()
+                .unwrap(),
+            asset_length
+        );
         let head = server.method(Method::HEAD, &path).await;
         assert_eq!(head.status_code(), StatusCode::OK);
         assert!(head.as_bytes().is_empty());
+        assert_eq!(
+            head.header("content-length")
+                .to_str()
+                .unwrap()
+                .parse::<usize>()
+                .unwrap(),
+            asset_length
+        );
     }
 }
 

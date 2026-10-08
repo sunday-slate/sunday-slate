@@ -2,7 +2,7 @@
 # Refresh the small asset set used by the independently-owned NFL admin shell.
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-crate="$root/crates/nfl-data"
+crate="$root/crates/nfl-data/src/web"
 mkdir -p "$crate/assets/static/vendor/js" "$crate/assets/static/vendor/fonts" "$crate/styles"
 get() { printf '  -> %s\n' "$2"; curl -fsSL -o "$2" "$1"; }
 get "https://unpkg.com/htmx.org@4.0.0/dist/htmx.min.js" "$crate/assets/static/vendor/js/htmx.min.js"
