@@ -1,10 +1,10 @@
 mod config;
 mod data_revision;
 mod identity;
+mod salaries;
 #[cfg(test)]
 mod test;
 mod web;
-mod salaries;
 
 use std::collections::HashMap;
 
@@ -84,7 +84,9 @@ impl NflData {
 
     /// Opens both provider databases and runs their migrations.
     pub async fn connect(config: NflDataConfig) -> Result<Self, NflDataConnectError> {
-        let refresh_interval = config.refresh_interval.filter(|interval| !interval.is_zero());
+        let refresh_interval = config
+            .refresh_interval
+            .filter(|interval| !interval.is_zero());
         let provider = NflverseData::connect(config.clone().into())
             .await
             .map_err(NflDataConnectError::Nflverse)?;
@@ -93,7 +95,11 @@ impl NflData {
         })
         .await
         .map_err(NflDataConnectError::Fanduel)?;
-        Ok(Self { provider, fanduel, refresh_interval })
+        Ok(Self {
+            provider,
+            fanduel,
+            refresh_interval,
+        })
     }
 
     /// A fresh, empty, in-memory cache — for tests and tooling that need an
@@ -106,7 +112,11 @@ impl NflData {
         let fanduel = fanduel_data::FanduelData::in_memory()
             .await
             .map_err(NflDataConnectError::Fanduel)?;
-        Ok(Self { provider, fanduel, refresh_interval: None })
+        Ok(Self {
+            provider,
+            fanduel,
+            refresh_interval: None,
+        })
     }
 
     /// Most recent weekly roster entry for each id, keyed by gsis id. Ids with

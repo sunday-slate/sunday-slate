@@ -30,7 +30,6 @@ thiserror = { workspace = true }
 fanduel-data = { path = "../fanduel-data" }
 nflverse-data = { path = "../nflverse-data" }
 nfl-model = { path = "../nfl-model" }
-thiserror.workspace = true
 utils = { path = "../utils" }
 time = { workspace = true }
 

@@ -80,6 +80,7 @@ mod tests {
             .await;
         let nfl = crate::NflData::connect(NflDataConfig {
             database_url: format!("sqlite://{}/cache.db", dir.path().display()),
+            fanduel_database_url: format!("sqlite://{}/fanduel.db", dir.path().display()),
             earliest_season: 2025,
             github_token: Some(Secret::new("sentinel")),
             github_api_base: server.uri(),
@@ -108,6 +109,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let config = NflDataConfig {
             database_url: format!("sqlite://{}/cache.db", dir.path().display()),
+            fanduel_database_url: format!("sqlite://{}/fanduel.db", dir.path().display()),
             refresh_interval: None,
             ..Default::default()
         };

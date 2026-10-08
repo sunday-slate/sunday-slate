@@ -56,6 +56,7 @@ mod tests {
     fn provider_conversion_preserves_provider_configuration() {
         let provider: nflverse_data::NflverseDataConfig = NflDataConfig {
             database_url: "sqlite://cache.db".into(),
+            fanduel_database_url: "sqlite://fanduel.db".into(),
             earliest_season: 2020,
             github_token: Some(Secret::new("sentinel")),
             github_api_base: "https://api.example.test".into(),
