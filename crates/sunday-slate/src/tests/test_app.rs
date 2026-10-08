@@ -32,6 +32,17 @@ impl TestApp {
         Self::build(pool, mailer, None, false, None).await
     }
 
+    pub async fn from_pool_with_nfl(pool: SqlitePool, nfl: Arc<nfl_data::NflData>) -> Self {
+        Self::build(
+            pool,
+            Mailer::capture("Sunday Slate <no-reply@example.com>"),
+            None,
+            false,
+            Some(nfl),
+        )
+        .await
+    }
+
     /// Like `from_pool` but with the config clock pinned to `now`.
     pub async fn from_pool_at(pool: SqlitePool, now: time::OffsetDateTime) -> Self {
         Self::build(

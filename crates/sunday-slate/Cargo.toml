@@ -26,7 +26,6 @@ axum-login.workspace = true
 axum-messages.workspace = true
 axum-htmx.workspace = true
 config.workspace = true
-csv = { workspace = true }
 garde = { workspace = true, features = ["derive", "email", "regex"] }
 image.workspace = true
 itertools.workspace = true
@@ -73,3 +72,5 @@ sqlx = { workspace = true }
 wiremock.workspace = true
 http-body-util = "0.1"
 tempfile.workspace = true
+csv = { workspace = true }
+fanduel-data = { path = "../fanduel-data" }

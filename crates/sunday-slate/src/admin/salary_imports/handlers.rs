@@ -40,19 +40,26 @@ pub async fn index(State(state): State<AppState>) -> Result<impl IntoResponse, A
     Ok(Html(IndexTemplate::new(imports).render()?))
 }
 
-/// Read the first `csv` file part into bytes.
-async fn read_csv_part(mut mp: Multipart) -> Result<Vec<u8>, AppError> {
+struct UploadedCsv {
+    bytes: Vec<u8>,
+    filename: Option<String>,
+}
+
+/// Read the first `csv` file part, keeping its client-provided filename as metadata.
+async fn read_csv_part(mut mp: Multipart) -> Result<UploadedCsv, AppError> {
     while let Some(field) = mp
         .next_field()
         .await
         .map_err(|e| AppError::BadRequest(e.to_string()))?
     {
         if field.name() == Some("csv") {
-            return Ok(field
+            let filename = field.file_name().map(str::to_owned);
+            let bytes = field
                 .bytes()
                 .await
                 .map_err(|e| AppError::BadRequest(e.to_string()))?
-                .to_vec());
+                .to_vec();
+            return Ok(UploadedCsv { bytes, filename });
         }
     }
     Err(AppError::BadRequest("no csv file uploaded".into()))
@@ -63,10 +70,18 @@ pub async fn upload(
     State(state): State<AppState>,
     mp: Multipart,
 ) -> Result<axum::response::Response, AppError> {
-    let bytes = read_csv_part(mp).await?;
+    let upload = read_csv_part(mp).await?;
     let season = state.config.season;
 
-    let plan = match import::plan(&state.db, &state.nfl, bytes.as_slice(), season).await {
+    let plan = match import::plan_upload(
+        &state.db,
+        &state.nfl,
+        &upload.bytes,
+        upload.filename.as_deref(),
+        season,
+    )
+    .await
+    {
         Ok(p) => p,
         Err(e) => {
             let msg = match e {
@@ -76,6 +91,8 @@ pub async fn upload(
                 }
                 PlanError::Csv(m) => format!("Couldn't read that CSV: {m}"),
                 PlanError::Data(m) => format!("Couldn't load NFL data: {m}"),
+                PlanError::Upload(m) => return Err(AppError::Internal(m)),
+                PlanError::Input(m) => return Err(AppError::Internal(m)),
             };
             let imports = import_store::list_recent(state.db.reader(), 25).await?;
             let view = IndexTemplate {
