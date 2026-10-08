@@ -114,7 +114,7 @@ mod tests {
 
     #[test]
     fn interprets_player_and_defense_rows() {
-        let bytes = include_bytes!("../tests/fixtures/salaries.csv");
+        let bytes = include_bytes!("../tests/fixtures/fanduel-export.csv");
         let Interpretation::Parsed(rows) = interpret(bytes) else {
             panic!("expected parsed rows");
         };
