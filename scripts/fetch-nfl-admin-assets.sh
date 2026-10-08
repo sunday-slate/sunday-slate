@@ -10,4 +10,4 @@ get "https://cdn.jsdelivr.net/fontsource/fonts/geist:vf@latest/latin-wght-normal
 get "https://cdn.jsdelivr.net/fontsource/fonts/geist-mono:vf@latest/latin-wght-normal.woff2" "$crate/assets/static/vendor/fonts/geist-mono.woff2"
 get "https://github.com/saadeghi/daisyui/releases/latest/download/daisyui.mjs" "$crate/styles/daisyui.mjs"
 get "https://github.com/saadeghi/daisyui/releases/latest/download/daisyui-theme.mjs" "$crate/styles/daisyui-theme.mjs"
-printf '%s\n' 'Preserved THIRD_PARTY_NOTICES.md; review notices if upstream licensing changes.'
+printf '%s\n' 'Preserved vendor/fonts/ofl.txt; review the license if upstream licensing changes.'
