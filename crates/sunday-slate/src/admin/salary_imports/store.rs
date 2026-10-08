@@ -277,6 +277,7 @@ mod tests {
             games: 1,
             rows,
             offending: vec![],
+            diagnostics: vec![],
         }
     }
 

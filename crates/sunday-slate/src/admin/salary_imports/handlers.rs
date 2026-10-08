@@ -105,6 +105,16 @@ pub async fn upload(
         }
     };
 
+    for diagnostic in &plan.diagnostics {
+        tracing::warn!(
+            target: "sunday_slate::salary_imports",
+            row_number = diagnostic.row_number,
+            field = %diagnostic.field,
+            message = %diagnostic.message,
+            "FanDuel salary row diagnostic"
+        );
+    }
+
     if !plan.offending.is_empty() {
         let imports = import_store::list_recent(state.db.reader(), 25).await?;
         let view = IndexTemplate {

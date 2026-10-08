@@ -49,6 +49,8 @@ pub struct SalaryPlan {
     /// Human-readable descriptions of rows that could not be classified at all
     /// (bad position, or a game string without a resolvable team).
     pub offending: Vec<String>,
+    /// Provider diagnostics, including non-blocking malformed matchup details.
+    pub diagnostics: Vec<nfl_data::SalaryRowDiagnostic>,
 }
 
 /// Backward-compatible report for the CLI / validation harness.
@@ -162,10 +164,15 @@ async fn plan_rows(
     }
     let roster_index = RosterIndex::build(&roster_entries);
 
+    let diagnostics = rows
+        .iter()
+        .flat_map(|row| row.diagnostics.iter().cloned())
+        .collect();
     let mut plan = SalaryPlan {
         season,
         week: slate_games.first().map(|game| game.week.0),
         games: slate_games.len(),
+        diagnostics,
         ..Default::default()
     };
 
@@ -761,6 +768,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn mixed_malformed_matchup_keeps_legacy_staging_and_exposes_diagnostic() {
+        let db = crate::Db::test(crate::tests::utils::in_memory_pool().await);
+        let nfl = nfl_data::NflData::in_memory().await.unwrap();
+        nfl.seed_for_test(&[], &[game("2025_01_BUF_NYJ", 1, "BUF", "NYJ")])
+            .await
+            .unwrap();
+        let csv = format!(
+            "{HEADER}\n\
+             \"1-200\",\"WR\",\"Valid\",\"\",\"Matchup\",\"0\",\"0\",\"5000\",\"BUF@NYJ\",\"BUF\",\"NYJ\",\"\",\"\"\n\
+             \"1-201\",\"WR\",\"Malformed\",\"\",\"Matchup\",\"0\",\"0\",\"4900\",\"not-a-matchup\",\"BUF\",\"NYJ\",\"\",\"\"\n"
+        );
+        let plan = super::plan(&db, &nfl, csv.as_bytes(), 2025)
+            .await
+            .expect("mixed legacy-compatible plan");
+        assert!(plan.offending.is_empty());
+        assert_eq!(plan.rows.len(), 2);
+        assert_eq!(plan.diagnostics.len(), 1);
+        assert_eq!(plan.diagnostics[0].row_number, 2);
+        assert_eq!(plan.diagnostics[0].field, "Game");
+        let import_id = super::store::stage(&db, &plan, None).await.unwrap();
+        assert_eq!(
+            super::store::rows_for(db.reader(), import_id)
+                .await
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+
+    #[tokio::test]
     async fn plan_collects_offending_rows_without_erroring() {
         let db = crate::Db::test(crate::tests::utils::in_memory_pool().await);
         let nfl = nfl_data::NflData::in_memory().await.unwrap();
@@ -849,6 +886,7 @@ mod tests {
                 suggested_gsis_player_id: None,
             }],
             offending: vec![],
+            diagnostics: vec![],
         };
         let id = import_store::stage(&db, &plan, None).await.unwrap();
         let row_id = import_store::rows_for(&pool, id).await.unwrap()[0].id;
