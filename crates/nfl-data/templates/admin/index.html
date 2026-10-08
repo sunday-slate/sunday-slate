@@ -1,0 +1,16 @@
+{% extends "admin/layout.html" %}
+
+{% block title %}NFL Data Admin{% endblock %}
+
+{% block content %}
+<section class="max-w-2xl">
+  <p class="mb-3 font-mono text-xs uppercase tracking-[0.2em] text-primary">Administration</p>
+  <h1 class="text-4xl font-semibold tracking-tight sm:text-5xl">NFL Data</h1>
+  <p class="mt-4 max-w-xl text-base leading-7 text-base-content/70">Manage the shared football data that powers Sunday Slate.</p>
+  <a href="/nfl-data-admin/nflverse" class="card mt-8 block border border-base-300 bg-base-100 p-6 shadow-sm transition hover:border-primary/50 sm:p-8">
+    <span class="font-mono text-xs uppercase tracking-widest text-primary">Provider</span>
+    <span class="mt-2 block text-xl font-semibold">nflverse data</span>
+    <span class="mt-2 block text-sm text-base-content/70">View dataset freshness and run a manual sync.</span>
+  </a>
+</section>
+{% endblock %}

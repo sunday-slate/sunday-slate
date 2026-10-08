@@ -1,3 +1,4 @@
+mod admin;
 mod config;
 mod identity;
 mod lifecycle;
@@ -9,6 +10,7 @@ use std::collections::HashMap;
 
 use nflverse_data::NflverseData;
 
+pub use admin::router as admin_router;
 pub use config::NflDataConfig;
 pub use identity::PlayerIdentity;
 pub use live::{

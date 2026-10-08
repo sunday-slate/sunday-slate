@@ -53,3 +53,4 @@ get "https://github.com/saadeghi/daisyui/releases/${DAISYUI_VER}/download/daisyu
 get "https://github.com/saadeghi/daisyui/releases/${DAISYUI_VER}/download/daisyui-theme.mjs" "$styles/daisyui-theme.mjs"
 
 echo "Done. Vendored assets are in $vendor and $styles."
+bash "$root/scripts/fetch-nfl-admin-assets.sh"

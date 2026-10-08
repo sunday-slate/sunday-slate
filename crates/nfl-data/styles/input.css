@@ -1,0 +1,48 @@
+@import "tailwindcss" source(none);
+@import "./fonts.css";
+
+@source "../templates";
+
+@plugin "./daisyui.mjs" {
+  themes: false;
+}
+
+@plugin "./daisyui-theme.mjs" {
+  name: "sundayslate";
+  default: true;
+  color-scheme: light;
+
+  --color-base-100: #FFFFFF;
+  --color-base-200: #FAFAF9;
+  --color-base-300: #F4F4F2;
+  --color-base-content: #0E0E0C;
+  --color-primary: #1E8E47;
+  --color-primary-content: #FFFFFF;
+  --color-secondary: #0F562B;
+  --color-secondary-content: #FAFAF9;
+  --color-neutral: #1A1A18;
+  --color-neutral-content: #FAFAF9;
+  --color-accent: #166F37;
+  --color-accent-content: #FFFFFF;
+  --color-info: #0F4D8F;
+  --color-info-content: #FFFFFF;
+  --color-success: #1E8E47;
+  --color-success-content: #FFFFFF;
+  --color-warning: #B47511;
+  --color-warning-content: #FFFFFF;
+  --color-error: #C8341F;
+  --color-error-content: #FFFFFF;
+  --radius-selector: 2rem;
+  --radius-field: 0.625rem;
+  --radius-box: 0.75rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+@theme {
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+}

@@ -5,13 +5,24 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+default = []
+debug-embed = ["rust-embed/debug-embed"]
+
 [dependencies]
+askama = { workspace = true }
+axum = { workspace = true }
+mime_guess = { workspace = true }
+rust-embed = { workspace = true }
+sha2 = { workspace = true }
+tracing = { workspace = true }
 nflverse-data = { path = "../nflverse-data" }
 nfl-model = { path = "../nfl-model" }
 utils = { path = "../utils" }
 time = { workspace = true }
 
 [dev-dependencies]
+axum-test = { workspace = true }
 tokio = { workspace = true }
 tempfile = { workspace = true }
 wiremock = { workspace = true }

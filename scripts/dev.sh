@@ -40,13 +40,18 @@ export SUNDAY_SLATE__BASE_URL="$BASE_URL"
     [[ -n "$LAN_IP" ]] && echo "lan:   http://$LAN_IP:$PORT"
 } >/dev/tty 2>/dev/null || true
 
-# CSS watcher runs in the background
+# Independently owned stylesheets each have a watcher.
 tailwindcss \
     -i crates/sunday-slate/styles/input.css \
     -o crates/sunday-slate/assets/static/css/app.css \
     --watch=always </dev/null >/dev/null 2>&1 &
-css_pid=$!
-trap 'kill "$css_pid" 2>/dev/null || true' EXIT
+host_css_pid=$!
+tailwindcss \
+    -i crates/nfl-data/styles/input.css \
+    -o crates/nfl-data/assets/static/css/admin.css \
+    --watch=always </dev/null >/dev/null 2>&1 &
+nfl_css_pid=$!
+trap 'kill "$host_css_pid" "$nfl_css_pid" 2>/dev/null || true' EXIT
 
 # SQLX_OFFLINE is set here because bacon has no per-job `env` key
 if [[ "${2:-}" == "--no-bacon" ]]; then
