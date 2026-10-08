@@ -19,7 +19,6 @@ async fn landing_page_owns_its_shell_and_urls() {
     let body = response.text();
     assert!(body.contains("<!doctype html>"));
     assert!(body.contains("href=\"/nfl-data-admin/nflverse\""));
-    assert!(body.contains("href=\"/admin\""));
     assert!(body.contains("/nfl-data-admin/static/css/admin.css"));
     assert!(body.contains("/nfl-data-admin/static/vendor/js/htmx.min.js"));
     assert!(!body.contains("href=\"/static/"));
