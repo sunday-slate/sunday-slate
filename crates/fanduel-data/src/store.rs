@@ -1,10 +1,10 @@
-use std::str::FromStr;
+use std::{path::Path, str::FromStr};
 
 use nfl_model::{DfsPosition, TeamAbbr};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{
-    SqlitePool,
+    ConnectOptions, SqlitePool,
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
 };
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
@@ -108,6 +108,26 @@ impl TryFrom<StoredRow> for InterpretedRow {
     }
 }
 
+fn pool_options(options: &SqliteConnectOptions, pool: SqlitePoolOptions) -> SqlitePoolOptions {
+    let filename = options.get_filename();
+    // SQLx 0.9 serializes its generated `file:sqlx-in-memory-*` filenames as invalid URLs.
+    let is_sqlx_memory = filename
+        .to_string_lossy()
+        .starts_with("file:sqlx-in-memory-");
+    let is_memory = filename == Path::new(":memory:")
+        || is_sqlx_memory
+        || options
+            .to_url_lossy()
+            .query_pairs()
+            .any(|(key, value)| key == "mode" && value == "memory");
+    if is_memory {
+        // Retiring the last memory connection destroys both archive data and migrations.
+        pool.idle_timeout(None).max_lifetime(None)
+    } else {
+        pool
+    }
+}
+
 impl Store {
     pub(crate) async fn connect(database_url: &str) -> Result<Self, FanduelDataError> {
         let options = SqliteConnectOptions::from_str(database_url)?
@@ -115,8 +135,7 @@ impl Store {
             .foreign_keys(true)
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(SqliteSynchronous::Full);
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
+        let pool = pool_options(&options, SqlitePoolOptions::new().max_connections(1))
             .connect_with(options)
             .await?;
         Self::migrate(pool).await
@@ -127,8 +146,7 @@ impl Store {
             .filename(":memory:")
             .foreign_keys(true)
             .synchronous(SqliteSynchronous::Full);
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
+        let pool = pool_options(&options, SqlitePoolOptions::new().max_connections(1))
             .connect_with(options)
             .await?;
         Self::migrate(pool).await
@@ -279,5 +297,103 @@ fn parse_state(state: &str) -> UploadState {
         "parsed" => UploadState::Parsed,
         "failed" => UploadState::Failed,
         _ => UploadState::Received,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Store, UploadState, pool_options};
+    use crate::Interpretation;
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions, SqliteSynchronous};
+    use std::{str::FromStr, time::Duration};
+
+    const CSV: &[u8] = include_bytes!("../tests/fixtures/salaries.csv");
+
+    #[tokio::test]
+    async fn memory_archives_survive_connection_retirement_policy() {
+        let cases = [
+            (
+                "low-level filename",
+                SqliteConnectOptions::new().filename(":memory:"),
+                false,
+            ),
+            (
+                "sqlite::memory:",
+                SqliteConnectOptions::from_str("sqlite::memory:").unwrap(),
+                true,
+            ),
+            (
+                "sqlite://:memory:",
+                SqliteConnectOptions::from_str("sqlite://:memory:").unwrap(),
+                true,
+            ),
+            (
+                "anonymous memory URL",
+                SqliteConnectOptions::from_str("sqlite://?mode=memory").unwrap(),
+                true,
+            ),
+            (
+                "named private memory URL",
+                SqliteConnectOptions::from_str("sqlite://named-archive?mode=memory&cache=private")
+                    .unwrap(),
+                true,
+            ),
+            (
+                "named shared memory URL",
+                SqliteConnectOptions::from_str("sqlite://named-archive?mode=memory&cache=shared")
+                    .unwrap(),
+                true,
+            ),
+        ];
+
+        for (name, options, is_url) in cases {
+            let mut options = options
+                .foreign_keys(true)
+                .synchronous(SqliteSynchronous::Full);
+            if is_url {
+                options = options.journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
+            }
+            let pool = pool_options(
+                &options,
+                SqlitePoolOptions::new()
+                    .max_connections(1)
+                    .max_lifetime(Duration::ZERO),
+            )
+            .connect_with(options)
+            .await
+            .unwrap_or_else(|error| panic!("{name}: {error}"));
+            let store = Store::migrate(pool)
+                .await
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+
+            let first = store.receive(CSV, Some("retirement.csv")).await.unwrap();
+            assert!(
+                matches!(first.interpretation, Interpretation::Parsed(_)),
+                "{name}"
+            );
+            let upload = store.upload(first.upload_id).await.unwrap().unwrap();
+            assert_eq!(upload.bytes, CSV, "{name}");
+            assert_eq!(
+                upload.metadata.filename.as_deref(),
+                Some("retirement.csv"),
+                "{name}"
+            );
+            assert_eq!(upload.metadata.state, UploadState::Parsed, "{name}");
+            let rows = store.source_rows(first.upload_id).await.unwrap();
+            assert_eq!(rows.len(), 2, "{name}");
+            assert_eq!(rows[0].interpreted.raw.id, "123506-62239", "{name}");
+            assert_eq!(rows[0].interpreted.raw.salary, 8200, "{name}");
+            assert_eq!(rows[1].interpreted.raw.id, "119110-12543", "{name}");
+            assert_eq!(rows[1].interpreted.raw.salary, 3000, "{name}");
+
+            let second = store.receive(CSV, Some("retirement.csv")).await.unwrap();
+            assert_ne!(second.upload_id, first.upload_id, "{name}");
+            assert_eq!(
+                store.upload(first.upload_id).await.unwrap().unwrap().bytes,
+                CSV,
+                "{name}"
+            );
+            store.pool.close().await;
+        }
     }
 }
