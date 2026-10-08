@@ -1,5 +1,4 @@
 mod candidates;
-pub mod csv;
 mod handlers;
 pub mod matcher;
 pub mod model;
@@ -14,29 +13,12 @@ use std::collections::{BTreeSet, HashMap};
 use nfl_data::{NflData, Season, TeamAbbr as NflTeamAbbr};
 
 use crate::Db;
-use crate::admin::salary_imports::csv::SalaryRow;
 use crate::admin::salary_imports::matcher::{PlayerIndex, RosterIndex};
 use crate::admin::salary_imports::model::RowState;
 use crate::admin::salary_imports::schedule::resolve_slate_games;
 use crate::nfl_players::store as player_store;
-use crate::player_identity::normalize_team;
 use crate::player_salaries::model::{DfsPosition, NflPlayerSalary};
 use crate::player_salaries::store as salary_store;
-
-/// Whole-slate failures that stop classification. Individual malformed rows are
-/// NOT errors — they land in `SalaryPlan::offending`.
-#[derive(Debug, thiserror::Error)]
-pub enum PlanError {
-    #[error("empty salary CSV")]
-    Empty,
-    #[error("could not parse salary CSV: {0}")]
-    Csv(String),
-    #[error("no single NFL week contains this slate's games")]
-    UnresolvableSlate,
-    /// A nfl-data or crosswalk read failed while classifying — not a CSV problem.
-    #[error("could not read salary data: {0}")]
-    Data(String),
-}
 
 /// One classified salary row, ready to stage or write. `gsis_player_id` is set
 /// for `Matched`; `None` for `Dst` and `Unmatched`.
@@ -65,8 +47,10 @@ pub struct SalaryPlan {
     pub games: usize,
     pub rows: Vec<PlannedRow>,
     /// Human-readable descriptions of rows that could not be classified at all
-    /// (bad position, or a game string without a resolvable team).
+    /// (bad position, bad salary, or a game string without a resolvable team).
     pub offending: Vec<String>,
+    /// Provider diagnostics, including non-blocking malformed matchup details.
+    pub diagnostics: Vec<nfl_data::SalaryRowDiagnostic>,
 }
 
 /// Backward-compatible report for the CLI / validation harness.
@@ -77,96 +61,148 @@ pub struct ImportReport {
     pub unmatched: Vec<String>,
 }
 
-/// Classify every CSV row against the slate and nfl-data, writing nothing.
-/// Player rows match crosswalk-first (`fd_player_id`), then by normalized name.
+/// Failures that prevent an import plan. Row-level problems remain in `offending`.
+#[derive(Debug, thiserror::Error)]
+pub enum PlanError {
+    #[error("empty salary CSV")]
+    Empty,
+    #[error("could not parse salary CSV: {0}")]
+    Csv(String),
+    #[error("could not receive salary upload: {0}")]
+    Upload(String),
+    #[error("could not read salary CSV input: {0}")]
+    Input(String),
+    #[error("no single NFL week contains this slate's games")]
+    UnresolvableSlate,
+    #[error("could not read salary data: {0}")]
+    Data(String),
+}
+
+/// Classify a reader-based import, retaining compatibility for validation tools.
 pub async fn plan(
     db: &Db,
     nfl: &NflData,
     csv: impl std::io::Read,
     season: u16,
 ) -> Result<SalaryPlan, PlanError> {
-    let rows: Vec<SalaryRow> = csv::parse(csv).map_err(|e| PlanError::Csv(e.to_string()))?;
+    let mut bytes = Vec::new();
+    let mut csv = csv;
+    csv.read_to_end(&mut bytes)
+        .map_err(|error| PlanError::Input(error.to_string()))?;
+    plan_upload(db, nfl, &bytes, None, season).await
+}
+
+/// Archive and interpret one complete upload, then classify its provider rows.
+pub async fn plan_upload(
+    db: &Db,
+    nfl: &NflData,
+    bytes: &[u8],
+    filename: Option<&str>,
+    season: u16,
+) -> Result<SalaryPlan, PlanError> {
+    let rows = match nfl
+        .receive_salary_upload(bytes, filename)
+        .await
+        .map_err(|error| PlanError::Upload(error.to_string()))?
+    {
+        nfl_data::SalaryUploadOutcome::Empty => return Err(PlanError::Empty),
+        nfl_data::SalaryUploadOutcome::InvalidCsv(diagnostic) => {
+            return Err(PlanError::Csv(diagnostic.message));
+        }
+        nfl_data::SalaryUploadOutcome::Parsed(rows) => rows,
+    };
+    plan_rows(db, nfl, &rows, season).await
+}
+
+async fn plan_rows(
+    db: &Db,
+    nfl: &NflData,
+    rows: &[nfl_data::SalaryRow],
+    season: u16,
+) -> Result<SalaryPlan, PlanError> {
     if rows.is_empty() {
         return Err(PlanError::Empty);
     }
-
     let matchups: BTreeSet<(String, String)> = rows
         .iter()
-        .filter_map(|r| r.game.split_once('@'))
-        .map(|(away, home)| {
-            (
-                normalize_team(away).to_string(),
-                normalize_team(home).to_string(),
-            )
-        })
+        .filter_map(|row| row.matchup.as_ref())
+        .map(|matchup| (matchup.away.0.clone(), matchup.home.0.clone()))
         .collect();
 
     let games = nfl
         .games(Season(season))
         .await
-        .map_err(|e| PlanError::Data(e.to_string()))?;
+        .map_err(|error| PlanError::Data(error.to_string()))?;
     let slate_games =
         resolve_slate_games(&games, &matchups).map_err(|_| PlanError::UnresolvableSlate)?;
 
     let mut game_of: HashMap<String, String> = HashMap::new();
-    for g in &slate_games {
-        game_of.insert(g.home_team.0.clone(), g.gsis_game_id.clone());
-        game_of.insert(g.away_team.0.clone(), g.gsis_game_id.clone());
+    for game in &slate_games {
+        game_of.insert(game.home_team.0.clone(), game.gsis_game_id.clone());
+        game_of.insert(game.away_team.0.clone(), game.gsis_game_id.clone());
     }
 
     let players = nfl
         .players()
         .await
-        .map_err(|e| PlanError::Data(e.to_string()))?;
+        .map_err(|error| PlanError::Data(error.to_string()))?;
     let index = PlayerIndex::build(&players);
-
-    // Secondary matcher: the slate's own week of rosters, one query per team.
-    // `resolve_slate_games` pins the slate to a single week, so every game here
-    // shares one.
     let mut roster_entries = Vec::new();
-    if let Some(week) = slate_games.first().map(|g| g.week) {
+    if let Some(week) = slate_games.first().map(|game| game.week) {
         let mut teams: BTreeSet<&String> = BTreeSet::new();
-        for g in &slate_games {
-            teams.insert(&g.home_team.0);
-            teams.insert(&g.away_team.0);
+        for game in &slate_games {
+            teams.insert(&game.home_team.0);
+            teams.insert(&game.away_team.0);
         }
         for team in teams {
             let entries = nfl
                 .weekly_roster(Season(season), week, &NflTeamAbbr(team.clone()))
                 .await
-                .map_err(|e| PlanError::Data(e.to_string()))?;
+                .map_err(|error| PlanError::Data(error.to_string()))?;
             roster_entries.extend(entries);
         }
     }
     let roster_index = RosterIndex::build(&roster_entries);
 
+    let diagnostics = rows
+        .iter()
+        .flat_map(|row| row.diagnostics.iter().cloned())
+        .collect();
     let mut plan = SalaryPlan {
         season,
-        week: slate_games.first().map(|g| g.week.0),
+        week: slate_games.first().map(|game| game.week.0),
         games: slate_games.len(),
+        diagnostics,
         ..Default::default()
     };
 
-    for r in &rows {
-        let Some(pos) = r.dfs_position() else {
-            plan.offending
-                .push(format!("{} (bad position {})", r.name(), r.position));
+    for row in rows {
+        let Some(position) = row.position else {
+            plan.offending.push(format!(
+                "{} (bad position {})",
+                row.name, row.original_position
+            ));
             continue;
         };
-        let team = normalize_team(&r.team).to_string();
+        let Some(salary) = row.salary else {
+            plan.offending
+                .push(format!("{} (bad salary {})", row.name, row.original_salary));
+            continue;
+        };
+        let team = row.team.0.clone();
         let Some(gsis_game_id) = game_of.get(&team).cloned() else {
             plan.offending
-                .push(format!("{} (no game for {})", r.name(), team));
+                .push(format!("{} (no game for {})", row.name, team));
             continue;
         };
 
-        if pos.is_defense() {
+        if position.is_defense() {
             plan.rows.push(PlannedRow {
-                fd_player_id: r.fd_player_id().to_string(),
-                fd_name: r.name(),
+                fd_player_id: row.fd_player_id.clone(),
+                fd_name: row.name.clone(),
                 fd_team: team,
                 dfs_position: DfsPosition::Dst,
-                salary: r.salary,
+                salary,
                 gsis_game_id,
                 gsis_player_id: None,
                 state: RowState::Dst,
@@ -175,40 +211,33 @@ pub async fn plan(
             continue;
         }
 
-        // Crosswalk first (sticky prior resolutions), then the player table,
-        // then this week's roster for the row's team — see `RosterIndex` for
-        // what the player table structurally cannot answer.
-        let gsis = match player_store::by_fd_id(db.reader(), r.fd_player_id()).await {
-            Ok(Some(np)) => Some(np.gsis_player_id),
+        let gsis = match player_store::by_fd_id(db.reader(), &row.fd_player_id).await {
+            Ok(Some(player)) => Some(player.gsis_player_id),
             Ok(None) => index
-                .match_one(&r.name(), &team)
-                .or_else(|| roster_index.match_one(&r.name(), &team, pos.label())),
-            Err(e) => return Err(PlanError::Data(e.to_string())),
+                .match_one(&row.name, &team)
+                .or_else(|| roster_index.match_one(&row.name, &team, position.label())),
+            Err(error) => return Err(PlanError::Data(error.to_string())),
         };
-
         let (state, gsis_player_id) = match gsis {
-            Some(g) => (RowState::Matched, Some(g)),
+            Some(gsis) => (RowState::Matched, Some(gsis)),
             None => (RowState::Unmatched, None),
         };
-        // Only an unmatched row needs a suggestion, and a suggestion never
-        // becomes a match without a human.
         let suggested_gsis_player_id = match state {
-            RowState::Unmatched => roster_index.suggest_one(&r.name(), &team, pos.label()),
+            RowState::Unmatched => roster_index.suggest_one(&row.name, &team, position.label()),
             _ => None,
         };
         plan.rows.push(PlannedRow {
-            fd_player_id: r.fd_player_id().to_string(),
-            fd_name: r.name(),
+            fd_player_id: row.fd_player_id.clone(),
+            fd_name: row.name.clone(),
             fd_team: team,
-            dfs_position: pos,
-            salary: r.salary,
+            dfs_position: position,
+            salary,
             gsis_game_id,
             gsis_player_id,
             state,
             suggested_gsis_player_id,
         });
     }
-
     Ok(plan)
 }
 
@@ -339,6 +368,7 @@ pub async fn commit_staged(db: &Db, import_id: i64) -> anyhow::Result<ImportRepo
 mod tests {
     use super::*;
     use crate::admin::salary_imports::model::RowState;
+    use crate::player_identity::normalize_team;
     use nfl_data::{
         Game, Player, Season, SeasonType, TeamAbbr as NflTeamAbbr, Week, WeeklyRosterEntry,
     };
@@ -743,6 +773,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn mixed_malformed_matchup_keeps_legacy_staging_and_exposes_diagnostic() {
+        let db = crate::Db::test(crate::tests::utils::in_memory_pool().await);
+        let nfl = nfl_data::NflData::in_memory().await.unwrap();
+        nfl.seed_for_test(&[], &[game("2025_01_BUF_NYJ", 1, "BUF", "NYJ")])
+            .await
+            .unwrap();
+        let csv = format!(
+            "{HEADER}\n\
+             \"1-200\",\"WR\",\"Valid\",\"\",\"Matchup\",\"0\",\"0\",\"5000\",\"BUF@NYJ\",\"BUF\",\"NYJ\",\"\",\"\"\n\
+             \"1-201\",\"WR\",\"Malformed\",\"\",\"Matchup\",\"0\",\"0\",\"4900\",\"not-a-matchup\",\"BUF\",\"NYJ\",\"\",\"\"\n"
+        );
+        let plan = super::plan(&db, &nfl, csv.as_bytes(), 2025)
+            .await
+            .expect("mixed legacy-compatible plan");
+        assert!(plan.offending.is_empty());
+        assert_eq!(plan.rows.len(), 2);
+        assert_eq!(plan.diagnostics.len(), 1);
+        assert_eq!(plan.diagnostics[0].row_number, 2);
+        assert_eq!(plan.diagnostics[0].field, "Game");
+        let import_id = super::store::stage(&db, &plan, None).await.unwrap();
+        assert_eq!(
+            super::store::rows_for(db.reader(), import_id)
+                .await
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+
+    #[tokio::test]
     async fn plan_collects_offending_rows_without_erroring() {
         let db = crate::Db::test(crate::tests::utils::in_memory_pool().await);
         let nfl = nfl_data::NflData::in_memory().await.unwrap();
@@ -758,6 +818,66 @@ mod tests {
             .expect("plan");
         assert!(plan.rows.is_empty());
         assert_eq!(plan.offending.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn plan_reports_unparseable_salary_as_offending() {
+        let db = crate::Db::test(crate::tests::utils::in_memory_pool().await);
+        let nfl = nfl_data::NflData::in_memory().await.unwrap();
+        nfl.seed_for_test(&[], &[game("2025_01_BUF_NYJ", 1, "BUF", "NYJ")])
+            .await
+            .unwrap();
+        let csv = format!(
+            "{HEADER}\n\
+             \"1-400\",\"WR\",\"Bad\",\"\",\"Salary\",\"0\",\"0\",\"zap\",\"BUF@NYJ\",\"BUF\",\"NYJ\",\"\",\"\"\n"
+        );
+        let plan = super::plan(&db, &nfl, csv.as_bytes(), 2025)
+            .await
+            .expect("plan");
+        assert!(plan.rows.is_empty());
+        assert_eq!(plan.offending.len(), 1);
+        assert_eq!(plan.offending[0], "Bad Salary (bad salary zap)");
+        assert_eq!(plan.diagnostics.len(), 1);
+        assert_eq!(plan.diagnostics[0].field, "Salary");
+    }
+
+    struct FailingReader;
+
+    impl std::io::Read for FailingReader {
+        fn read(&mut self, _buffer: &mut [u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("input stream failed"))
+        }
+    }
+
+    #[tokio::test]
+    async fn plan_reports_reader_failure_before_receiving_an_upload() {
+        let db = crate::Db::test(crate::tests::utils::in_memory_pool().await);
+        let dir = tempfile::tempdir().unwrap();
+        let fanduel_url = format!("sqlite://{}", dir.path().join("fanduel.db").display());
+        let nfl = nfl_data::NflData::connect(nfl_data::NflDataConfig {
+            database_url: "sqlite::memory:".into(),
+            fanduel_database_url: fanduel_url.clone(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let error = super::plan(&db, &nfl, FailingReader, 2025)
+            .await
+            .unwrap_err();
+        assert!(matches!(error, super::PlanError::Input(_)));
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM nfl_player_salaries")
+                .fetch_one(db.reader())
+                .await
+                .unwrap(),
+            0
+        );
+        let archive = fanduel_data::FanduelData::connect(fanduel_data::FanduelDataConfig {
+            database_url: fanduel_url,
+        })
+        .await
+        .unwrap();
+        assert!(archive.recent_uploads(10).await.unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -792,6 +912,7 @@ mod tests {
                 suggested_gsis_player_id: None,
             }],
             offending: vec![],
+            diagnostics: vec![],
         };
         let id = import_store::stage(&db, &plan, None).await.unwrap();
         let row_id = import_store::rows_for(&pool, id).await.unwrap()[0].id;

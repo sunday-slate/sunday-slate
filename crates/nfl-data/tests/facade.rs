@@ -72,6 +72,7 @@ async fn seeded_records_survive_reopening_and_identity_prefers_players() {
     let dir = tempfile::tempdir().unwrap();
     let config = NflDataConfig {
         database_url: format!("sqlite://{}/cache.db", dir.path().display()),
+        fanduel_database_url: format!("sqlite://{}/fanduel.db", dir.path().display()),
         ..Default::default()
     };
     let nfl = NflData::connect(config.clone()).await.unwrap();
