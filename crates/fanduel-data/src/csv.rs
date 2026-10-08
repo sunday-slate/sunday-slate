@@ -118,9 +118,10 @@ mod tests {
         let Interpretation::Parsed(rows) = interpret(bytes) else {
             panic!("expected parsed rows");
         };
-        assert_eq!(rows.len(), 2);
+        assert_eq!(rows.len(), 4);
         assert_eq!(rows[0].raw.fd_player_id(), "62239");
         assert_eq!(rows[0].raw.name(), "Josh Allen");
+        assert_eq!(rows[0].raw.nickname, "Josh Allen");
         assert_eq!(rows[0].team.0, "BUF");
         assert_eq!(
             rows[0].position.map(|position| position.label()),
@@ -133,12 +134,21 @@ mod tests {
         assert_eq!(rows[0].salary, Some(8200));
         assert_eq!(rows[1].raw.fd_player_id(), "12543");
         assert_eq!(rows[1].raw.name(), "New York Giants");
+        assert_eq!(rows[1].raw.nickname, "New York Giants");
         assert_eq!(
             rows[1].position.map(|position| position.label()),
             Some("D/ST")
         );
         assert_eq!(rows[1].raw.salary, "3000");
         assert_eq!(rows[1].salary, Some(3000));
+        assert_eq!(rows[2].raw.fd_player_id(), "80796");
+        assert_eq!(rows[2].team.0, "JAX");
+        assert_eq!(rows[2].raw.injury_indicator, "Q");
+        assert_eq!(rows[2].raw.injury_details, "Hamstring");
+        assert_eq!(rows[3].raw.fd_player_id(), "99999");
+        assert_eq!(rows[3].team.0, "LA");
+        assert_eq!(rows[3].raw.fppg, "");
+        assert_eq!(rows[3].raw.played, "0");
     }
 
     #[test]
