@@ -191,7 +191,7 @@ struct CoordinatorState {
     replays: HashMap<FeedKey, FeedReplay>,
     started: HashSet<ContestId>,
     identity: HashMap<(Season, Week, SeasonType, Vec<String>), Arc<LiveIdentityIndex>>,
-    freshness: Option<Vec<(nfl_data::Dataset, u32, Option<OffsetDateTime>)>>,
+    revision: Option<nfl_data::DataRevision>,
 }
 
 pub async fn run_coordinator(state: AppState, provider: tank01_data::Tank01Client) {
@@ -257,16 +257,10 @@ where
 {
     let now = state.now_eastern();
     let schedule = state.nfl.games(Season(state.config.season)).await?;
-    let freshness = state
-        .nfl
-        .freshness()
-        .await?
-        .into_iter()
-        .map(|fresh| (fresh.dataset, fresh.assets, fresh.last_synced_at))
-        .collect::<Vec<_>>();
-    if coordinator.freshness.as_ref() != Some(&freshness) {
+    let revision = state.nfl.data_revision().await?;
+    if coordinator.revision.as_ref() != Some(&revision) {
         coordinator.identity.clear();
-        coordinator.freshness = Some(freshness);
+        coordinator.revision = Some(revision);
     }
 
     let materialized = store::materialized_games(state.db.reader()).await?;

@@ -1,3 +1,43 @@
+//! NFL-data facade; provider synchronization controls remain crate-private.
+//!
+//! Removed API boundary checks:
+//!
+//! ```compile_fail
+//! fn forbidden(nfl: &nfl_data::NflData) { let _ = nfl.sync(); }
+//! ```
+//! ```compile_fail
+//! fn forbidden(nfl: &nfl_data::NflData) { let _ = nfl.request_refresh(); }
+//! ```
+//! ```compile_fail
+//! fn forbidden(nfl: &nfl_data::NflData) { let _ = nfl.refresh_status(); }
+//! ```
+//! ```compile_fail
+//! fn forbidden(nfl: &nfl_data::NflData) { let _ = nfl.freshness(); }
+//! ```
+//! ```compile_fail
+//! fn forbidden(nfl: &nfl_data::NflData) { let _ = nfl.start_scheduler(std::time::Duration::ZERO); }
+//! ```
+//! ```compile_fail
+//! fn forbidden(nfl: &nfl_data::NflData) { let _ = nfl.stop_scheduler(); }
+//! ```
+//! ```compile_fail
+//! use nfl_data::Dataset;
+//! ```
+//! ```compile_fail
+//! use nfl_data::DatasetFreshness;
+//! ```
+//! ```compile_fail
+//! use nfl_data::DatasetReport;
+//! ```
+//! ```compile_fail
+//! use nfl_data::DatasetStatus;
+//! ```
+//! ```compile_fail
+//! use nfl_data::RefreshStatus;
+//! ```
+//! ```compile_fail
+//! use nfl_data::SyncReport;
+//! ```
 mod admin;
 mod config;
 mod identity;
@@ -24,10 +64,7 @@ pub use nfl_model::{
     Game, Player, PlayerWeekStats, Season, SeasonType, TeamAbbr, TeamWeekStats, Week,
     WeeklyRosterEntry, eastern_offset, to_eastern,
 };
-pub use nflverse_data::{
-    Dataset, DatasetFreshness, DatasetReport, DatasetStatus, NflverseDataError as NflDataError,
-    RefreshStatus, SyncReport,
-};
+pub use nflverse_data::NflverseDataError as NflDataError;
 pub use revision::DataRevision;
 
 pub struct NflData {
@@ -57,26 +94,6 @@ impl NflData {
                 .map(|row| (row.dataset, row.assets, row.last_synced_at))
                 .collect(),
         ))
-    }
-
-    /// Request a background refresh; false means a refresh is already running.
-    pub async fn request_refresh(&self) -> Result<bool, NflDataError> {
-        self.provider.request_refresh().await
-    }
-
-    /// Running start time/freshness or the last completed background refresh report.
-    pub fn refresh_status(&self) -> RefreshStatus {
-        self.provider.refresh_status()
-    }
-
-    /// Explicitly start the timer. Zero disables it; an existing timer is not replaced.
-    pub fn start_scheduler(&self, interval: std::time::Duration) -> bool {
-        self.provider.start_scheduler(interval)
-    }
-
-    /// Stop the timer without cancelling a running background refresh.
-    pub fn stop_scheduler(&self) -> bool {
-        self.provider.stop_scheduler()
     }
 
     /// Opens (creating if missing) the cache database and runs migrations.
@@ -218,21 +235,6 @@ impl NflData {
     ) -> Result<Vec<TeamWeekStats>, NflDataError> {
         self.provider.team_week_stats(season, week).await
     }
-    /// Freshness for every dataset, in sync order.
-    pub async fn freshness(&self) -> Result<Vec<DatasetFreshness>, NflDataError> {
-        self.provider.freshness().await
-    }
-
-    /// Fetch all datasets from nflverse, skipping assets whose upstream
-    /// updated_at matches the cache. Failures are isolated per dataset and
-    /// reported in the SyncReport; Err is reserved for setup-level failures.
-    /// For per-season datasets, isolation is finer still: a bad season's
-    /// asset doesn't block the other seasons in the same dataset from
-    /// updating.
-    pub async fn sync(&self) -> Result<SyncReport, NflDataError> {
-        self.provider.sync().await
-    }
-
     /// Seed player and team week stats directly, for tests and tooling. Reuses the
     /// sync-path `replace` inserts (per-season delete-then-insert). Not part of the
     /// stable API.
@@ -393,7 +395,8 @@ mod seed_week_stats_tests {
         );
         assert_eq!(got[0].rushing_tds, 1);
         assert!(
-            nfl.freshness()
+            nfl.provider
+                .freshness()
                 .await
                 .unwrap()
                 .iter()

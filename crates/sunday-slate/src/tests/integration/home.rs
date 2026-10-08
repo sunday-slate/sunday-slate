@@ -51,6 +51,15 @@ async fn admin_banner_rides_the_shell_for_admins_only(pool: SqlitePool) {
     assert!(body.contains("Set slate"), "{body}");
     assert!(body.contains("Upload salaries"), "{body}");
 
+    let nfl_admin = app.get("/nfl-data-admin").await;
+    nfl_admin.assert_status_ok();
+    assert!(!nfl_admin.text().contains("Get Week 1 ready"));
+    assert!(!nfl_admin.text().contains("Primary league navigation"));
+    let nflverse = app.get("/nfl-data-admin/nflverse").await;
+    nflverse.assert_status_ok();
+    assert!(!nflverse.text().contains("Get Week 1 ready"));
+    assert!(!nflverse.text().contains("Primary league navigation"));
+
     // The admin pages the banner links to carry no banner of their own.
     let imports = app.get("/admin/salary-imports").await;
     imports.assert_status_ok();

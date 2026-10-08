@@ -7,7 +7,6 @@
 pub mod avatars;
 pub mod banner;
 pub mod contests;
-pub mod nfl_sync;
 pub mod salary_imports;
 
 use askama::Template;
@@ -39,7 +38,9 @@ async fn index() -> Result<impl IntoResponse, AppError> {
 /// Whether `path` is in the admin subtree — the landing page or anything
 /// nested under it. The one place that rule is written down.
 pub(crate) fn is_admin_path(path: &str) -> bool {
-    path == "/admin" || path.starts_with("/admin/")
+    ["/admin", "/nfl-data-admin"]
+        .iter()
+        .any(|root| path == *root || path.starts_with(&format!("{root}/")))
 }
 
 /// Reject anyone but a signed-in admin before an admin handler runs. Extracting
@@ -57,7 +58,16 @@ pub fn router(state: AppState) -> Router<AppState> {
         .nest("/admin/avatars", avatars::router())
         .nest("/admin/contests", contests::router())
         .nest("/admin/salary-imports", salary_imports::router())
-        .nest("/admin/nfl-sync", nfl_sync::router())
+        .route_layer(axum::middleware::from_fn_with_state(state, require_admin))
+}
+
+/// Mount NFL-data administration behind the host's existing global-admin gate.
+pub(crate) fn nfl_data_router(state: AppState) -> Router<AppState> {
+    Router::new()
+        .nest(
+            "/nfl-data-admin",
+            nfl_data::admin_router::<AppState>(std::sync::Arc::clone(&state.nfl)),
+        )
         .route_layer(axum::middleware::from_fn_with_state(state, require_admin))
 }
 

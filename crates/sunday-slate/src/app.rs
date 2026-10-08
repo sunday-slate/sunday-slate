@@ -33,6 +33,7 @@ impl App {
             nfl_data::NflData::connect(nfl_data::NflDataConfig {
                 database_url: config.nflverse_database_url.clone(),
                 github_token: config.nflverse_github_token.clone(),
+                refresh_interval: config.nflverse_sync_interval(),
                 ..Default::default()
             })
             .await?,
@@ -85,9 +86,7 @@ impl App {
             None => None,
         };
         let coordinator_task = Arc::new(tokio::sync::Mutex::new(live_task));
-        if let Some(interval) = state.config.nflverse_sync_interval() {
-            state.nfl.start_scheduler(interval);
-        }
+        state.nfl.start_background_tasks();
         let serve_result = axum::serve(listener, router)
             .with_graceful_shutdown(wait_for_shutdown_signal(
                 deletion_task.abort_handle(),
@@ -100,7 +99,7 @@ impl App {
         if serve_result.is_err() {
             state.live.shutdown();
             deletion_task.abort();
-            state.nfl.stop_scheduler();
+            state.nfl.stop_background_tasks();
         }
 
         match deletion_task.await {
@@ -160,7 +159,7 @@ async fn wait_for_shutdown_signal(
     tracing::info!("shutdown signal received, draining");
     live.shutdown();
     abort_handle.abort();
-    nfl.stop_scheduler();
+    nfl.stop_background_tasks();
     if let Some(task) = coordinator_task.lock().await.take() {
         match task.await {
             Ok(()) => {}

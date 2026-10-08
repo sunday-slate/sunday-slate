@@ -38,9 +38,9 @@ mod tests {
     #[tokio::test]
     async fn stopping_services_does_not_cancel_running_refresh() {
         let (nfl, _server, _dir) = mock_nfl_delayed(Duration::from_millis(200)).await;
-        assert!(nfl.request_refresh().await.unwrap());
+        assert!(nfl.provider.request_refresh().await.unwrap());
         tokio::time::timeout(Duration::from_secs(1), async {
-            while !matches!(nfl.refresh_status(), RunnerState::Running { .. }) {
+            while !matches!(nfl.provider.refresh_status(), RunnerState::Running { .. }) {
                 tokio::time::sleep(Duration::from_millis(5)).await;
             }
         })
@@ -48,16 +48,19 @@ mod tests {
         .unwrap();
         nfl.stop_background_tasks();
         tokio::time::sleep(Duration::from_millis(30)).await;
-        assert!(matches!(nfl.refresh_status(), RunnerState::Running { .. }));
+        assert!(matches!(
+            nfl.provider.refresh_status(),
+            RunnerState::Running { .. }
+        ));
         tokio::time::timeout(Duration::from_secs(3), async {
-            while matches!(nfl.refresh_status(), RunnerState::Running { .. }) {
+            while matches!(nfl.provider.refresh_status(), RunnerState::Running { .. }) {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
         })
         .await
         .unwrap();
         assert!(matches!(
-            nfl.refresh_status(),
+            nfl.provider.refresh_status(),
             RunnerState::Idle { last: Some(_) }
         ));
     }

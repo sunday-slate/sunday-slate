@@ -16,6 +16,7 @@ mod league_creation;
 mod league_resolution;
 mod live_contest;
 mod mail;
+mod nfl_data_admin;
 mod password_reset;
 mod rules;
 mod salary_imports;

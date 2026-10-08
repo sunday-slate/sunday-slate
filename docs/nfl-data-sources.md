@@ -17,10 +17,7 @@ The nflverse provider stores its rebuildable source cache in
 `storage/nflverse-cache.db`. Sunday Slate's managed players, teams, contests,
 salaries, and identifier links remain in `storage/sunday-slate.db`.
 
-For Rust consumers, `nfl-data` retains its facade API and re-exports shared model
-types, live contracts, and time helpers from `nfl-model`. Its distinct
-`NflDataConfig` takes default values from `NflverseDataConfig` so cache settings
-stay aligned.
+For Rust consumers, `nfl-data` retains canonical read operations and re-exports shared model types, live contracts, and time helpers from `nfl-model`. Provider synchronization operations and status types remain private to the crate; callers use its lifecycle methods and opaque `DataRevision` instead. Its distinct `NflDataConfig` takes default values from `NflverseDataConfig` so cache settings stay aligned.
 
 From the workspace root, run:
 
@@ -48,10 +45,20 @@ These TOML keys replace the former `nfl_database_url`, `nfl_github_token`, and
 | `nflverse_github_token` | `SUNDAY_SLATE__NFLVERSE_GITHUB_TOKEN` | Unset (public GitHub access) |
 | `nflverse_sync_interval_secs` | `SUNDAY_SLATE__NFLVERSE_SYNC_INTERVAL_SECS` | `0` (manual only) |
 
-A positive interval enables automatic refresh while the server runs. The first
-refresh occurs after one full interval, not at startup. Manual admin refreshes
-and scheduled refreshes share overlap prevention. Stopping the timer does not
-cancel an active refresh.
+A positive interval enables automatic refresh while the server runs. Sunday Slate maps this existing setting into `NflDataConfig::refresh_interval` and calls `start_background_tasks` at service startup and `stop_background_tasks` at shutdown. The first refresh occurs after one full interval, not at startup. Manual admin refreshes and scheduled refreshes share overlap prevention. Stopping the timer does not cancel an active refresh.
+
+## NFL Data Administration
+
+Global administrators can open NFL Data Admin from `/admin`, or directly at
+`/nfl-data-admin`; the nflverse status and manual-refresh page is at
+`/nfl-data-admin/nflverse`. The `nfl-data` admin router is not independently
+authenticated. Hosts must mount it behind their session and global-admin
+authorization middleware; Sunday Slate applies its existing login and admin
+checks to the entire subtree. Access does not require a league or team.
+
+`NflData::data_revision()` returns an opaque equality-comparable freshness hint
+for invalidating derived identity caches. It is not a provider status API or a
+monotonic version.
 
 ## Command-Line Refresh
 
