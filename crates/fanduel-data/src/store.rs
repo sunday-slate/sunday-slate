@@ -1,4 +1,4 @@
-use std::{path::Path, str::FromStr};
+use std::{path::Path, str::FromStr, time::Duration};
 
 use nfl_model::{DfsPosition, TeamAbbr};
 use serde::{Deserialize, Serialize};
@@ -127,13 +127,28 @@ fn pool_options(options: &SqliteConnectOptions, pool: SqlitePoolOptions) -> Sqli
     }
 }
 
+fn archive_options(options: SqliteConnectOptions) -> SqliteConnectOptions {
+    // Matches `Db::open` in `sunday-slate/src/db.rs` so both databases tune alike:
+    // WAL + synchronous Normal, an explicit busy timeout for external contenders,
+    // and the same page-cache/temp/mmap/journal-limit knobs as the app.
+    options
+        .foreign_keys(true)
+        .synchronous(SqliteSynchronous::Normal)
+        .busy_timeout(Duration::from_secs(10))
+        .optimize_on_close(true, None)
+        .pragma("cache_size", "-20000")
+        .pragma("temp_store", "memory")
+        .pragma("mmap_size", "134217728")
+        .pragma("journal_size_limit", "67108864")
+}
+
 impl Store {
     pub(crate) async fn connect(database_url: &str) -> Result<Self, FanduelDataError> {
-        let options = SqliteConnectOptions::from_str(database_url)?
-            .create_if_missing(true)
-            .foreign_keys(true)
-            .journal_mode(SqliteJournalMode::Wal)
-            .synchronous(SqliteSynchronous::Full);
+        let options = archive_options(
+            SqliteConnectOptions::from_str(database_url)?
+                .create_if_missing(true)
+                .journal_mode(SqliteJournalMode::Wal),
+        );
         let pool = pool_options(&options, SqlitePoolOptions::new().max_connections(1))
             .connect_with(options)
             .await?;
@@ -141,10 +156,7 @@ impl Store {
     }
 
     pub(crate) async fn in_memory() -> Result<Self, FanduelDataError> {
-        let options = SqliteConnectOptions::new()
-            .filename(":memory:")
-            .foreign_keys(true)
-            .synchronous(SqliteSynchronous::Full);
+        let options = archive_options(SqliteConnectOptions::new().filename(":memory:"));
         let pool = pool_options(&options, SqlitePoolOptions::new().max_connections(1))
             .connect_with(options)
             .await?;
@@ -170,7 +182,7 @@ impl Store {
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>();
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
         let result = sqlx::query(
             "INSERT INTO uploads (filename, received_at, content_hash, bytes, state) VALUES (?, ?, ?, ?, 'received')",
         )
@@ -200,7 +212,9 @@ impl Store {
                     .await?;
             }
             Interpretation::Parsed(rows) => {
-                let mut tx = self.pool.begin().await?;
+                // Identical begin shape to tx one: grab the write lock up front
+                // instead of upgrading a read transaction mid-flight.
+                let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
                 for row in rows {
                     let stored = serde_json::to_string(&StoredRow::from(row))?;
                     sqlx::query("INSERT INTO source_rows (upload_id, row_number, interpreted) VALUES (?, ?, ?)")
@@ -348,7 +362,7 @@ mod tests {
         for (name, options, is_url) in cases {
             let mut options = options
                 .foreign_keys(true)
-                .synchronous(SqliteSynchronous::Full);
+                .synchronous(SqliteSynchronous::Normal);
             if is_url {
                 options = options.journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
             }
@@ -396,5 +410,43 @@ mod tests {
             );
             store.pool.close().await;
         }
+    }
+
+    #[tokio::test]
+    async fn file_stores_connect_with_the_app_pragma_set() {
+        let directory = tempfile::tempdir().unwrap();
+        let url = format!("sqlite://{}", directory.path().join("fanduel.db").display());
+        let store = Store::connect(&url).await.unwrap();
+
+        let synchronous: i64 = sqlx::query_scalar("PRAGMA synchronous")
+            .fetch_one(&store.pool)
+            .await
+            .unwrap();
+        assert_eq!(synchronous, 1, "NORMAL, matching Db::open");
+        let busy_timeout: i64 = sqlx::query_scalar("PRAGMA busy_timeout")
+            .fetch_one(&store.pool)
+            .await
+            .unwrap();
+        assert_eq!(busy_timeout, 10_000);
+        let journal_mode: String = sqlx::query_scalar("PRAGMA journal_mode")
+            .fetch_one(&store.pool)
+            .await
+            .unwrap();
+        assert_eq!(journal_mode, "wal");
+        let cache_size: i64 = sqlx::query_scalar("PRAGMA cache_size")
+            .fetch_one(&store.pool)
+            .await
+            .unwrap();
+        assert_eq!(cache_size, -20_000);
+        let temp_store: i64 = sqlx::query_scalar("PRAGMA temp_store")
+            .fetch_one(&store.pool)
+            .await
+            .unwrap();
+        assert_eq!(temp_store, 2, "temp_store=memory");
+        let journal_size_limit: i64 = sqlx::query_scalar("PRAGMA journal_size_limit")
+            .fetch_one(&store.pool)
+            .await
+            .unwrap();
+        assert_eq!(journal_size_limit, 67_108_864);
     }
 }
