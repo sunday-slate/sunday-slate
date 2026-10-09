@@ -57,6 +57,14 @@ pub(crate) enum RowGroup {
     Skipped,
 }
 impl RowGroup {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Unmatched => "unmatched",
+            Self::Resolved => "resolved",
+            Self::Skipped => "skipped",
+        }
+    }
+
     pub(crate) fn state(self) -> RowState {
         match self {
             Self::Unmatched => RowState::Unmatched,

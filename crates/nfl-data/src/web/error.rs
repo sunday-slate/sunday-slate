@@ -10,6 +10,8 @@ pub(super) enum AdminError {
     Provider(#[from] crate::NflDataError),
     #[error(transparent)]
     Render(#[from] askama::Error),
+    #[error(transparent)]
+    Storage(#[from] sqlx::Error),
 }
 
 impl IntoResponse for AdminError {
