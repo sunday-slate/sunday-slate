@@ -640,21 +640,90 @@ async fn concurrent_decision_cannot_mutate_committed_review() {
         .await
         .unwrap();
 
-    // Both operations race for the serialized writer. Either linearization is
-    // valid, but the decision must never mutate the review after commit.
-    let (committed, decision) =
+    // Either operation may win the serialized write; keep the race scheduler-independent.
+    let (commit_result, skip_result) =
         tokio::join!(service.commit(import_id), service.skip(import_id, row.id));
-    assert!(committed.is_ok());
-    let after_race = super::store::rows_for(nfl.managed.reader(), import_id)
+    let final_state = match (commit_result, skip_result) {
+        (Ok(report), Err(super::service::ImportError::Conflict)) => {
+            assert_eq!(report.salaries, 1);
+            assert_eq!(
+                super::store::rows_for(nfl.managed.reader(), import_id)
+                    .await
+                    .unwrap()[0]
+                    .state,
+                super::model::RowState::Resolved
+            );
+            super::model::RowState::Resolved
+        }
+        (Err(super::service::ImportError::Conflict), Ok(())) => {
+            let after_skip = super::store::rows_for(nfl.managed.reader(), import_id)
+                .await
+                .unwrap()[0]
+                .clone();
+            assert_eq!(after_skip.state, super::model::RowState::Skipped);
+            assert_eq!(
+                super::store::get(nfl.managed.reader(), import_id)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .status,
+                "pending"
+            );
+            service.commit(import_id).await.unwrap();
+            super::model::RowState::Skipped
+        }
+        (Ok(report), Ok(())) if report.salaries == 0 => {
+            let after_skip = super::store::rows_for(nfl.managed.reader(), import_id)
+                .await
+                .unwrap()[0]
+                .clone();
+            assert_eq!(after_skip.state, super::model::RowState::Skipped);
+            assert_eq!(
+                super::store::get(nfl.managed.reader(), import_id)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .status,
+                "committed"
+            );
+            super::model::RowState::Skipped
+        }
+        (commit_result, skip_result) => {
+            panic!("unexpected concurrent outcomes: commit={commit_result:?}, skip={skip_result:?}")
+        }
+    };
+    let committed = super::store::get(nfl.managed.reader(), import_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(committed.status, "committed");
+    let after_commit = super::store::rows_for(nfl.managed.reader(), import_id)
         .await
         .unwrap()[0]
         .clone();
-    match decision {
-        Ok(()) => assert_eq!(after_race.state, super::model::RowState::Skipped),
-        Err(super::service::ImportError::Conflict) => {
-            assert_eq!(after_race.state, super::model::RowState::Resolved)
+    assert_eq!(after_commit.state, final_state);
+    let prices = nfl.salaries_for_games(&["2026_01_BUF_NYJ"]).await.unwrap();
+    match final_state {
+        super::model::RowState::Resolved => {
+            assert_eq!(prices.len(), 1);
+            assert_eq!(prices[0].gsis_player_id.as_deref(), Some("00-roster-only"));
+            assert_eq!(prices[0].salary, 5100);
         }
-        Err(error) => panic!("unexpected concurrent decision error: {error:?}"),
+        super::model::RowState::Skipped => assert!(prices.is_empty()),
+        state => panic!("unexpected final row state: {state:?}"),
+    }
+    let mapping_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM confirmed_player_mappings WHERE fd_player_id=? AND gsis_player_id=?",
+    )
+    .bind(&row.fd_player_id)
+    .bind("00-roster-only")
+    .fetch_one(nfl.managed.reader())
+    .await
+    .unwrap();
+    match final_state {
+        super::model::RowState::Resolved => assert_eq!(mapping_count, 1),
+        super::model::RowState::Skipped => assert_eq!(mapping_count, 0),
+        state => panic!("unexpected final row state: {state:?}"),
     }
     assert!(matches!(
         service.skip(import_id, row.id).await,
@@ -664,21 +733,17 @@ async fn concurrent_decision_cannot_mutate_committed_review() {
         service.undo(import_id, row.id).await,
         Err(super::service::ImportError::Conflict)
     ));
-    let after_post_commit_attempt = super::store::rows_for(nfl.managed.reader(), import_id)
+    let unchanged = super::store::rows_for(nfl.managed.reader(), import_id)
         .await
         .unwrap()[0]
         .clone();
-    assert_eq!(after_post_commit_attempt.state, after_race.state);
+    assert_eq!(unchanged.state, final_state);
+    assert_eq!(unchanged.gsis_player_id, after_commit.gsis_player_id);
     assert_eq!(
-        super::store::get(nfl.managed.reader(), import_id)
-            .await
-            .unwrap()
-            .unwrap()
-            .status,
-        "committed"
+        nfl.salaries_for_games(&["2026_01_BUF_NYJ"]).await.unwrap(),
+        prices
     );
 }
-
 #[tokio::test]
 async fn rejected_archive_does_not_change_committed_provenance_domain() {
     let nfl = nfl_with_roster().await;

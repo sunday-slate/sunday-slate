@@ -41,6 +41,8 @@ nfl-model = { path = "../nfl-model" }
 utils = { path = "../utils" }
 time = { workspace = true }
 serde = { workspace = true }
+url.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 sqlx = { workspace = true }
 
 [dev-dependencies]

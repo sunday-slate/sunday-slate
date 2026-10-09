@@ -253,6 +253,17 @@ async fn decide(
             )
             .await;
         }
+        Err(ImportError::Conflict) if is_htmx => {
+            return render_group_with_feedback(
+                &nfl,
+                id,
+                RowGroup::Unmatched,
+                Some("This row changed before the action completed. The current review is shown below.".into()),
+                true,
+                StatusCode::OK,
+            )
+            .await;
+        }
         Err(error) => return Err(error.into()),
         Ok(()) => {}
     }
@@ -268,11 +279,31 @@ async fn undo(
     Path((id, row_id)): Path<(i64, i64)>,
     HxRequest(is_htmx): HxRequest,
 ) -> Result<Response, SalaryHttpError> {
-    SalaryImportService::new(&nfl).undo(id, row_id).await?;
-    if is_htmx {
-        render_group(&nfl, id, RowGroup::Unmatched, true).await
-    } else {
-        Ok(Redirect::to(&format!("/nfl-data-admin/salary-imports/{id}")).into_response())
+    match SalaryImportService::new(&nfl).undo(id, row_id).await {
+        Ok(()) if is_htmx => {
+            let mut response = render_group(&nfl, id, RowGroup::Unmatched, true).await?;
+            response.headers_mut().insert(
+                "HX-Replace-Url",
+                format!("/nfl-data-admin/salary-imports/{id}")
+                    .parse()
+                    .unwrap(),
+            );
+            Ok(response)
+        }
+        Ok(()) => Ok(Redirect::to(&format!("/nfl-data-admin/salary-imports/{id}")).into_response()),
+        Err(ImportError::Conflict) if is_htmx => render_group_with_feedback(
+            &nfl,
+            id,
+            RowGroup::Unmatched,
+            Some(
+                "This row changed before the action completed. The current review is shown below."
+                    .into(),
+            ),
+            true,
+            StatusCode::OK,
+        )
+        .await,
+        Err(error) => Err(error.into()),
     }
 }
 
@@ -317,10 +348,17 @@ async fn commit(
 ) -> Result<Response, SalaryHttpError> {
     match SalaryImportService::new(&nfl).commit(id).await {
         Ok(_) => Ok(Redirect::to(&format!("/nfl-data-admin/salary-imports/{id}")).into_response()),
-        Err(ImportError::InvalidInput(_)) => Ok(Redirect::to(&format!(
-            "/nfl-data-admin/salary-imports/{id}?error=commit_invalid"
-        ))
-        .into_response()),
+        Err(ImportError::InvalidInput(message)) => {
+            render_group_with_feedback(
+                &nfl,
+                id,
+                RowGroup::Unmatched,
+                Some(message),
+                false,
+                StatusCode::UNPROCESSABLE_ENTITY,
+            )
+            .await
+        }
         Err(error) => Err(error.into()),
     }
 }

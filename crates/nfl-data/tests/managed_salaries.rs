@@ -251,6 +251,102 @@ async fn reverse_mapping_conflict_rolls_back_copied_salaries_and_new_mappings() 
 }
 
 #[tokio::test]
+async fn guarded_migration_entrypoint_migrates_empty_database() {
+    let dir = tempdir().unwrap();
+    let url = format!("sqlite://{}", dir.path().join("managed.db").display());
+    nfl_data::migrate_managed_database(&url).await.unwrap();
+    let db = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect(&url)
+        .await
+        .unwrap();
+    let tables: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('current_salaries', 'salary_imports', 'salary_import_rows')",
+    )
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert_eq!(tables, 3);
+}
+
+#[tokio::test]
+async fn guarded_migration_entrypoint_rejects_unrelated_database_without_reset() {
+    let dir = tempdir().unwrap();
+    let url = format!("sqlite://{}", dir.path().join("managed.db").display());
+    let db = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(
+            SqliteConnectOptions::from_str(&url)
+                .unwrap()
+                .create_if_missing(true),
+        )
+        .await
+        .unwrap();
+    sqlx::query("CREATE TABLE keep_me (value TEXT NOT NULL)")
+        .execute(&db)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO keep_me VALUES ('preserve')")
+        .execute(&db)
+        .await
+        .unwrap();
+    assert!(nfl_data::migrate_managed_database(&url).await.is_err());
+    let preserved: String = sqlx::query_scalar("SELECT value FROM keep_me")
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert_eq!(preserved, "preserve");
+}
+#[tokio::test]
+async fn empty_migration_history_can_be_retried() {
+    let dir = tempdir().unwrap();
+    let url = format!("sqlite://{}", dir.path().join("managed.db").display());
+    let db = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(
+            SqliteConnectOptions::from_str(&url)
+                .unwrap()
+                .create_if_missing(true),
+        )
+        .await
+        .unwrap();
+    sqlx::query("CREATE TABLE _sqlx_migrations (version BIGINT PRIMARY KEY, description TEXT NOT NULL, installed_on TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, success BOOLEAN NOT NULL, checksum BLOB NOT NULL, execution_time BIGINT NOT NULL)")
+        .execute(&db)
+        .await
+        .unwrap();
+    db.close().await;
+
+    let config = NflDataConfig {
+        database_url: format!("sqlite://{}", dir.path().join("cache.db").display()),
+        fanduel_database_url: format!("sqlite://{}", dir.path().join("archive.db").display()),
+        managed_database_url: url.clone(),
+        ..Default::default()
+    };
+    NflData::connect(config).await.unwrap();
+
+    let migrated = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect(&url)
+        .await
+        .unwrap();
+    for table in [
+        "current_salaries",
+        "confirmed_player_mappings",
+        "salary_imports",
+        "salary_import_rows",
+        "migration_state",
+    ] {
+        let exists: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name = ?",
+        )
+        .bind(table)
+        .fetch_one(&migrated)
+        .await
+        .unwrap();
+        assert_eq!(exists, 1, "missing migrated table {table}");
+    }
+}
+#[tokio::test]
 async fn unrelated_existing_database_is_rejected_without_reset() {
     let dir = tempdir().unwrap();
     let old_db = SqlitePoolOptions::new()

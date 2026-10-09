@@ -269,6 +269,154 @@ async fn htmx_decisions_refresh_counts_and_keep_remaining_controls_actionable() 
 }
 
 #[tokio::test]
+async fn undo_returns_to_unmatched_route_from_resolved_and_skipped_groups() {
+    let (app, nfl, id) = setup_with_csv(TWO_UNMATCHED_CSV).await;
+    let rows = store::rows_for(nfl.managed.reader(), id).await.unwrap();
+    let resolved = &rows[0];
+    let skipped = &rows[1];
+    let service = SalaryImportService::new(&nfl);
+    service.resolve(id, resolved.id, "00-josh").await.unwrap();
+    service.skip(id, skipped.id).await.unwrap();
+
+    let resolved_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/nfl-data-admin/salary-imports/{id}/rows/{}/undo",
+                    resolved.id
+                ))
+                .header("HX-Request", "true")
+                .header(
+                    "Referer",
+                    format!("/nfl-data-admin/salary-imports/{id}/resolved"),
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resolved_response.status(), StatusCode::OK);
+    assert_eq!(
+        resolved_response.headers()["HX-Replace-Url"],
+        format!("/nfl-data-admin/salary-imports/{id}")
+    );
+    let html = String::from_utf8(
+        axum::body::to_bytes(resolved_response.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(html.contains("Needs review (1)"), "{html}");
+    assert!(html.contains("Unknown Player"), "{html}");
+
+    let skipped_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/nfl-data-admin/salary-imports/{id}/rows/{}/undo",
+                    skipped.id
+                ))
+                .header("HX-Request", "true")
+                .header(
+                    "Referer",
+                    format!("/nfl-data-admin/salary-imports/{id}/skipped"),
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(skipped_response.status(), StatusCode::OK);
+    assert_eq!(
+        skipped_response.headers()["HX-Replace-Url"],
+        format!("/nfl-data-admin/salary-imports/{id}")
+    );
+    let skipped_panel = String::from_utf8(
+        axum::body::to_bytes(skipped_response.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(
+        skipped_panel.contains("Needs review (2)"),
+        "{skipped_panel}"
+    );
+    assert!(skipped_panel.contains("Unknown Player"), "{skipped_panel}");
+    assert!(skipped_panel.contains("Second Player"), "{skipped_panel}");
+
+    service.skip(id, skipped.id).await.unwrap();
+    let form_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/nfl-data-admin/salary-imports/{id}/rows/{}/undo",
+                    skipped.id
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(form_response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        form_response.headers()["location"],
+        format!("/nfl-data-admin/salary-imports/{id}")
+    );
+
+    let reloaded = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/nfl-data-admin/salary-imports/{id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(reloaded.status(), StatusCode::OK);
+    let html = String::from_utf8(
+        axum::body::to_bytes(reloaded.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(html.contains("Needs review (2)"), "{html}");
+    assert!(html.contains("Unknown Player"), "{html}");
+    assert!(html.contains("Second Player"), "{html}");
+}
+
+#[tokio::test]
+async fn narrowed_one_character_search_is_not_blocked_by_browser_validation() {
+    let (app, nfl, id) = setup_with_csv(UNMATCHED_CSV).await;
+    let row = store::rows_for(nfl.managed.reader(), id)
+        .await
+        .unwrap()
+        .remove(0);
+    let (status, fragment) = call(
+        app,
+        "GET",
+        &format!(
+            "/nfl-data-admin/salary-imports/{id}/rows/{}/players?q=J",
+            row.id
+        ),
+        Body::empty(),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(fragment.contains("name=\"q\" value=\"J\""), "{fragment}");
+    assert!(fragment.contains("Josh Allen"), "{fragment}");
+    assert!(!fragment.contains("minlength="), "{fragment}");
+}
+#[tokio::test]
 async fn widened_short_search_keeps_recovery_form_and_scope() {
     let (app, nfl, id) = setup_with_csv(UNMATCHED_CSV).await;
     let row = store::rows_for(nfl.managed.reader(), id)
@@ -293,6 +441,53 @@ async fn widened_short_search_keeps_recovery_form_and_scope() {
         "{fragment}"
     );
     assert!(fragment.contains("at least two characters"));
+}
+
+#[tokio::test]
+async fn commit_validation_renders_specific_ineligible_selection_reason() {
+    let (app, nfl, id) = setup_with_csv(UNMATCHED_CSV).await;
+    let row = store::rows_for(nfl.managed.reader(), id)
+        .await
+        .unwrap()
+        .remove(0);
+    sqlx::query(
+        "UPDATE salary_import_rows SET state='resolved', gsis_player_id='00-ineligible' WHERE id=?",
+    )
+    .bind(row.id)
+    .execute(nfl.managed.reader())
+    .await
+    .unwrap();
+    let (status, html) = call(
+        app,
+        "POST",
+        &format!("/nfl-data-admin/salary-imports/{id}/commit"),
+        Body::empty(),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        html.contains("selected player is no longer an eligible canonical candidate"),
+        "{html}"
+    );
+    assert!(!html.contains("commit_invalid"));
+}
+
+#[tokio::test]
+async fn incomplete_commit_renders_readiness_error_directly() {
+    let (app, _, id) = setup_with_csv(UNMATCHED_CSV).await;
+    let (status, html) = call(
+        app,
+        "POST",
+        &format!("/nfl-data-admin/salary-imports/{id}/commit"),
+        Body::empty(),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Commit import"), "{html}");
+    assert!(html.contains("The import is not ready to commit"), "{html}");
+    assert!(!html.contains("commit_invalid"));
 }
 
 #[tokio::test]
@@ -325,15 +520,16 @@ async fn forged_salary_mutations_return_not_found_conflict_and_validation() {
             .1
             .contains("selected player is not an eligible canonical candidate")
     );
-    let (_status, commit_feedback) = call(
+    let (commit_status, commit_feedback) = call(
         app.clone(),
-        "GET",
-        &format!("/nfl-data-admin/salary-imports/{id}?error=commit_invalid"),
+        "POST",
+        &format!("/nfl-data-admin/salary-imports/{id}/commit"),
         Body::empty(),
         &[],
     )
     .await;
-    assert!(commit_feedback.contains("Resolve or skip every unmatched row and retry."));
+    assert_eq!(commit_status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(commit_feedback.contains("The import is not ready to commit"));
     let htmx_invalid = call(
         app.clone(),
         "POST",
@@ -391,6 +587,59 @@ async fn invalid_salary_upload_shows_its_diagnostic() {
         .unwrap();
     let html = String::from_utf8(bytes.to_vec()).unwrap();
     assert!(html.contains("salary CSV is empty"), "{html}");
+}
+
+#[tokio::test]
+async fn invalid_salary_rows_show_row_diagnostics_and_remain_archived() {
+    let (app, nfl, _) = setup().await;
+    let boundary = "invalid-row-boundary";
+    let invalid_csv = format!(
+        "{CSV}\"1-200\",\"CPT\",\"Sam\",\"\",\"Bad Position\",\"0\",\"0\",\"not-a-salary\",\"BUF@NYJ\",\"BUF\",\"\",\"\",\"\"\n"
+    );
+    let body = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"invalid.csv\"\r\nContent-Type: text/csv\r\n\r\n{invalid_csv}\r\n--{boundary}--\r\n"
+    );
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/nfl-data-admin/salary-imports")
+                .header(
+                    "content-type",
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let html = String::from_utf8(bytes.to_vec()).unwrap();
+    assert!(html.contains("every row must have a supported position and numeric salary"));
+    assert!(
+        html.contains(
+            "row 2 Position: Unrecognized FanDuel position &#34;CPT&#34; for Sam Bad Position"
+        ),
+        "{html}"
+    );
+    assert!(html.contains("row 2 Salary: Could not interpret FanDuel salary &#34;not-a-salary&#34; for Sam Bad Position"), "{html}");
+
+    let archived = nfl.fanduel.recent_uploads(10).await.unwrap();
+    let receipt = archived
+        .iter()
+        .find(|upload| upload.filename.as_deref() == Some("invalid.csv"))
+        .expect("invalid source upload remains archived");
+    let upload = nfl.fanduel.upload(receipt.id).await.unwrap().unwrap();
+    assert_eq!(upload.bytes, invalid_csv.as_bytes());
+    assert_eq!(nfl.fanduel.source_rows(receipt.id).await.unwrap().len(), 2);
+    let imports: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM salary_imports")
+        .fetch_one(nfl.managed.reader())
+        .await
+        .unwrap();
+    assert_eq!(imports, 1, "invalid upload must not stage a managed import");
 }
 
 #[tokio::test]
@@ -542,6 +791,65 @@ async fn forged_salary_mutation_storage_failures_are_generic() {
     .await;
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
     assert_eq!(body, "Internal server error");
+}
+
+#[tokio::test]
+async fn stale_htmx_row_mutations_render_committed_read_only_panel() {
+    let (app, nfl, id) = setup_with_csv(UNMATCHED_CSV).await;
+    let row = store::rows_for(nfl.managed.reader(), id)
+        .await
+        .unwrap()
+        .remove(0);
+    let service = SalaryImportService::new(&nfl);
+    service.resolve(id, row.id, "00-josh").await.unwrap();
+    service.commit(id).await.unwrap();
+
+    for (path, form) in [
+        (
+            format!("/nfl-data-admin/salary-imports/{id}/rows/{}", row.id),
+            "action=skip",
+        ),
+        (
+            format!("/nfl-data-admin/salary-imports/{id}/rows/{}/undo", row.id),
+            "",
+        ),
+    ] {
+        let (status, html) = call(
+            app.clone(),
+            "POST",
+            &path,
+            Body::from(form),
+            &[
+                ("HX-Request", "true"),
+                ("content-type", "application/x-www-form-urlencoded"),
+            ],
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            html.starts_with("<div id=\"salary-review-panel\""),
+            "{html}"
+        );
+        assert!(
+            html.contains("This row changed before the action completed"),
+            "{html}"
+        );
+        assert!(html.contains("This review is read-only"), "{html}");
+        assert!(!html.contains("Undo manual decision"), "{html}");
+        assert!(!html.contains("Skip this row"), "{html}");
+        assert!(!html.contains("Find canonical player"), "{html}");
+    }
+
+    let (status, body) = call(
+        app,
+        "POST",
+        &format!("/nfl-data-admin/salary-imports/{id}/rows/{}", row.id),
+        Body::from("action=skip"),
+        &[("content-type", "application/x-www-form-urlencoded")],
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(body, "Salary import request could not be completed");
 }
 
 #[tokio::test]

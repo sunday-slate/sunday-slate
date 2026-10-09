@@ -84,7 +84,7 @@ db-migrate:
     touch $FANDUEL_DATABASE_FILE
     DATABASE_URL="$FANDUEL_DATABASE_URL" cargo sqlx migrate run --source crates/fanduel-data/migrations
     touch $NFL_DATA_DATABASE_FILE
-    DATABASE_URL="$NFL_DATA_DATABASE_URL" cargo sqlx migrate run --source crates/nfl-data/migrations
+    cargo run -p nfl-data --bin nfl-data-migrate
 
 # Browse all configured stores in a Datasette web UI (read-only).
 [group('db')]

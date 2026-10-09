@@ -55,6 +55,10 @@ just --set DATABASE_FILE /tmp/sunday-slate.db \
 
 The `just` variables default to `./storage`; keep each store in its own file.
 
+The managed salary store goes through the same schema guard during `just
+db-migrate` and application startup. An unrelated pre-existing managed database
+is rejected without resetting its contents.
+
 On application startup, Sunday Slate first migrates its own database, then NFL
 Data opens and migrates its managed store, then copies legacy current salaries
 and confirmed FanDuel mappings into NFL Data exactly once before serving

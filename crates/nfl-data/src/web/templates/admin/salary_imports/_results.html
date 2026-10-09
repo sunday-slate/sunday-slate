@@ -2,7 +2,7 @@
   <p class="font-mono text-xs uppercase tracking-[0.2em] text-primary">Import #{{ import.id }}</p>
   <h1 class="mt-2 text-4xl font-semibold">{{ import.season }} · {{ import.season_type }} week {{ import.week }}</h1>
   <p class="mt-3 text-base-content/70">{{ import.games }} games · Matched: {{ counts.matched }} · Defenses: {{ counts.dst }} · Unmatched: {{ counts.unmatched }} · Resolved: {{ counts.resolved }} · Skipped: {{ counts.skipped }}</p>
-  {% if let Some(message) = error %}<p class="alert alert-error mt-5">{% if message == "commit_invalid" %}The import is not ready to commit. Resolve or skip every unmatched row and retry.{% else %}{{ message }}{% endif %}</p>{% endif %}
+  {% if let Some(message) = error %}<p class="alert alert-error mt-5">{{ message }}</p>{% endif %}
   <nav class="tabs tabs-bordered mt-7" aria-label="Review groups">
     <a class="tab{% if group.as_str() == "unmatched" %} tab-active{% endif %}" href="/nfl-data-admin/salary-imports/{{ import.id }}">Needs review ({{ counts.unmatched }})</a>
     <a class="tab{% if group.as_str() == "resolved" %} tab-active{% endif %}" href="/nfl-data-admin/salary-imports/{{ import.id }}/resolved">Resolved ({{ counts.resolved }})</a>

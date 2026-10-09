@@ -17,11 +17,22 @@ pub(crate) struct ManagedStore {
     writer: SqlitePool,
 }
 
+fn is_memory_database(url: &str, options: &SqliteConnectOptions) -> bool {
+    let is_sqlx_memory = options
+        .get_filename()
+        .to_string_lossy()
+        .starts_with("file:sqlx-in-memory-");
+    let is_memory_file = options.get_filename() == std::path::Path::new(":memory:");
+    let query = url
+        .split_once('?')
+        .map(|(_, query)| query)
+        .unwrap_or_default();
+    let is_memory_mode = url::form_urlencoded::parse(query.as_bytes())
+        .any(|(key, value)| key == "mode" && value == "memory");
+    is_sqlx_memory || is_memory_file || is_memory_mode
+}
 impl ManagedStore {
     pub(crate) async fn open(url: &str) -> Result<Self, SalaryError> {
-        if url == "sqlite::memory:" {
-            return Self::in_memory().await;
-        }
         let options = SqliteConnectOptions::from_str(url)?
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal)
@@ -29,6 +40,9 @@ impl ManagedStore {
             .foreign_keys(true)
             .busy_timeout(Duration::from_secs(10))
             .optimize_on_close(true, None);
+        if is_memory_database(url, &options) {
+            return Self::open_memory(options).await;
+        }
         let writer = SqlitePoolOptions::new()
             .max_connections(1)
             .acquire_timeout(Duration::from_secs(30))
@@ -53,7 +67,11 @@ impl ManagedStore {
             )
             .fetch_one(&writer)
             .await?;
-            if compatible == 0 {
+            let history_entries: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations")
+                .fetch_one(&writer)
+                .await?;
+            let only_empty_migration_history = existing_tables == 1 && history_entries == 0;
+            if compatible == 0 && !only_empty_migration_history {
                 return Err(SalaryError::unsupported_schema());
             }
         }
@@ -66,22 +84,25 @@ impl ManagedStore {
         Ok(Self { reader, writer })
     }
 
-    fn in_memory_pool_options() -> SqlitePoolOptions {
-        SqlitePoolOptions::new()
-            .max_connections(1)
-            .idle_timeout(None)
-            .max_lifetime(None)
-    }
-
-    pub(crate) async fn in_memory() -> Result<Self, SalaryError> {
-        let pool = Self::in_memory_pool_options()
-            .connect("sqlite::memory:")
-            .await?;
+    async fn open_memory(options: SqliteConnectOptions) -> Result<Self, SalaryError> {
+        let pool = Self::in_memory_pool_options().connect_with(options).await?;
         MIGRATOR.run(&pool).await?;
         Ok(Self {
             reader: pool.clone(),
             writer: pool,
         })
+    }
+
+    fn in_memory_pool_options() -> SqlitePoolOptions {
+        SqlitePoolOptions::new()
+            .max_connections(1)
+            .idle_timeout(None)
+            .max_lifetime(None)
+            .test_before_acquire(false)
+    }
+
+    pub(crate) async fn in_memory() -> Result<Self, SalaryError> {
+        Self::open("sqlite::memory:").await
     }
 
     #[allow(dead_code)] // Used by the private import/review services introduced next.
@@ -174,9 +195,39 @@ mod tests {
     use super::ManagedStore;
 
     #[test]
-    fn in_memory_pool_connection_has_no_retirement_deadlines() {
+    fn in_memory_pool_disables_retirement_and_acquisition_pings() {
         let options = ManagedStore::in_memory_pool_options();
+        assert_eq!(options.get_max_connections(), 1);
         assert_eq!(options.get_idle_timeout(), None);
         assert_eq!(options.get_max_lifetime(), None);
+        assert!(!options.get_test_before_acquire());
+    }
+
+    #[tokio::test]
+    async fn memory_url_spellings_keep_managed_schema_and_salary() {
+        let cases = [
+            "sqlite::memory:",
+            "sqlite://:memory:",
+            "sqlite://named-managed?mode=memory&cache=private",
+            "sqlite://named-managed?mode=memory&cache=shared",
+        ];
+        for url in cases {
+            let store = ManagedStore::open(url)
+                .await
+                .unwrap_or_else(|error| panic!("{url}: {error}"));
+            sqlx::query("INSERT INTO current_salaries (gsis_game_id, gsis_player_id, team_abbr, dfs_position, salary, provenance, import_id, source_row_id, created_at, updated_at) VALUES ('2025_01_BUF_NYJ', '00-1', 'BUF', 'QB', 8200, 'legacy', NULL, NULL, 'created', 'updated')")
+                .execute(&store.writer)
+                .await
+                .unwrap_or_else(|error| panic!("{url}: {error}"));
+            for _ in 0..5 {
+                let salary: i64 = sqlx::query_scalar(
+                    "SELECT salary FROM current_salaries WHERE gsis_player_id = '00-1'",
+                )
+                .fetch_one(&store.reader)
+                .await
+                .unwrap_or_else(|error| panic!("{url}: {error}"));
+                assert_eq!(salary, 8200, "{url}");
+            }
+        }
     }
 }

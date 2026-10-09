@@ -86,17 +86,19 @@ impl<'a> SalaryImportService<'a> {
         if matchups.len() != source_rows.len()
             && source_rows.iter().any(|r| r.interpreted.matchup.is_none())
         {
-            return Err(ImportError::InvalidInput(
-                "every row must contain a valid matchup".into(),
-            ));
+            return Err(ImportError::InvalidInput(row_validation_feedback(
+                "every row must contain a valid matchup",
+                &source_rows,
+            )));
         }
         if source_rows
             .iter()
             .any(|r| r.interpreted.position.is_none() || r.interpreted.salary.is_none())
         {
-            return Err(ImportError::InvalidInput(
-                "every row must have a supported position and numeric salary".into(),
-            ));
+            return Err(ImportError::InvalidInput(row_validation_feedback(
+                "every row must have a supported position and numeric salary",
+                &source_rows,
+            )));
         }
         let season = self.nfl.managed_season;
         let games = self
@@ -342,6 +344,15 @@ impl<'a> SalaryImportService<'a> {
                 )
             })
             .collect();
+        if validated_rows
+            .iter()
+            .any(|row| row.state == RowState::Unmatched)
+        {
+            return Err(ImportError::InvalidInput(
+                "The import is not ready to commit. Resolve or skip every unmatched row and retry."
+                    .into(),
+            ));
+        }
         for row in validated_rows {
             if matches!(row.state, RowState::Resolved | RowState::Matched) {
                 let Some(player_id) = row.gsis_player_id.as_deref() else {
@@ -463,6 +474,19 @@ impl<'a> SalaryImportService<'a> {
             .await?;
         Ok(())
     }
+}
+fn row_validation_feedback(explanation: &str, source_rows: &[fanduel_data::SourceRow]) -> String {
+    let mut feedback = explanation.to_owned();
+    for diagnostic in source_rows
+        .iter()
+        .flat_map(|row| row.interpreted.diagnostics.iter())
+    {
+        feedback.push_str(&format!(
+            "\nrow {} {}: {}",
+            diagnostic.row_number, diagnostic.field, diagnostic.message
+        ));
+    }
+    feedback
 }
 fn position_name(p: DfsPosition) -> &'static str {
     match p {

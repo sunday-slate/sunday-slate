@@ -51,6 +51,13 @@ pub enum NflDataConnectError {
     Fanduel(#[source] fanduel_data::FanduelDataError),
 }
 
+/// Apply the managed salary-store migrations after validating the existing schema.
+pub async fn migrate_managed_database(database_url: &str) -> Result<(), SalaryError> {
+    let store = managed::ManagedStore::open(database_url).await?;
+    drop(store);
+    Ok(())
+}
+
 pub struct NflData {
     provider: NflverseData,
     pub(crate) fanduel: fanduel_data::FanduelData,
