@@ -698,7 +698,6 @@ async fn cache_loss_preserves_managed_and_archive_data() {
         .await
         .unwrap();
     service.commit(import_id).await.unwrap();
-    drop(service);
     drop(nfl);
     std::fs::remove_file(&cache_path).unwrap();
     let reopened = NflData::connect(config).await.unwrap();

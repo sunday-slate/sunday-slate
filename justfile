@@ -7,6 +7,9 @@ export NFLVERSE_DATABASE_URL := "sqlite://./storage/nflverse-cache.db"
 export FANDUEL_DATABASE_FILE := "./storage/fanduel-data.db"
 export FANDUEL_DATABASE_URL := "sqlite://./storage/fanduel-data.db"
 
+export NFL_DATA_DATABASE_FILE := "./storage/nfl-data.db"
+export NFL_DATA_DATABASE_URL := "sqlite://./storage/nfl-data.db"
+
 export SQLX_OFFLINE := "true"
 
 # List recipes
@@ -64,13 +67,13 @@ fix:
     cargo fmt --all
     cargo clippy --workspace --all-targets --fix --allow-dirty --allow-staged
 
-# Refresh the sqlx offline query cache (consolidated at the workspace-root .sqlx).
+# Refresh all-target SQLx metadata using the separate host and nflverse schemas.
 [group('db')]
 sqlx-cache:
-    cargo sqlx prepare --workspace
+    SQLX_OFFLINE=false cargo sqlx prepare --workspace -- --all-targets
 
 
-# Run migrations for the application and both providers; create DBs if missing.
+# Run migrations for the application, cache, source archive, and NFL Data managed store.
 [group('db')]
 db-migrate:
     mkdir -p storage
@@ -80,11 +83,13 @@ db-migrate:
     DATABASE_URL="$NFLVERSE_DATABASE_URL" cargo sqlx migrate run --source crates/nflverse-data/migrations
     touch $FANDUEL_DATABASE_FILE
     DATABASE_URL="$FANDUEL_DATABASE_URL" cargo sqlx migrate run --source crates/fanduel-data/migrations
+    touch $NFL_DATA_DATABASE_FILE
+    DATABASE_URL="$NFL_DATA_DATABASE_URL" cargo sqlx migrate run --source crates/nfl-data/migrations
 
-# Browse app + provider DBs in a Datasette web UI (read-only).
+# Browse all configured stores in a Datasette web UI (read-only).
 [group('db')]
 db-browser:
-    uvx datasette serve --crossdb $DATABASE_FILE $NFLVERSE_DATABASE_FILE $FANDUEL_DATABASE_FILE
+    uvx datasette serve --crossdb $DATABASE_FILE $NFLVERSE_DATABASE_FILE $FANDUEL_DATABASE_FILE $NFL_DATA_DATABASE_FILE
 
 # Fetch the latest nflverse data into storage/nflverse-cache.db
 [group('nfl')]

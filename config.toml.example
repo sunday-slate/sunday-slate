@@ -22,9 +22,13 @@ season = 2026
 # Rebuildable nflverse cache, separate from managed Sunday Slate records.
 # nflverse_database_url = "sqlite://./storage/nflverse-cache.db"
 
-# Durable FanDuel upload archive. Back up with managed Sunday Slate data;
+# Durable FanDuel upload archive. Back up with the application and NFL Data stores;
 # this store is separate from the disposable nflverse cache.
 # fanduel_database_url = "sqlite://./storage/fanduel-data.db"
+
+# Durable salaries, confirmed mappings, and import reviews owned by NFL Data.
+# Back up with the application and FanDuel stores; separate from the cache.
+# nfl_data_database_url = "sqlite://./storage/nfl-data.db"
 
 # Optional GitHub token for server-started /admin/nfl-sync runs.
 # Secret: prefer SUNDAY_SLATE__NFLVERSE_GITHUB_TOKEN from deployment secret storage;

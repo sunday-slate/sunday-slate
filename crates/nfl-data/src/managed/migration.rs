@@ -125,21 +125,21 @@ async fn copy_mapping(
     .bind(&mapping.gsis_player_id)
     .fetch_optional(&mut *conn)
     .await?;
-    if let Some(gsis) = by_fd.as_deref() {
-        if gsis != mapping.gsis_player_id {
-            return Err(SalaryError::conflict(format!(
-                "FanDuel mapping {}",
-                mapping.fd_player_id
-            )));
-        }
+    if let Some(gsis) = by_fd.as_deref()
+        && gsis != mapping.gsis_player_id
+    {
+        return Err(SalaryError::conflict(format!(
+            "FanDuel mapping {}",
+            mapping.fd_player_id
+        )));
     }
-    if let Some(fd) = by_gsis.as_deref() {
-        if fd != mapping.fd_player_id {
-            return Err(SalaryError::conflict(format!(
-                "GSIS mapping {}",
-                mapping.gsis_player_id
-            )));
-        }
+    if let Some(fd) = by_gsis.as_deref()
+        && fd != mapping.fd_player_id
+    {
+        return Err(SalaryError::conflict(format!(
+            "GSIS mapping {}",
+            mapping.gsis_player_id
+        )));
     }
     if by_fd.is_none() && by_gsis.is_none() {
         sqlx::query("INSERT INTO confirmed_player_mappings(fd_player_id, gsis_player_id, created_at, updated_at) VALUES (?, ?, ?, ?)")

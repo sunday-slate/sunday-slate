@@ -7,6 +7,8 @@ pub(crate) enum ScheduleError {
     NoWeekContainsSlate,
 }
 
+type GamesByContext<'a> = BTreeMap<(u8, bool), HashMap<(&'a str, &'a str), &'a Game>>;
+
 pub(crate) fn resolve_slate_games(
     season_games: &[Game],
     matchups: &BTreeSet<(String, String)>,
@@ -14,7 +16,7 @@ pub(crate) fn resolve_slate_games(
     if matchups.is_empty() {
         return Err(ScheduleError::NoWeekContainsSlate);
     }
-    let mut by_context: BTreeMap<(u8, bool), HashMap<(&str, &str), &Game>> = BTreeMap::new();
+    let mut by_context = GamesByContext::new();
     for game in season_games {
         by_context
             .entry((game.week.0, game.season_type == SeasonType::Post))

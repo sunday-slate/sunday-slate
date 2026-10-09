@@ -8,13 +8,11 @@
 //! quarantined; each slot must match FanDuel exactly except the explicit
 //! `KNOWN_IRREDUCIBLE` allow-list.
 
-use std::collections::HashMap;
-use std::path::Path;
-
 use nfl_data::{
     NflData, NflDataConfig, PlayerWeekStats as NflPlayerWeekStats, Season,
     TeamWeekStats as NflTeamWeekStats, Week,
 };
+use std::collections::HashMap;
 
 use crate::scoring;
 
@@ -33,12 +31,12 @@ fn touches_uncovered(stats: &str) -> bool {
 
 #[tokio::test]
 async fn full_season_scores_match_fanduel() {
-    let manifest = env!("CARGO_MANIFEST_DIR");
-    let nfl_db = format!("{manifest}/../../storage/nflverse-cache.db");
-    if !Path::new(&nfl_db).exists() {
-        eprintln!("skipping: {nfl_db} not present (run `just nfl-sync`)");
+    let Some(snapshot) = crate::tests::utils::NflverseCacheSnapshot::new().await else {
+        eprintln!("skipping: storage/nflverse-cache.db not present (run `just nfl-sync`)");
         return;
-    }
+    };
+    let nfl_db = snapshot.database_path.display().to_string();
+    let manifest = env!("CARGO_MANIFEST_DIR");
     let fixtures = format!("{manifest}/src/tests/fixtures/fanduel");
 
     let source_dir = tempfile::tempdir().unwrap();
@@ -206,4 +204,5 @@ async fn full_season_scores_match_fanduel() {
          KNOWN_IRREDUCIBLE:\n{}",
         fixed.join("\n")
     );
+    snapshot.assert_source_unchanged();
 }
