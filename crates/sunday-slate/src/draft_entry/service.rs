@@ -184,7 +184,7 @@ pub async fn page(
     let seed = committed.and_then(|(_, lineup)| lineup);
     let draft = get_or_create_draft(state, contest_id, team_id, seed.as_ref()).await?;
 
-    let salaries = pool_salaries(&ctx.pool);
+    let salaries = entries_store::slate_salaries(&ctx.pool);
     let ids = draft.filled_player_ids();
     let (names, averages) = player_profiles(state, &ids, ctx.week).await?;
     let player_ids: Vec<&str> = ids.iter().map(|id| id.as_ref()).collect();
@@ -263,7 +263,7 @@ pub async fn choices(
 
     // The budget this slot may spend: the cap minus what the *other* slots
     // hold. Swapping replaces the current occupant, so it doesn't count.
-    let salaries = pool_salaries(&ctx.pool);
+    let salaries = entries_store::slate_salaries(&ctx.pool);
     let injuries_by_gsis = crate::live::slate_tuple(&ctx.slate)
         .and_then(|key| state.injuries.report(&key))
         .map(|report| report.by_gsis);
@@ -461,7 +461,7 @@ pub async fn save(
     contest_id: ContestId,
 ) -> Result<EntryId, AppError> {
     let ctx = require_open(state, contest_id).await?;
-    let salaries = pool_salaries(&ctx.pool);
+    let salaries = entries_store::slate_salaries(&ctx.pool);
     state
         .db
         .write_tx::<_, EntryId, AppError>(async move |conn| {
@@ -617,20 +617,6 @@ async fn require_open(state: &AppState, contest_id: ContestId) -> Result<SlateCt
         return Err(AppError::Forbidden);
     }
     Ok(ctx)
-}
-
-/// The pool's prices keyed for cap math.
-fn pool_salaries(pool: &[Salary]) -> SlateSalaries {
-    let mut salaries = SlateSalaries::default();
-    for row in pool {
-        salaries.insert_row(
-            row.dfs_position.is_defense(),
-            row.gsis_player_id.clone().map(NflPlayerId),
-            NflTeamAbbr(row.team_abbr.0.clone()),
-            row.salary,
-        );
-    }
-    salaries
 }
 
 /// Filled-slot count, remaining budget, and per-open average for a draft.

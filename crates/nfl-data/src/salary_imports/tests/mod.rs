@@ -12,6 +12,72 @@ fn csv(rows: &[(&str, &str, &str, &str, &str, &str)]) -> Vec<u8> {
     result.into_bytes()
 }
 
+async fn nfl_with_persisted_cache() -> (NflData, tempfile::TempDir, sqlx::SqlitePool) {
+    use crate::NflDataConfig;
+
+    let directory = tempfile::tempdir().unwrap();
+    let cache_url = format!("sqlite://{}/cache.db", directory.path().display());
+    let nfl = NflData::connect(NflDataConfig {
+        database_url: cache_url.clone(),
+        managed_database_url: format!("sqlite://{}/managed.db", directory.path().display()),
+        fanduel_database_url: format!("sqlite://{}/archive.db", directory.path().display()),
+        managed_season: Season(2026),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    nfl.seed_for_test(
+        &[Player {
+            gsis_id: "00-josh".into(),
+            espn_id: None,
+            full_name: "Josh Allen".into(),
+            first_name: Some("Josh".into()),
+            last_name: Some("Allen".into()),
+            position: Some("QB".into()),
+            latest_team: Some(TeamAbbr("BUF".into())),
+            headshot_url: None,
+        }],
+        &[Game {
+            gsis_game_id: "2026_01_BUF_NYJ".into(),
+            season: Season(2026),
+            week: Week(1),
+            season_type: SeasonType::Reg,
+            kickoff: Some(datetime!(2026-09-10 00:00 UTC)),
+            home_team: TeamAbbr("NYJ".into()),
+            away_team: TeamAbbr("BUF".into()),
+            home_score: None,
+            away_score: None,
+        }],
+    )
+    .await
+    .unwrap();
+    nfl.seed_weekly_roster_for_test(&[WeeklyRosterEntry {
+        season: Season(2026),
+        week: Week(1),
+        team: TeamAbbr("BUF".into()),
+        gsis_id: Some("00-josh".into()),
+        espn_id: None,
+        full_name: "Josh Allen".into(),
+        last_name: Some("Allen".into()),
+        position: Some("QB".into()),
+    }])
+    .await
+    .unwrap();
+    let cache_writer = sqlx::SqlitePool::connect(&cache_url).await.unwrap();
+    (nfl, directory, cache_writer)
+}
+
+async fn remove_cached_player_facts(cache: &sqlx::SqlitePool) {
+    sqlx::query("DELETE FROM players WHERE gsis_id = '00-josh'")
+        .execute(cache)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM weekly_roster_entries WHERE gsis_id = '00-josh'")
+        .execute(cache)
+        .await
+        .unwrap();
+}
+
 async fn nfl_with_roster() -> NflData {
     let nfl = NflData::in_memory().await.unwrap();
     nfl.seed_for_test(
@@ -116,6 +182,74 @@ async fn auto_matched_defensive_player_keeps_the_quoted_wr_salary() {
     assert_eq!(price.len(), 1);
     assert_eq!(price[0].dfs_position, crate::DfsPosition::Wr);
     assert_eq!(price[0].salary, 4000);
+}
+
+#[tokio::test]
+async fn matched_commit_uses_confirmed_mapping_when_cache_identity_disappears() {
+    let (nfl, _directory, cache) = nfl_with_persisted_cache().await;
+    nfl.managed
+        .write_tx(async |conn| {
+            sqlx::query("INSERT INTO confirmed_player_mappings(fd_player_id, gsis_player_id, created_at, updated_at) VALUES ('100', '00-josh', 'test', 'test')")
+                .execute(&mut *conn)
+                .await?;
+            Ok::<_, sqlx::Error>(())
+        })
+        .await
+        .unwrap();
+    let service = SalaryImportService::new(&nfl);
+    let import_id = service
+        .upload(
+            &csv(&[("1-100", "QB", "Josh", "Allen", "8000", "BUF")]),
+            None,
+        )
+        .await
+        .unwrap();
+    remove_cached_player_facts(&cache).await;
+    cache.close().await;
+    assert!(nfl.players_by_gsis(&["00-josh"]).await.unwrap().is_empty());
+    assert!(
+        nfl.weekly_roster_entries_by_gsis(&["00-josh"])
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    service.commit(import_id).await.unwrap();
+    let prices = nfl.salaries_for_games(&["2026_01_BUF_NYJ"]).await.unwrap();
+    assert_eq!(prices.len(), 1);
+    assert_eq!(prices[0].salary, 8000);
+}
+
+#[tokio::test]
+async fn matched_commit_rejects_unknown_identity_without_confirmed_mapping() {
+    let (nfl, _directory, cache) = nfl_with_persisted_cache().await;
+    let service = SalaryImportService::new(&nfl);
+    let import_id = service
+        .upload(
+            &csv(&[("1-100", "QB", "Josh", "Allen", "8000", "BUF")]),
+            None,
+        )
+        .await
+        .unwrap();
+    remove_cached_player_facts(&cache).await;
+    cache.close().await;
+    assert!(matches!(
+        service.commit(import_id).await,
+        Err(super::service::ImportError::InvalidInput(_))
+    ));
+    let prices = nfl.salaries_for_games(&["2026_01_BUF_NYJ"]).await.unwrap();
+    assert!(prices.is_empty());
+    let mappings: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM confirmed_player_mappings")
+        .fetch_one(nfl.managed.reader())
+        .await
+        .unwrap();
+    assert_eq!(mappings, 0);
+    let status: String = sqlx::query_scalar("SELECT status FROM salary_imports WHERE id = ?")
+        .bind(import_id)
+        .fetch_one(nfl.managed.reader())
+        .await
+        .unwrap();
+    assert_eq!(status, "pending");
 }
 
 #[tokio::test]
