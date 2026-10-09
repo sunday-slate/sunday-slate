@@ -16,6 +16,7 @@ use time::macros::datetime;
 
 const CSV: &str = "\"Id\",\"Position\",\"First Name\",\"Nickname\",\"Last Name\",\"FPPG\",\"Played\",\"Salary\",\"Game\",\"Team\",\"Opponent\",\"Injury Indicator\",\"Injury Details\"\n\"1-100\",\"QB\",\"Josh\",\"\",\"Allen\",\"0\",\"0\",\"8000\",\"BUF@NYJ\",\"BUF\",\"\",\"\",\"\"\n";
 const UNMATCHED_CSV: &str = "\"Id\",\"Position\",\"First Name\",\"Nickname\",\"Last Name\",\"FPPG\",\"Played\",\"Salary\",\"Game\",\"Team\",\"Opponent\",\"Injury Indicator\",\"Injury Details\"\n\"1-101\",\"QB\",\"Unknown\",\"\",\"Player\",\"0\",\"0\",\"8000\",\"BUF@NYJ\",\"BUF\",\"\",\"\",\"\"\n";
+const TWO_UNMATCHED_CSV: &str = "\"Id\",\"Position\",\"First Name\",\"Nickname\",\"Last Name\",\"FPPG\",\"Played\",\"Salary\",\"Game\",\"Team\",\"Opponent\",\"Injury Indicator\",\"Injury Details\"\n\"1-101\",\"QB\",\"Unknown\",\"\",\"Player\",\"0\",\"0\",\"8000\",\"BUF@NYJ\",\"BUF\",\"\",\"\",\"\"\n\"1-102\",\"QB\",\"Second\",\"\",\"Player\",\"0\",\"0\",\"8100\",\"BUF@NYJ\",\"BUF\",\"\",\"\",\"\"\n";
 
 async fn setup() -> (Router, Arc<NflData>, i64) {
     setup_with_csv(CSV).await
@@ -106,6 +107,33 @@ async fn salary_upload_redirects_to_nfl_review() {
 }
 
 #[tokio::test]
+async fn salary_import_index_uses_html_content_type() {
+    let (app, _, _) = setup().await;
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/nfl-data-admin/salary-imports")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(
+        response.headers()["content-type"]
+            .to_str()
+            .unwrap()
+            .starts_with("text/html")
+    );
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let html = String::from_utf8(body.to_vec()).unwrap();
+    assert!(html.contains("enctype=\"multipart/form-data\""));
+    assert!(html.contains("Recent imports"));
+}
+
+#[tokio::test]
 async fn salary_review_groups_use_nfl_urls() {
     let (app, _, id) = setup_with_csv(UNMATCHED_CSV).await;
     let (status, html) = call(
@@ -170,6 +198,73 @@ async fn salary_candidate_search_is_lazy_and_scoped() {
 }
 
 #[tokio::test]
+async fn htmx_decisions_refresh_counts_and_keep_remaining_controls_actionable() {
+    let (app, nfl, id) = setup_with_csv(TWO_UNMATCHED_CSV).await;
+    let rows = store::rows_for(nfl.managed.reader(), id).await.unwrap();
+    let first = &rows[0];
+    let second = &rows[1];
+    let (status, skipped) = call(
+        app.clone(),
+        "POST",
+        &format!("/nfl-data-admin/salary-imports/{id}/rows/{}", first.id),
+        Body::from("action=skip"),
+        &[
+            ("HX-Request", "true"),
+            ("content-type", "application/x-www-form-urlencoded"),
+        ],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(skipped.contains("id=\"salary-review-panel\""));
+    assert!(skipped.contains("Unmatched: 1"));
+    assert!(skipped.contains("Second Player"));
+    assert!(skipped.contains(&format!("/salary-imports/{id}/rows/{}/players", second.id)));
+    assert!(skipped.contains(&format!(
+        "/salary-imports/{id}/rows/{}\" hx-post",
+        second.id
+    )));
+
+    let (status, undone) = call(
+        app,
+        "POST",
+        &format!("/nfl-data-admin/salary-imports/{id}/rows/{}/undo", first.id),
+        Body::empty(),
+        &[("HX-Request", "true")],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(undone.contains("Unmatched: 2"));
+    assert!(undone.contains("Find canonical player"));
+}
+
+#[tokio::test]
+async fn widened_short_search_keeps_recovery_form_and_scope() {
+    let (app, nfl, id) = setup_with_csv(UNMATCHED_CSV).await;
+    let row = store::rows_for(nfl.managed.reader(), id)
+        .await
+        .unwrap()
+        .remove(0);
+    let (status, fragment) = call(
+        app,
+        "GET",
+        &format!(
+            "/nfl-data-admin/salary-imports/{id}/rows/{}/players?q=J&widened=1",
+            row.id
+        ),
+        Body::empty(),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(fragment.contains("name=\"q\" value=\"J\""), "{fragment}");
+    assert!(
+        fragment.contains("name=\"widened\" value=\"1\" checked"),
+        "{fragment}"
+    );
+    assert!(fragment.contains("at least two characters"));
+}
+
+#[tokio::test]
 async fn forged_salary_mutations_return_not_found_conflict_and_validation() {
     let (app, nfl, id) = setup_with_csv(UNMATCHED_CSV).await;
     let missing = call(
@@ -204,6 +299,35 @@ async fn forged_salary_mutations_return_not_found_conflict_and_validation() {
     )
     .await;
     assert_eq!(absent.0, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn committed_htmx_groups_do_not_offer_undo() {
+    let (app, nfl, id) = setup_with_csv(TWO_UNMATCHED_CSV).await;
+    let rows = store::rows_for(nfl.managed.reader(), id).await.unwrap();
+    let service = SalaryImportService::new(&nfl);
+    service.resolve(id, rows[0].id, "00-josh").await.unwrap();
+    service.skip(id, rows[1].id).await.unwrap();
+    service.commit(id).await.unwrap();
+    for (path, row_id, name) in [
+        ("resolved", rows[0].id, "Unknown Player"),
+        ("skipped", rows[1].id, "Second Player"),
+    ] {
+        let (status, fragment) = call(
+            app.clone(),
+            "GET",
+            &format!("/nfl-data-admin/salary-imports/{id}/{path}"),
+            Body::empty(),
+            &[("HX-Request", "true")],
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(fragment.contains(name), "{fragment}");
+        assert!(
+            !fragment.contains(&format!("/rows/{row_id}/undo")),
+            "{fragment}"
+        );
+    }
 }
 
 #[tokio::test]

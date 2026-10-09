@@ -22,12 +22,14 @@ pub(super) struct IndexTemplate {
 #[derive(Template)]
 #[template(
     path = "admin/salary_imports/review.html",
-    config = "src/web/askama.toml"
+    config = "src/web/askama.toml",
+    blocks = ["panel"]
 )]
 pub(super) struct ReviewTemplate {
     pub(super) import: SalaryImport,
     pub(super) rows: Vec<SalaryImportRow>,
     pub(super) counts: StateCounts,
+    pub(super) group: RowGroup,
     pub(super) error: Option<String>,
 }
 
@@ -44,18 +46,7 @@ pub(super) struct CommittedTemplate {
 
 #[derive(Template)]
 #[template(
-    path = "admin/salary_imports/_results.html",
-    config = "src/web/askama.toml"
-)]
-pub(super) struct ResultsTemplate {
-    pub(super) import_id: i64,
-    pub(super) rows: Vec<SalaryImportRow>,
-    pub(super) group: RowGroup,
-}
-
-#[derive(Template)]
-#[template(
-    source = "{% if result.too_short %}<p class=\"mt-3 text-sm\">Enter at least two characters to widen the player search.</p>{% else %}<form class=\"mt-3\" hx-get=\"/nfl-data-admin/salary-imports/{{ import_id }}/rows/{{ row.id }}/players\" hx-target=\"#candidate-{{ row.id }}\"><label>Search {{ row.fd_team }} candidates <input name=\"q\" value=\"{{ query }}\" minlength=\"1\"></label><button class=\"btn btn-sm\">Search</button><label><input type=\"checkbox\" name=\"widened\" value=\"1\"> Search across all teams and weeks</label></form><p class=\"mt-2 text-xs\">Candidates {{ source }}{% if result.widened %}; widened search requires two characters{% endif %}.</p>{% for candidate in result.candidates %}<form class=\"mt-2 flex items-center gap-3\" method=\"post\" action=\"/nfl-data-admin/salary-imports/{{ import_id }}/rows/{{ row.id }}\" hx-post=\"/nfl-data-admin/salary-imports/{{ import_id }}/rows/{{ row.id }}\" hx-target=\"#salary-review-results\" hx-swap=\"innerHTML\"><input type=\"hidden\" name=\"action\" value=\"resolve\"><input type=\"hidden\" name=\"player_id\" value=\"{{ candidate.gsis_id }}\"><span>{{ candidate.label() }} · {{ candidate.gsis_id }}</span><button class=\"btn btn-xs btn-primary\">Confirm match</button></form>{% else %}<p class=\"mt-2 text-sm\">No candidates found.</p>{% endfor %}{% endif %}",
+    source = "{% if result.too_short %}<p class=\"mt-2 text-sm\">Enter at least two characters to widen the player search.</p>{% endif %}<form class=\"mt-3\" hx-get=\"/nfl-data-admin/salary-imports/{{ import_id }}/rows/{{ row.id }}/players\" hx-target=\"#candidate-{{ row.id }}\"><label>Search {{ row.fd_team }} candidates <input name=\"q\" value=\"{{ query }}\" minlength=\"{% if result.widened %}2{% else %}1{% endif %}\"></label><button class=\"btn btn-sm\">Search</button><label><input type=\"checkbox\" name=\"widened\" value=\"1\"{% if result.widened %} checked{% endif %}> Search across all teams and weeks</label></form><p class=\"mt-2 text-xs\">Candidates {{ source }}.</p>{% for candidate in result.candidates %}<form class=\"mt-2 flex items-center gap-3\" method=\"post\" action=\"/nfl-data-admin/salary-imports/{{ import_id }}/rows/{{ row.id }}\" hx-post=\"/nfl-data-admin/salary-imports/{{ import_id }}/rows/{{ row.id }}\" hx-target=\"#salary-review-panel\" hx-swap=\"outerHTML\"><input type=\"hidden\" name=\"action\" value=\"resolve\"><input type=\"hidden\" name=\"player_id\" value=\"{{ candidate.gsis_id }}\"><span>{{ candidate.label() }} · {{ candidate.gsis_id }}</span><button class=\"btn btn-xs btn-primary\">Confirm match</button></form>{% else %}{% if !result.too_short %}<p class=\"mt-2 text-sm\">No candidates found.</p>{% endif %}{% endfor %}",
     ext = "html"
 )]
 pub(super) struct CandidateResults {
@@ -106,6 +97,7 @@ impl SalaryPage {
             import,
             rows,
             counts,
+            group,
             error,
         })
     }

@@ -3,30 +3,6 @@
 {% block content %}
 <section class="max-w-5xl">
   <a class="link link-primary" href="/nfl-data-admin/salary-imports">← Salary imports</a>
-  <p class="mt-5 font-mono text-xs uppercase tracking-[0.2em] text-primary">Import #{{ import.id }}</p>
-  <h1 class="mt-2 text-4xl font-semibold">{{ import.season }} · {{ import.season_type }} week {{ import.week }}</h1>
-  <p class="mt-3 text-base-content/70">{{ import.games }} games · {{ counts.matched }} matched · {{ counts.dst }} defenses · {{ counts.unmatched }} unmatched · {{ counts.resolved }} resolved · {{ counts.skipped }} skipped</p>
-  {% if error.is_some() %}<p class="alert alert-error mt-5">{% if error.as_deref() == Some("invalid_action") %}The selected canonical player is not eligible for this row. Choose a candidate from the allowed search results.{% else if error.as_deref() == Some("commit_invalid") %}The import is not ready to commit. Resolve or skip every unmatched row and retry.{% else %}{{ error.as_deref().unwrap_or("") }}{% endif %}</p>{% endif %}
-  <nav class="tabs tabs-bordered mt-7" aria-label="Review groups">
-    <a class="tab" href="/nfl-data-admin/salary-imports/{{ import.id }}">Needs review ({{ counts.unmatched }})</a>
-    <a class="tab" href="/nfl-data-admin/salary-imports/{{ import.id }}/resolved">Resolved ({{ counts.resolved }})</a>
-    <a class="tab" href="/nfl-data-admin/salary-imports/{{ import.id }}/skipped">Skipped ({{ counts.skipped }})</a>
-  </nav>
-  {% if import.status == "pending" %}
-  <div class="mt-5 flex flex-wrap gap-3"><form method="post" action="/nfl-data-admin/salary-imports/{{ import.id }}/commit"><button class="btn btn-primary" type="submit">Commit import</button></form><form method="post" action="/nfl-data-admin/salary-imports/{{ import.id }}/discard"><button class="btn btn-outline btn-error" type="submit">Discard review</button></form></div>
-  {% else %}<p class="alert mt-5">Committed {{ import.committed_at.as_deref().unwrap_or("") }}. This review is read-only.</p>{% endif %}
-  <div id="salary-review-results" class="mt-6">
-    {% for row in rows %}
-    <article class="card mb-4 border border-base-300 bg-base-100 p-5">
-      <div class="flex flex-wrap justify-between gap-3"><div><h2 class="text-lg font-semibold">{{ row.fd_name }}</h2><p class="text-sm text-base-content/70">{{ row.fd_team }} · {{ row.original_position }} · ${{ row.salary }}</p></div><span class="badge">{{ row.state.as_str() }}</span></div>
-      {% if row.suggested_gsis_player_id.is_some() %}<p class="mt-3 text-sm">Suggested canonical player: {{ row.suggested_gsis_player_id.as_deref().unwrap_or("") }}; selection still requires confirmation.</p>{% endif %}
-      {% if import.status == "pending" && row.state.as_str() == "unmatched" %}
-      <div class="mt-4" hx-get="/nfl-data-admin/salary-imports/{{ import.id }}/rows/{{ row.id }}/players" hx-trigger="click once" hx-target="#candidate-{{ row.id }}"><button class="btn btn-sm btn-outline" type="button">Find canonical player</button></div><div id="candidate-{{ row.id }}"></div>
-      <form class="mt-3" method="post" action="/nfl-data-admin/salary-imports/{{ import.id }}/rows/{{ row.id }}" hx-post="/nfl-data-admin/salary-imports/{{ import.id }}/rows/{{ row.id }}" hx-target="#salary-review-results" hx-swap="innerHTML"><input type="hidden" name="action" value="skip"><button class="btn btn-sm btn-ghost" type="submit">Skip this row</button></form>
-      {% endif %}
-      {% if import.status == "pending" && (row.state.as_str() == "resolved" || row.state.as_str() == "skipped") %}<form class="mt-3" method="post" action="/nfl-data-admin/salary-imports/{{ import.id }}/rows/{{ row.id }}/undo" hx-post="/nfl-data-admin/salary-imports/{{ import.id }}/rows/{{ row.id }}/undo" hx-target="#salary-review-results" hx-swap="innerHTML"><button class="btn btn-sm btn-ghost" type="submit">Undo manual decision</button></form>{% endif %}
-    </article>
-    {% else %}<p class="mt-6 text-base-content/70">No rows in this review group.</p>{% endfor %}
-  </div>
+  {% block panel %}{% include "admin/salary_imports/_results.html" %}{% endblock %}
 </section>
 {% endblock %}

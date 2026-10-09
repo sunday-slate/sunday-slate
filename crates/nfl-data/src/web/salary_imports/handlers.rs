@@ -22,7 +22,7 @@ use crate::{
     web::error::AdminError,
 };
 
-use super::view::{CandidateResults, ResultsTemplate, SalaryPage};
+use super::view::{CandidateResults, SalaryPage};
 
 pub(crate) fn router() -> Router<Arc<NflData>> {
     Router::new()
@@ -77,7 +77,7 @@ async fn index(
 ) -> Result<Response, AdminError> {
     let mut page = SalaryPage::index(&nfl).await?;
     page.error = query.get("error").cloned();
-    Ok(page.render()?.into_response())
+    Ok(axum::response::Html(page.render()?).into_response())
 }
 
 async fn upload(
@@ -177,17 +177,13 @@ async fn render_group(
 ) -> Result<Response, SalaryHttpError> {
     let page = SalaryPage::review(nfl, id, group, None).await?;
     if is_htmx {
-        ResultsTemplate {
-            import_id: id,
-            rows: page.rows,
-            group,
-        }
-        .render()
-        .map(|html| axum::response::Html(html).into_response())
-        .map_err(|error| {
-            tracing::error!(%error, "failed to render salary review fragment");
-            ImportError::Internal("render error".into()).into()
-        })
+        page.as_panel()
+            .render()
+            .map(|html| axum::response::Html(html).into_response())
+            .map_err(|error| {
+                tracing::error!(%error, "failed to render salary review fragment");
+                ImportError::Internal("render error".into()).into()
+            })
     } else {
         page.render()
             .map(|html| axum::response::Html(html).into_response())
