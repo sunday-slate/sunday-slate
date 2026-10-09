@@ -5,7 +5,6 @@
 //! here rather than wiring their own auth.
 
 pub mod avatars;
-pub mod banner;
 pub mod contests;
 
 use askama::Template;

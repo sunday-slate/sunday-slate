@@ -70,6 +70,19 @@ async fn fetch_missing_with<F>(
 where
     F: Fn(&str) -> String,
 {
+    let canonical_players = state.nfl.players().await?;
+    let gsis_ids: Vec<String> = canonical_players
+        .into_iter()
+        .filter(|player| player.headshot_url.is_some())
+        .map(|player| player.gsis_id)
+        .collect();
+    state
+        .db
+        .write_tx(async |conn| -> Result<(), AppError> {
+            player_store::ensure_players_for_gsis(conn, &gsis_ids).await?;
+            Ok(())
+        })
+        .await?;
     let players = player_store::missing_headshots(state.db.reader()).await?;
     let teams = team_store::missing_logos(state.db.reader()).await?;
     let total = players.len() + teams.len();
@@ -313,11 +326,10 @@ mod tests {
     async fn add_player(
         app: &TestApp,
         gsis_id: &str,
-        fd_id: &str,
         headshot_url: Option<&str>,
         seed_identity: bool,
     ) {
-        player_store::upsert(&app.pool, gsis_id, fd_id)
+        player_store::upsert_for_gsis(&app.pool, gsis_id)
             .await
             .expect("crosswalk");
         if seed_identity {
@@ -353,6 +365,78 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn avatar_discovery_uses_canonical_players_without_fd_mapping() {
+        let app = TestApp::new().await;
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/player.png"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(image_bytes(
+                64,
+                64,
+                ImageFormat::Png,
+            )))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let linked = player_store::upsert_for_gsis(&app.pool, "00-LEGACY-LINKED")
+            .await
+            .expect("existing media association");
+        let linked_media = dummy_media(&app.pool).await;
+        player_store::set_headshot_media_id(&app.pool, linked.id, linked_media)
+            .await
+            .expect("preserve existing link");
+        app.nfl
+            .seed_for_test(
+                &[nfl_data::Player {
+                    gsis_id: "00-CANONICAL".into(),
+                    espn_id: None,
+                    full_name: "Canonical Player".into(),
+                    first_name: None,
+                    last_name: None,
+                    position: Some("QB".into()),
+                    latest_team: Some(nfl_data::TeamAbbr("KC".into())),
+                    headshot_url: Some(format!("{}/player.png", server.uri())),
+                }],
+                &[],
+            )
+            .await
+            .expect("canonical identity");
+        link_teams(&app.pool, None).await;
+        let before: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM nfl_players WHERE gsis_player_id = '00-CANONICAL'",
+        )
+        .fetch_one(&app.pool)
+        .await
+        .expect("no pre-existing association");
+        assert_eq!(before, 0);
+
+        let state = app.state();
+        let (progress, _hold) = test_progress(&app);
+        let report = fetch_missing_with(&state, &progress, |_| String::new())
+            .await
+            .expect("fetch");
+
+        assert_eq!(report.players_fetched, 1);
+        let player = player_store::by_gsis_id(&app.pool, "00-CANONICAL")
+            .await
+            .expect("player lookup")
+            .expect("player association");
+        let fd_id: Option<String> = sqlx::query_scalar(
+            "SELECT fd_player_id FROM nfl_players WHERE gsis_player_id = '00-CANONICAL'",
+        )
+        .fetch_one(&app.pool)
+        .await
+        .expect("legacy mapping field");
+        assert_eq!(fd_id, None);
+        assert!(player.headshot_media_id.is_some());
+        let preserved = player_store::by_gsis_id(&app.pool, "00-LEGACY-LINKED")
+            .await
+            .expect("existing player lookup")
+            .expect("existing player");
+        assert_eq!(preserved.headshot_media_id, Some(linked_media));
+    }
+
+    #[tokio::test]
     async fn fetch_missing_links_player_and_team_media() {
         let app = TestApp::new().await;
         let server = MockServer::start().await;
@@ -373,7 +457,6 @@ mod tests {
         add_player(
             &app,
             "00-FETCH",
-            "fetch",
             Some(&format!("{}/player.png", server.uri())),
             true,
         )
@@ -408,7 +491,7 @@ mod tests {
                 ..
             }
         ));
-        let player = player_store::by_fd_id(&app.pool, "fetch")
+        let player = player_store::by_gsis_id(&app.pool, "00-FETCH")
             .await
             .expect("player")
             .expect("crosswalk");
@@ -450,7 +533,6 @@ mod tests {
         add_player(
             &app,
             "00-ORPHAN",
-            "orphan",
             Some(&format!("{}/player.png", server.uri())),
             true,
         )
@@ -469,7 +551,7 @@ mod tests {
 
         assert_eq!(report.players_fetched, 1);
         assert_eq!(report.failed, 0);
-        let player = player_store::by_fd_id(&app.pool, "orphan")
+        let player = player_store::by_gsis_id(&app.pool, "00-ORPHAN")
             .await
             .expect("player")
             .expect("crosswalk");
@@ -501,7 +583,6 @@ mod tests {
         add_player(
             &app,
             "00-FAIL",
-            "fail",
             Some(&format!("{}/player.png", server.uri())),
             true,
         )
@@ -529,7 +610,7 @@ mod tests {
                 ..
             }
         ));
-        let player = player_store::by_fd_id(&app.pool, "fail")
+        let player = player_store::by_gsis_id(&app.pool, "00-FAIL")
             .await
             .expect("player")
             .expect("crosswalk");
@@ -565,7 +646,6 @@ mod tests {
         add_player(
             &app,
             "00-OVERSIZED",
-            "oversized",
             Some(&format!("{}/player.png", server.uri())),
             true,
         )
@@ -588,7 +668,7 @@ mod tests {
                 skipped: 0,
             }
         );
-        let player = player_store::by_fd_id(&app.pool, "oversized")
+        let player = player_store::by_gsis_id(&app.pool, "00-OVERSIZED")
             .await
             .expect("player")
             .expect("crosswalk");
@@ -615,8 +695,8 @@ mod tests {
     #[tokio::test]
     async fn fetch_missing_counts_absent_and_no_source_identities() {
         let app = TestApp::new().await;
-        add_player(&app, "00-NO-SOURCE", "no-source", None, true).await;
-        add_player(&app, "00-ABSENT", "absent", None, false).await;
+        add_player(&app, "00-NO-SOURCE", None, true).await;
+        add_player(&app, "00-ABSENT", None, false).await;
         link_teams(&app.pool, None).await;
 
         let (progress, _hold) = test_progress(&app);
@@ -646,7 +726,6 @@ mod tests {
         add_player(
             &app,
             "00-SAVEFAIL",
-            "savefail",
             Some(&format!("{}/player.png", server.uri())),
             true,
         )
@@ -673,7 +752,7 @@ mod tests {
                 skipped: 0,
             }
         );
-        let player = player_store::by_fd_id(&app.pool, "savefail")
+        let player = player_store::by_gsis_id(&app.pool, "00-SAVEFAIL")
             .await
             .expect("player")
             .expect("crosswalk");
@@ -687,7 +766,6 @@ mod tests {
         add_player(
             &app,
             "00-LINKED",
-            "linked",
             Some("http://127.0.0.1:1/player.png"),
             true,
         )
@@ -717,7 +795,7 @@ mod tests {
     async fn start_fetch_runs_in_the_background_and_records_the_report() {
         let app = TestApp::new().await;
         link_teams(&app.pool, None).await;
-        add_player(&app, "00-NOSRC", "nosrc", None, true).await;
+        add_player(&app, "00-NOSRC", None, true).await;
 
         let state = app.state();
         assert!(start_fetch(&state));

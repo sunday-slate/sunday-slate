@@ -229,11 +229,6 @@ impl TestApp {
         self.server.get(uri).await
     }
 
-    /// GET carrying one extra request header — htmx requests, mainly.
-    pub async fn get_with_header(&self, uri: &str, name: &str, value: &str) -> TestResponse {
-        self.server.get(uri).add_header(name, value).await
-    }
-
     pub async fn post(&self, uri: &str, body: &str) -> TestResponse {
         self.server
             .post(uri)

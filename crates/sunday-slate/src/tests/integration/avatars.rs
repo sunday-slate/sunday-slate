@@ -27,7 +27,7 @@ async fn admin_fetches_missing_images_from_rendered_links(pool: SqlitePool) {
         .execute(&pool)
         .await
         .expect("link teams");
-    player_store::upsert(&pool, "00-JOURNEY", "journey")
+    player_store::upsert_for_gsis(&pool, "00-JOURNEY")
         .await
         .expect("crosswalk");
     app.nfl

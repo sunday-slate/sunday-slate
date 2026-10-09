@@ -9,10 +9,17 @@ build = "src/web/build.rs"
 [[test]]
 name = "admin_assets"
 path = "src/web/tests/admin_assets.rs"
+required-features = ["test-support"]
 
 [[test]]
 name = "admin_router"
 path = "src/web/tests/admin_router.rs"
+required-features = ["test-support"]
+
+[[test]]
+name = "facade"
+path = "tests/facade.rs"
+required-features = ["test-support"]
 
 [features]
 default = []

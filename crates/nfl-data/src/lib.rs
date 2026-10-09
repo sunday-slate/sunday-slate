@@ -1,8 +1,14 @@
+//! The public API exposes canonical NFL data and current salaries, not upload
+//! interpretation records.
+//!
+//! ```compile_fail
+//! use nfl_data::SalaryRow;
+//! ```
+
 mod config;
 mod data_revision;
 mod identity;
 mod managed;
-mod salaries;
 #[allow(dead_code)] // Private admin adapter consumes this subsystem in the next integration task.
 mod salary_imports;
 #[cfg(test)]
@@ -32,14 +38,7 @@ pub use nfl_model::{
     DfsPosition, Game, Player, PlayerWeekStats, Season, SeasonType, TeamAbbr, TeamWeekStats, Week,
     WeeklyRosterEntry, eastern_offset, to_eastern,
 };
-pub use nflverse_data::{
-    Dataset, DatasetFreshness, DatasetReport, DatasetStatus, NflverseDataError as NflDataError,
-    RefreshStatus, SyncReport,
-};
-pub use salaries::{
-    SalaryCsvDiagnostic, SalaryMatchup, SalaryRow, SalaryRowDiagnostic, SalaryUploadError,
-    SalaryUploadOutcome,
-};
+pub use nflverse_data::NflverseDataError as NflDataError;
 pub use web::router as admin_router;
 
 #[derive(Debug, thiserror::Error)]
@@ -100,16 +99,6 @@ impl NflData {
         self.managed.migrate_legacy(legacy).await
     }
 
-    /// Archives and interprets a FanDuel salary upload without exposing archive identities.
-    pub async fn receive_salary_upload(
-        &self,
-        bytes: &[u8],
-        filename: Option<&str>,
-    ) -> Result<SalaryUploadOutcome, SalaryUploadError> {
-        let received = self.fanduel.receive(bytes, filename).await?;
-        Ok(received.interpretation.into())
-    }
-
     /// Opens both provider databases and runs their migrations.
     pub async fn connect(config: NflDataConfig) -> Result<Self, NflDataConnectError> {
         let refresh_interval = config
@@ -138,10 +127,12 @@ impl NflData {
     /// A fresh, empty, in-memory cache — for tests and tooling that need an
     /// `NflData` handle without a database file. Migrations are applied; no data
     /// is synced.
+    #[cfg(any(test, feature = "test-support"))]
     pub async fn in_memory() -> Result<Self, NflDataConnectError> {
         Self::in_memory_with_season(Season(2026)).await
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     async fn in_memory_with_season(season: Season) -> Result<Self, NflDataConnectError> {
         let provider = NflverseData::in_memory()
             .await
@@ -211,6 +202,7 @@ impl NflData {
 
     /// Seed weekly roster entries directly, for tests and tooling. Not part of
     /// the stable API — bypasses the sync pipeline and `sync_state` bookkeeping.
+    #[cfg(any(test, feature = "test-support"))]
     #[doc(hidden)]
     pub async fn seed_weekly_roster_for_test(
         &self,
@@ -221,6 +213,7 @@ impl NflData {
 
     /// Seed players and games directly, for tests and tooling. Not part of the
     /// stable API — bypasses the sync pipeline and `sync_state` bookkeeping.
+    #[cfg(any(test, feature = "test-support"))]
     #[doc(hidden)]
     pub async fn seed_for_test(
         &self,
@@ -282,6 +275,7 @@ impl NflData {
     /// Seed player and team week stats directly, for tests and tooling. Reuses the
     /// sync-path `replace` inserts (per-season delete-then-insert). Not part of the
     /// stable API.
+    #[cfg(any(test, feature = "test-support"))]
     #[doc(hidden)]
     pub async fn seed_week_stats_for_test(
         &self,

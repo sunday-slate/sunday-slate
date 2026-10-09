@@ -29,7 +29,6 @@ pub mod media;
 pub mod nfl_players;
 pub mod nfl_teams;
 pub(crate) mod player_identity;
-pub mod player_salaries;
 mod router;
 pub mod rules;
 pub mod scoring;

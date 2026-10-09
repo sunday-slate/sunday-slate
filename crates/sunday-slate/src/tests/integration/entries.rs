@@ -318,7 +318,7 @@ async fn link_local_pick_media(app: &TestApp) -> String {
         .state
         .db
         .write_tx(async |conn| -> Result<_, crate::AppError> {
-            let player = player_store::upsert(&mut *conn, "00-A", "00-A").await?;
+            let player = player_store::upsert_for_gsis(&mut *conn, "00-A").await?;
             let media_id = media::save_png(
                 &mut *conn,
                 &app.state.config.media_dir,

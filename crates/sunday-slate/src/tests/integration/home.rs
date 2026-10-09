@@ -11,75 +11,7 @@ const SLATE_GAME: &str = "2025_01_BUF_KC";
 const KICKOFF: time::OffsetDateTime = datetime!(2025-09-07 17:00 UTC);
 
 #[sqlx::test]
-async fn admin_banner_rides_the_shell_for_admins_only(pool: SqlitePool) {
-    let app = TestApp::from_pool_at(pool.clone(), datetime!(2025-09-06 12:00 UTC)).await;
-    let admin = factories::user(
-        &pool,
-        UserOptions {
-            is_admin: true,
-            ..Default::default()
-        },
-    )
-    .await;
-    let commish_team = factories::team(
-        &pool,
-        TeamOptions {
-            owner: Some(admin.user.clone()),
-            is_commish: true,
-            ..Default::default()
-        },
-    )
-    .await;
-    let member = factories::user(&pool, UserOptions::default()).await;
-    factories::team(
-        &pool,
-        TeamOptions {
-            league: Some(commish_team.league.clone()),
-            owner: Some(member.user.clone()),
-            ..Default::default()
-        },
-    )
-    .await;
-    // An unpublished contest with a future kickoff: the banner's target.
-    factories::contest(&pool, "Week 1").await;
-    let g = factories::game_at(SLATE_GAME, 1, KICKOFF);
-    app.nfl.seed_for_test(&[], &[g]).await.unwrap();
-
-    app.login(&admin).await;
-    let body = app.get("/standings").await.text();
-    assert!(body.contains("Get Week 1 ready"), "{body}");
-    assert!(body.contains("Set slate"), "{body}");
-    assert!(body.contains("Upload salaries"), "{body}");
-
-    let nfl_admin = app.get("/nfl-data-admin").await;
-    nfl_admin.assert_status_ok();
-    assert!(!nfl_admin.text().contains("Get Week 1 ready"));
-    assert!(!nfl_admin.text().contains("Primary league navigation"));
-    let nflverse = app.get("/nfl-data-admin/nflverse").await;
-    nflverse.assert_status_ok();
-    assert!(!nflverse.text().contains("Get Week 1 ready"));
-    assert!(!nflverse.text().contains("Primary league navigation"));
-
-    // The salary page carries no host reminder banner of its own.
-    let imports = app.get("/nfl-data-admin/salary-imports").await;
-    imports.assert_status_ok();
-    assert!(
-        !imports.text().contains("Get Week 1 ready"),
-        "no banner under /admin: {}",
-        imports.text()
-    );
-
-    let mut app = app;
-    app.clear_cookies();
-    app.login(&member).await;
-    let body = app.get("/standings").await.text();
-    assert!(!body.contains("Set slate"), "members see no banner: {body}");
-}
-
-/// htmx swaps a fragment into a shell that already rendered, so the banner
-/// has no place in the response — and the request skips its load.
-#[sqlx::test]
-async fn htmx_requests_carry_no_admin_banner(pool: SqlitePool) {
+async fn home_has_no_setup_reminders(pool: SqlitePool) {
     let app = TestApp::from_pool_at(pool.clone(), datetime!(2025-09-06 12:00 UTC)).await;
     let admin = factories::user(
         &pool,
@@ -99,19 +31,16 @@ async fn htmx_requests_carry_no_admin_banner(pool: SqlitePool) {
     )
     .await;
     factories::contest(&pool, "Week 1").await;
-    let g = factories::game_at(SLATE_GAME, 1, KICKOFF);
-    app.nfl.seed_for_test(&[], &[g]).await.unwrap();
+    app.nfl
+        .seed_for_test(&[], &[factories::game_at(SLATE_GAME, 1, KICKOFF)])
+        .await
+        .unwrap();
 
     app.login(&admin).await;
-    let resp = app
-        .get_with_header("/standings", "HX-Request", "true")
-        .await;
-    resp.assert_status_ok();
-    assert!(
-        !resp.text().contains("Get Week 1 ready"),
-        "no banner on an htmx request: {}",
-        resp.text()
-    );
+    let body = app.get("/standings").await.text();
+    assert!(!body.contains("Get Week 1 ready"), "{body}");
+    assert!(!body.contains("Upload salaries"), "{body}");
+    assert!(!body.contains("Set slate"), "{body}");
 }
 
 #[sqlx::test]
