@@ -44,7 +44,11 @@ struct SalaryHttpError(#[from] ImportError);
 
 impl From<AdminError> for SalaryHttpError {
     fn from(error: AdminError) -> Self {
-        Self(ImportError::Internal(error.to_string()))
+        match error {
+            AdminError::Storage(error) => Self::from(error),
+            AdminError::Provider(error) => Self(ImportError::Internal(error.to_string())),
+            AdminError::Render(error) => Self(ImportError::Internal(error.to_string())),
+        }
     }
 }
 

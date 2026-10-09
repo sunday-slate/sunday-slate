@@ -161,6 +161,37 @@ async fn salary_review_groups_use_nfl_urls() {
 }
 
 #[tokio::test]
+async fn missing_salary_import_review_routes_return_not_found_for_full_pages_and_htmx() {
+    let (app, _, _) = setup().await;
+    let cases = [
+        ("/nfl-data-admin/salary-imports/999", false),
+        ("/nfl-data-admin/salary-imports/999/resolved", false),
+        ("/nfl-data-admin/salary-imports/999/skipped", false),
+        ("/nfl-data-admin/salary-imports/999/triage", false),
+        ("/nfl-data-admin/salary-imports/999", true),
+        ("/nfl-data-admin/salary-imports/999/resolved", true),
+        ("/nfl-data-admin/salary-imports/999/skipped", true),
+        ("/nfl-data-admin/salary-imports/999/triage", true),
+    ];
+    let mut observed = Vec::new();
+    for (path, is_htmx) in cases {
+        let headers: &[(&str, &str)] = if is_htmx {
+            &[("HX-Request", "true")]
+        } else {
+            &[]
+        };
+        let (status, _) = call(app.clone(), "GET", path, Body::empty(), headers).await;
+        observed.push((path, is_htmx, status));
+    }
+    assert!(
+        observed
+            .iter()
+            .all(|(_, _, status)| *status == StatusCode::NOT_FOUND),
+        "missing import response statuses: {observed:?}"
+    );
+}
+
+#[tokio::test]
 async fn salary_candidate_search_is_lazy_and_scoped() {
     let (app, nfl, id) = setup_with_csv(UNMATCHED_CSV).await;
     let (status, html) = call(
