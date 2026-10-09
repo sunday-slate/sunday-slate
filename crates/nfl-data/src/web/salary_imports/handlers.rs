@@ -218,6 +218,21 @@ async fn render_group_with_feedback(
     Ok((status, Html(html)).into_response())
 }
 
+async fn render_conflict_panel(nfl: &NflData, id: i64) -> Result<Response, SalaryHttpError> {
+    render_group_with_feedback(
+        nfl,
+        id,
+        RowGroup::Unmatched,
+        Some(
+            "This row changed before the action completed. The current review is shown below."
+                .into(),
+        ),
+        true,
+        StatusCode::OK,
+    )
+    .await
+}
+
 #[derive(Deserialize)]
 struct DecisionForm {
     action: String,
@@ -254,15 +269,7 @@ async fn decide(
             .await;
         }
         Err(ImportError::Conflict) if is_htmx => {
-            return render_group_with_feedback(
-                &nfl,
-                id,
-                RowGroup::Unmatched,
-                Some("This row changed before the action completed. The current review is shown below.".into()),
-                true,
-                StatusCode::OK,
-            )
-            .await;
+            return render_conflict_panel(&nfl, id).await;
         }
         Err(error) => return Err(error.into()),
         Ok(()) => {}
@@ -279,32 +286,28 @@ async fn undo(
     Path((id, row_id)): Path<(i64, i64)>,
     HxRequest(is_htmx): HxRequest,
 ) -> Result<Response, SalaryHttpError> {
-    match SalaryImportService::new(&nfl).undo(id, row_id).await {
-        Ok(()) if is_htmx => {
-            let mut response = render_group(&nfl, id, RowGroup::Unmatched, true).await?;
-            response.headers_mut().insert(
-                "HX-Replace-Url",
-                format!("/nfl-data-admin/salary-imports/{id}")
-                    .parse()
-                    .unwrap(),
-            );
-            Ok(response)
+    let result = SalaryImportService::new(&nfl).undo(id, row_id).await;
+    match result {
+        Ok(()) if !is_htmx => {
+            Ok(Redirect::to(&format!("/nfl-data-admin/salary-imports/{id}")).into_response())
         }
-        Ok(()) => Ok(Redirect::to(&format!("/nfl-data-admin/salary-imports/{id}")).into_response()),
-        Err(ImportError::Conflict) if is_htmx => render_group_with_feedback(
-            &nfl,
-            id,
-            RowGroup::Unmatched,
-            Some(
-                "This row changed before the action completed. The current review is shown below."
-                    .into(),
-            ),
-            true,
-            StatusCode::OK,
-        )
-        .await,
+        Ok(()) => {
+            let response = render_group(&nfl, id, RowGroup::Unmatched, true).await?;
+            replace_review_url(response, id)
+        }
+        Err(ImportError::Conflict) if is_htmx => render_conflict_panel(&nfl, id).await,
         Err(error) => Err(error.into()),
     }
+}
+
+fn replace_review_url(mut response: Response, id: i64) -> Result<Response, SalaryHttpError> {
+    response.headers_mut().insert(
+        "HX-Replace-Url",
+        format!("/nfl-data-admin/salary-imports/{id}")
+            .parse()
+            .unwrap(),
+    );
+    Ok(response)
 }
 
 async fn players(

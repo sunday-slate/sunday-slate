@@ -40,16 +40,17 @@ impl ManagedStore {
             .foreign_keys(true)
             .busy_timeout(Duration::from_secs(10))
             .optimize_on_close(true, None);
-        if is_memory_database(url, &options) {
-            return Self::open_memory(options).await;
-        }
-        let writer = SqlitePoolOptions::new()
-            .max_connections(1)
-            .acquire_timeout(Duration::from_secs(30))
-            .connect_with(options.clone())
-            .await?;
+        let is_memory = is_memory_database(url, &options);
+        let writer_options = if is_memory {
+            Self::in_memory_pool_options()
+        } else {
+            SqlitePoolOptions::new()
+                .max_connections(1)
+                .acquire_timeout(Duration::from_secs(30))
+        };
+        let writer = writer_options.connect_with(options.clone()).await?;
         let existing_tables: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT GLOB 'sqlite_*'",
         )
         .fetch_one(&writer)
         .await?;
@@ -62,35 +63,27 @@ impl ManagedStore {
             if has_migration_table == 0 {
                 return Err(SalaryError::unsupported_schema());
             }
-            let compatible: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM _sqlx_migrations WHERE version = 20261008000000",
+            let (history_entries, compatible): (i64, i64) = sqlx::query_as(
+                "SELECT COUNT(*), COUNT(CASE WHEN version = 20261008000000 THEN 1 END) FROM _sqlx_migrations",
             )
             .fetch_one(&writer)
             .await?;
-            let history_entries: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations")
-                .fetch_one(&writer)
-                .await?;
             let only_empty_migration_history = existing_tables == 1 && history_entries == 0;
             if compatible == 0 && !only_empty_migration_history {
                 return Err(SalaryError::unsupported_schema());
             }
         }
         MIGRATOR.run(&writer).await?;
-        let reader = SqlitePoolOptions::new()
-            .max_connections(4)
-            .acquire_timeout(Duration::from_secs(5))
-            .connect_with(options.read_only(true))
-            .await?;
+        let reader = if is_memory {
+            writer.clone()
+        } else {
+            SqlitePoolOptions::new()
+                .max_connections(4)
+                .acquire_timeout(Duration::from_secs(5))
+                .connect_with(options.read_only(true))
+                .await?
+        };
         Ok(Self { reader, writer })
-    }
-
-    async fn open_memory(options: SqliteConnectOptions) -> Result<Self, SalaryError> {
-        let pool = Self::in_memory_pool_options().connect_with(options).await?;
-        MIGRATOR.run(&pool).await?;
-        Ok(Self {
-            reader: pool.clone(),
-            writer: pool,
-        })
     }
 
     fn in_memory_pool_options() -> SqlitePoolOptions {
@@ -101,6 +94,7 @@ impl ManagedStore {
             .test_before_acquire(false)
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) async fn in_memory() -> Result<Self, SalaryError> {
         Self::open("sqlite::memory:").await
     }
@@ -193,6 +187,7 @@ impl ManagedStore {
 #[cfg(test)]
 mod tests {
     use super::ManagedStore;
+    use sqlx::sqlite::SqlitePoolOptions;
 
     #[test]
     fn in_memory_pool_disables_retirement_and_acquisition_pings() {
@@ -229,5 +224,30 @@ mod tests {
                 assert_eq!(salary, 8200, "{url}");
             }
         }
+    }
+
+    #[tokio::test]
+    async fn shared_memory_database_with_unrelated_table_is_rejected() {
+        let url = "sqlite://file:guard-check?mode=memory&cache=shared";
+        let db = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect(url)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE keep_me (value TEXT NOT NULL)")
+            .execute(&db)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO keep_me VALUES ('preserve')")
+            .execute(&db)
+            .await
+            .unwrap();
+
+        assert!(ManagedStore::open(url).await.is_err());
+        let value: String = sqlx::query_scalar("SELECT value FROM keep_me")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        assert_eq!(value, "preserve");
     }
 }

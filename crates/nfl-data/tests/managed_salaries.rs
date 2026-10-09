@@ -298,6 +298,45 @@ async fn guarded_migration_entrypoint_rejects_unrelated_database_without_reset()
     assert_eq!(preserved, "preserve");
 }
 #[tokio::test]
+async fn empty_history_with_sqlite_named_application_table_is_rejected() {
+    let dir = tempdir().unwrap();
+    let url = format!("sqlite://{}", dir.path().join("managed.db").display());
+    let db = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(
+            SqliteConnectOptions::from_str(&url)
+                .unwrap()
+                .create_if_missing(true),
+        )
+        .await
+        .unwrap();
+    sqlx::query("CREATE TABLE _sqlx_migrations (version BIGINT PRIMARY KEY, description TEXT NOT NULL, installed_on TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, success BOOLEAN NOT NULL, checksum BLOB NOT NULL, execution_time BIGINT NOT NULL)")
+        .execute(&db)
+        .await
+        .unwrap();
+    sqlx::query("CREATE TABLE sqlitecache (value TEXT NOT NULL)")
+        .execute(&db)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO sqlitecache VALUES ('preserve')")
+        .execute(&db)
+        .await
+        .unwrap();
+    db.close().await;
+
+    assert!(nfl_data::migrate_managed_database(&url).await.is_err());
+    let db = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect(&url)
+        .await
+        .unwrap();
+    let preserved: String = sqlx::query_scalar("SELECT value FROM sqlitecache")
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert_eq!(preserved, "preserve");
+}
+#[tokio::test]
 async fn empty_migration_history_can_be_retried() {
     let dir = tempdir().unwrap();
     let url = format!("sqlite://{}", dir.path().join("managed.db").display());

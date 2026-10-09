@@ -222,12 +222,13 @@ async fn salary_candidate_search_is_lazy_and_scoped() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert!(candidates.contains("00-josh"));
+    assert!(candidates.contains("name=\"q\" value=\"J\""));
+    assert!(!candidates.contains("minlength="));
     assert!(
         candidates.contains("on BUF, no weekly roster synced"),
         "{candidates}"
     );
 }
-
 #[tokio::test]
 async fn htmx_decisions_refresh_counts_and_keep_remaining_controls_actionable() {
     let (app, nfl, id) = setup_with_csv(TWO_UNMATCHED_CSV).await;
@@ -394,28 +395,53 @@ async fn undo_returns_to_unmatched_route_from_resolved_and_skipped_groups() {
 }
 
 #[tokio::test]
-async fn narrowed_one_character_search_is_not_blocked_by_browser_validation() {
-    let (app, nfl, id) = setup_with_csv(UNMATCHED_CSV).await;
-    let row = store::rows_for(nfl.managed.reader(), id)
+async fn stale_undo_conflict_keeps_existing_history_url() {
+    let (app, nfl, id) = setup_with_csv(TWO_UNMATCHED_CSV).await;
+    let row = store::rows_for(nfl.managed.reader(), id).await.unwrap()[0].clone();
+    let service = SalaryImportService::new(&nfl);
+    service.resolve(id, row.id, "00-josh").await.unwrap();
+    let uri = format!("/nfl-data-admin/salary-imports/{id}/rows/{}/undo", row.id);
+    let first = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(&uri)
+                .header("HX-Request", "true")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
-        .unwrap()
-        .remove(0);
-    let (status, fragment) = call(
-        app,
-        "GET",
-        &format!(
-            "/nfl-data-admin/salary-imports/{id}/rows/{}/players?q=J",
-            row.id
-        ),
-        Body::empty(),
-        &[],
+        .unwrap();
+    assert_eq!(first.status(), StatusCode::OK);
+    assert_eq!(
+        first.headers()["HX-Replace-Url"],
+        format!("/nfl-data-admin/salary-imports/{id}")
+    );
+    let stale = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(&uri)
+                .header("HX-Request", "true")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(stale.status(), StatusCode::OK);
+    assert!(!stale.headers().contains_key("HX-Replace-Url"));
+    let panel = String::from_utf8(
+        axum::body::to_bytes(stale.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .to_vec(),
     )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(fragment.contains("name=\"q\" value=\"J\""), "{fragment}");
-    assert!(fragment.contains("Josh Allen"), "{fragment}");
-    assert!(!fragment.contains("minlength="), "{fragment}");
+    .unwrap();
+    assert!(panel.contains("This row changed before the action completed"));
+    assert!(panel.contains("Needs review (2)"));
 }
+
 #[tokio::test]
 async fn widened_short_search_keeps_recovery_form_and_scope() {
     let (app, nfl, id) = setup_with_csv(UNMATCHED_CSV).await;
@@ -474,23 +500,6 @@ async fn commit_validation_renders_specific_ineligible_selection_reason() {
 }
 
 #[tokio::test]
-async fn incomplete_commit_renders_readiness_error_directly() {
-    let (app, _, id) = setup_with_csv(UNMATCHED_CSV).await;
-    let (status, html) = call(
-        app,
-        "POST",
-        &format!("/nfl-data-admin/salary-imports/{id}/commit"),
-        Body::empty(),
-        &[],
-    )
-    .await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(html.contains("Commit import"), "{html}");
-    assert!(html.contains("The import is not ready to commit"), "{html}");
-    assert!(!html.contains("commit_invalid"));
-}
-
-#[tokio::test]
 async fn forged_salary_mutations_return_not_found_conflict_and_validation() {
     let (app, nfl, id) = setup_with_csv(UNMATCHED_CSV).await;
     let missing = call(
@@ -529,7 +538,15 @@ async fn forged_salary_mutations_return_not_found_conflict_and_validation() {
     )
     .await;
     assert_eq!(commit_status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(commit_feedback.contains("The import is not ready to commit"));
+    assert!(
+        commit_feedback.contains("Commit import"),
+        "{commit_feedback}"
+    );
+    assert!(
+        commit_feedback.contains("The import is not ready to commit"),
+        "{commit_feedback}"
+    );
+    assert!(!commit_feedback.contains("commit_invalid"));
     let htmx_invalid = call(
         app.clone(),
         "POST",

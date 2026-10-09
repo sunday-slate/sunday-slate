@@ -7,7 +7,10 @@ use super::{
 };
 use crate::{NflData, SalaryError};
 use nfl_model::{DfsPosition, Season, SeasonType, TeamAbbr, Week};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap},
+    fmt::Write as _,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ImportError {
@@ -335,15 +338,6 @@ impl<'a> SalaryImportService<'a> {
             return Err(ImportError::Conflict);
         }
         let validated_rows = store::rows_for(self.nfl.managed.reader(), import_id).await?;
-        let validated_snapshot: BTreeMap<i64, (String, Option<String>)> = validated_rows
-            .iter()
-            .map(|row| {
-                (
-                    row.id,
-                    (row.state.as_str().to_owned(), row.gsis_player_id.clone()),
-                )
-            })
-            .collect();
         if validated_rows
             .iter()
             .any(|row| row.state == RowState::Unmatched)
@@ -353,6 +347,15 @@ impl<'a> SalaryImportService<'a> {
                     .into(),
             ));
         }
+        let validated_snapshot: BTreeMap<i64, (String, Option<String>)> = validated_rows
+            .iter()
+            .map(|row| {
+                (
+                    row.id,
+                    (row.state.as_str().to_owned(), row.gsis_player_id.clone()),
+                )
+            })
+            .collect();
         for row in validated_rows {
             if matches!(row.state, RowState::Resolved | RowState::Matched) {
                 let Some(player_id) = row.gsis_player_id.as_deref() else {
@@ -481,10 +484,12 @@ fn row_validation_feedback(explanation: &str, source_rows: &[fanduel_data::Sourc
         .iter()
         .flat_map(|row| row.interpreted.diagnostics.iter())
     {
-        feedback.push_str(&format!(
+        write!(
+            feedback,
             "\nrow {} {}: {}",
             diagnostic.row_number, diagnostic.field, diagnostic.message
-        ));
+        )
+        .expect("writing to a String cannot fail");
     }
     feedback
 }

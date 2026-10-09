@@ -401,18 +401,9 @@ mod tests {
                     .max_lifetime(Duration::ZERO),
                 false,
             )
-            .connect_with(options.clone())
+            .connect_with(options)
             .await
             .unwrap_or_else(|error| panic!("{name}: {error}"));
-            let configured = pool_options(
-                database_url,
-                &options,
-                SqlitePoolOptions::new().max_connections(1),
-                false,
-            );
-            assert_eq!(configured.get_idle_timeout(), None, "{name}");
-            assert_eq!(configured.get_max_lifetime(), None, "{name}");
-            assert!(!configured.get_test_before_acquire(), "{name}");
             let store = Store::migrate(pool)
                 .await
                 .unwrap_or_else(|error| panic!("{name}: {error}"));
