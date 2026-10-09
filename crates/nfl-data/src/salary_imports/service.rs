@@ -7,7 +7,7 @@ use super::{
 };
 use crate::{NflData, SalaryError};
 use nfl_model::{DfsPosition, Season, SeasonType, TeamAbbr, Week};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ImportError {
@@ -301,13 +301,48 @@ impl<'a> SalaryImportService<'a> {
         Ok(())
     }
     pub(crate) async fn commit(&self, import_id: i64) -> Result<CommitReport, ImportError> {
+        self.commit_with_hook(import_id, || async {}).await
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn commit_with_pre_transaction_hook<F, Fut>(
+        &self,
+        import_id: i64,
+        before_transaction: F,
+    ) -> Result<CommitReport, ImportError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = ()>,
+    {
+        self.commit_with_hook(import_id, before_transaction).await
+    }
+
+    async fn commit_with_hook<F, Fut>(
+        &self,
+        import_id: i64,
+        before_transaction: F,
+    ) -> Result<CommitReport, ImportError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = ()>,
+    {
         let preview = store::get(self.nfl.managed.reader(), import_id)
             .await?
             .ok_or(ImportError::Missing)?;
         if preview.status != "pending" {
             return Err(ImportError::Conflict);
         }
-        for row in store::rows_for(self.nfl.managed.reader(), import_id).await? {
+        let validated_rows = store::rows_for(self.nfl.managed.reader(), import_id).await?;
+        let validated_snapshot: BTreeMap<i64, (String, Option<String>)> = validated_rows
+            .iter()
+            .map(|row| {
+                (
+                    row.id,
+                    (row.state.as_str().to_owned(), row.gsis_player_id.clone()),
+                )
+            })
+            .collect();
+        for row in validated_rows {
             if matches!(row.state, RowState::Resolved | RowState::Matched) {
                 let Some(player_id) = row.gsis_player_id.as_deref() else {
                     return Err(ImportError::Conflict);
@@ -333,10 +368,18 @@ impl<'a> SalaryImportService<'a> {
                 }
             }
         }
+        before_transaction().await;
         self.nfl.managed.write_tx(async |conn| {
             let batch = sqlx::query_as::<_,(i64,i64,i64,String,String)>("SELECT season,week,games,season_type,status FROM salary_imports WHERE id=?").bind(import_id).fetch_optional(&mut *conn).await?.ok_or(ImportError::Missing)?;
             if batch.4 != "pending" { return Err(ImportError::Conflict); }
             let rows = sqlx::query_as::<_,(i64,String,String,String,i64,String,Option<String>,String)>("SELECT id,fd_player_id,fd_team,dfs_position,salary,gsis_game_id,gsis_player_id,state FROM salary_import_rows WHERE import_id=?").bind(import_id).fetch_all(&mut *conn).await?;
+            let transaction_snapshot: BTreeMap<i64, (String, Option<String>)> = rows
+                .iter()
+                .map(|row| (row.0, (row.7.clone(), row.6.clone())))
+                .collect();
+            if transaction_snapshot != validated_snapshot {
+                return Err(ImportError::Conflict);
+            }
             if rows.iter().any(|r| !matches!(r.7.as_str(), "matched" | "dst" | "unmatched" | "resolved" | "skipped") || r.7 == "unmatched" || ((r.7 == "resolved" || r.7 == "matched") && r.6.is_none()) || (r.7 == "dst" && r.6.is_some())) { return Err(ImportError::Conflict); }
             let mut subjects = std::collections::HashSet::new();
             let mut provider_mappings = HashMap::new();
@@ -353,8 +396,6 @@ impl<'a> SalaryImportService<'a> {
             let mut salaries=0;
             for row in rows.iter().filter(|r| r.7 != "skipped") {
                 if matches!(row.7.as_str(), "resolved" | "matched") {
-                    let valid: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM salary_import_rows WHERE id=? AND import_id=? AND gsis_player_id=? AND state=?").bind(row.0).bind(import_id).bind(row.6.as_deref()).bind(&row.7).fetch_one(&mut *conn).await?;
-                    if valid != 1 { return Err(ImportError::Conflict); }
                     let gsis = row.6.as_deref().ok_or(ImportError::Conflict)?;
                     let by_provider: Option<String> = sqlx::query_scalar("SELECT gsis_player_id FROM confirmed_player_mappings WHERE fd_player_id=?").bind(&row.1).fetch_optional(&mut *conn).await?;
                     if by_provider.as_deref().is_some_and(|existing| existing != gsis) { return Err(ImportError::Conflict); }

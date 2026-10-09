@@ -5,7 +5,7 @@ use axum::{
     Form, Router,
     extract::{Multipart, Path, Query, State},
     http::StatusCode,
-    response::{IntoResponse, Redirect, Response},
+    response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
 };
 use axum_htmx::HxRequest;
@@ -41,6 +41,12 @@ pub(crate) fn router() -> Router<Arc<NflData>> {
 #[derive(Debug, thiserror::Error)]
 #[error("salary import request failed")]
 struct SalaryHttpError(#[from] ImportError);
+
+impl From<AdminError> for SalaryHttpError {
+    fn from(error: AdminError) -> Self {
+        Self(ImportError::Internal(error.to_string()))
+    }
+}
 
 impl From<sqlx::Error> for SalaryHttpError {
     fn from(error: sqlx::Error) -> Self {
@@ -112,8 +118,17 @@ async fn upload(
         .await
     {
         Ok(id) => Ok(Redirect::to(&format!("/nfl-data-admin/salary-imports/{id}")).into_response()),
-        Err(ImportError::InvalidInput(_)) => {
-            Ok(Redirect::to("/nfl-data-admin/salary-imports?error=invalid_upload").into_response())
+        Err(ImportError::InvalidInput(message)) => {
+            let mut page = SalaryPage::index(&nfl).await.map_err(|error| {
+                tracing::error!(%error, "failed to render invalid salary upload feedback");
+                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error").into_response()
+            })?;
+            page.error = Some(message);
+            let html = page.render().map_err(|error| {
+                tracing::error!(%error, "failed to render invalid salary upload feedback");
+                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error").into_response()
+            })?;
+            Ok((StatusCode::UNPROCESSABLE_ENTITY, Html(html)).into_response())
         }
         Err(error) => Err(SalaryHttpError(error).into_response()),
     }
@@ -175,23 +190,28 @@ async fn render_group(
     group: RowGroup,
     is_htmx: bool,
 ) -> Result<Response, SalaryHttpError> {
-    let page = SalaryPage::review(nfl, id, group, None).await?;
-    if is_htmx {
-        page.as_panel()
-            .render()
-            .map(|html| axum::response::Html(html).into_response())
-            .map_err(|error| {
-                tracing::error!(%error, "failed to render salary review fragment");
-                ImportError::Internal("render error".into()).into()
-            })
+    render_group_with_feedback(nfl, id, group, None, is_htmx, StatusCode::OK).await
+}
+
+async fn render_group_with_feedback(
+    nfl: &NflData,
+    id: i64,
+    group: RowGroup,
+    error: Option<String>,
+    is_htmx: bool,
+    status: StatusCode,
+) -> Result<Response, SalaryHttpError> {
+    let page = SalaryPage::review(nfl, id, group, error).await?;
+    let rendered = if is_htmx {
+        page.as_panel().render()
     } else {
         page.render()
-            .map(|html| axum::response::Html(html).into_response())
-            .map_err(|error| {
-                tracing::error!(%error, "failed to render salary review");
-                ImportError::Internal("render error".into()).into()
-            })
-    }
+    };
+    let html = rendered.map_err(|error| {
+        tracing::error!(%error, "failed to render salary review");
+        SalaryHttpError(ImportError::Internal("render error".into()))
+    })?;
+    Ok((status, Html(html)).into_response())
 }
 
 #[derive(Deserialize)]
@@ -211,14 +231,23 @@ async fn decide(
     let result = match form.action.as_str() {
         "resolve" => service.resolve(id, row_id, &form.player_id).await,
         "skip" => service.skip(id, row_id).await,
-        _ => return Err(ImportError::InvalidInput("unknown row action".into()).into()),
+        _ => Err(ImportError::InvalidInput("unknown row action".into())),
     };
     match result {
-        Err(ImportError::InvalidInput(_)) => {
-            return Ok(Redirect::to(&format!(
-                "/nfl-data-admin/salary-imports/{id}?error=invalid_action"
-            ))
-            .into_response());
+        Err(ImportError::InvalidInput(message)) => {
+            return render_group_with_feedback(
+                &nfl,
+                id,
+                RowGroup::Unmatched,
+                Some(message),
+                is_htmx,
+                if is_htmx {
+                    StatusCode::OK
+                } else {
+                    StatusCode::UNPROCESSABLE_ENTITY
+                },
+            )
+            .await;
         }
         Err(error) => return Err(error.into()),
         Ok(()) => {}

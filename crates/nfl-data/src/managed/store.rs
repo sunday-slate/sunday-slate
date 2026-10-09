@@ -66,9 +66,15 @@ impl ManagedStore {
         Ok(Self { reader, writer })
     }
 
-    pub(crate) async fn in_memory() -> Result<Self, SalaryError> {
-        let pool = SqlitePoolOptions::new()
+    fn in_memory_pool_options() -> SqlitePoolOptions {
+        SqlitePoolOptions::new()
             .max_connections(1)
+            .idle_timeout(None)
+            .max_lifetime(None)
+    }
+
+    pub(crate) async fn in_memory() -> Result<Self, SalaryError> {
+        let pool = Self::in_memory_pool_options()
             .connect("sqlite::memory:")
             .await?;
         MIGRATOR.run(&pool).await?;
@@ -160,5 +166,17 @@ impl ManagedStore {
                 })
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ManagedStore;
+
+    #[test]
+    fn in_memory_pool_connection_has_no_retirement_deadlines() {
+        let options = ManagedStore::in_memory_pool_options();
+        assert_eq!(options.get_idle_timeout(), None);
+        assert_eq!(options.get_max_lifetime(), None);
     }
 }

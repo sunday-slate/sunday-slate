@@ -552,6 +552,75 @@ async fn duplicate_salary_subject_rolls_back_commit() {
 }
 
 #[tokio::test]
+async fn commit_rejects_selection_changed_after_validation_before_transaction() {
+    let (nfl, _directory, cache_writer) = nfl_with_persisted_cache().await;
+    nfl.seed_weekly_roster_for_test(&[WeeklyRosterEntry {
+        season: Season(2026),
+        week: Week(1),
+        team: TeamAbbr("BUF".into()),
+        gsis_id: Some("00-roster-only".into()),
+        espn_id: None,
+        full_name: "Bam Knight".into(),
+        last_name: Some("Knight".into()),
+        position: Some("RB".into()),
+    }])
+    .await
+    .unwrap();
+    let service = SalaryImportService::new(&nfl);
+    let import_id = service
+        .upload(
+            &csv(&[("1-611", "QB", "Unknown", "Player", "5100", "BUF")]),
+            None,
+        )
+        .await
+        .unwrap();
+    let row = super::store::rows_for(nfl.managed.reader(), import_id)
+        .await
+        .unwrap()
+        .remove(0);
+    service.resolve(import_id, row.id, "00-josh").await.unwrap();
+
+    let result = service
+        .commit_with_pre_transaction_hook(import_id, || async {
+            service
+                .resolve(import_id, row.id, "00-roster-only")
+                .await
+                .unwrap();
+            sqlx::query("DELETE FROM weekly_roster_entries WHERE gsis_id='00-roster-only'")
+                .execute(&cache_writer)
+                .await
+                .unwrap();
+        })
+        .await;
+    assert!(matches!(result, Err(super::service::ImportError::Conflict)));
+    let after = super::store::rows_for(nfl.managed.reader(), import_id)
+        .await
+        .unwrap()
+        .remove(0);
+    assert_eq!(after.gsis_player_id.as_deref(), Some("00-roster-only"));
+    assert_eq!(after.state, super::model::RowState::Resolved);
+    assert_eq!(
+        super::store::get(nfl.managed.reader(), import_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .status,
+        "pending"
+    );
+    assert!(
+        nfl.salaries_for_games(&["2026_01_BUF_NYJ"])
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let mappings: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM confirmed_player_mappings")
+        .fetch_one(nfl.managed.reader())
+        .await
+        .unwrap();
+    assert_eq!(mappings, 0);
+}
+
+#[tokio::test]
 async fn concurrent_decision_cannot_mutate_committed_review() {
     let nfl = nfl_with_roster().await;
     let service = SalaryImportService::new(&nfl);
@@ -648,6 +717,145 @@ async fn rejected_archive_does_not_change_committed_provenance_domain() {
     .await
     .unwrap();
     assert_eq!(provenance, local_row_id);
+}
+
+#[tokio::test]
+async fn failed_managed_staging_keeps_archived_upload_file_backed() {
+    let (nfl, _directory, _cache_writer) = nfl_with_persisted_cache().await;
+    let source = csv(&[
+        ("1-1101", "QB", "Josh", "Allen", "8000", "BUF"),
+        ("1-1102", "RB", "Unknown", "Player", "5100", "BUF"),
+    ]);
+    nfl.managed.write_tx(async |conn| {
+        sqlx::query(
+            "CREATE TRIGGER fail_second_review_row BEFORE INSERT ON salary_import_rows WHEN NEW.fd_player_id='1102' BEGIN SELECT RAISE(ABORT, 'injected staging failure'); END",
+        )
+        .execute(&mut *conn)
+        .await?;
+        Ok::<_, sqlx::Error>(())
+    }).await.unwrap();
+
+    let result = SalaryImportService::new(&nfl)
+        .upload(&source, Some("staging-failure.csv"))
+        .await;
+    assert!(matches!(
+        result,
+        Err(super::service::ImportError::Internal(_))
+    ));
+    let archived = nfl.fanduel.recent_uploads(10).await.unwrap();
+    assert_eq!(archived.len(), 1);
+    let upload = nfl.fanduel.upload(archived[0].id).await.unwrap().unwrap();
+    assert_eq!(upload.bytes, source);
+    assert_eq!(
+        nfl.fanduel.source_rows(archived[0].id).await.unwrap().len(),
+        2
+    );
+    for (table, query) in [
+        ("salary_imports", "SELECT COUNT(*) FROM salary_imports"),
+        (
+            "salary_import_rows",
+            "SELECT COUNT(*) FROM salary_import_rows",
+        ),
+        ("current_salaries", "SELECT COUNT(*) FROM current_salaries"),
+        (
+            "confirmed_player_mappings",
+            "SELECT COUNT(*) FROM confirmed_player_mappings",
+        ),
+    ] {
+        let count: i64 = sqlx::query_scalar(query)
+            .fetch_one(nfl.managed.reader())
+            .await
+            .unwrap();
+        assert_eq!(count, 0, "{table}");
+    }
+}
+
+#[tokio::test]
+async fn late_file_backed_commit_failure_rolls_back_prices_mappings_provenance_and_status() {
+    let (nfl, _directory, _cache_writer) = nfl_with_persisted_cache().await;
+    nfl.seed_weekly_roster_for_test(&[WeeklyRosterEntry {
+        season: Season(2026),
+        week: Week(1),
+        team: TeamAbbr("BUF".into()),
+        gsis_id: Some("00-roster-only".into()),
+        espn_id: None,
+        full_name: "Bam Knight".into(),
+        last_name: Some("Knight".into()),
+        position: Some("RB".into()),
+    }])
+    .await
+    .unwrap();
+    nfl.managed.write_tx(async |conn| {
+        sqlx::query("INSERT INTO current_salaries(gsis_game_id,gsis_player_id,team_abbr,dfs_position,salary,provenance,created_at,updated_at) VALUES('2026_01_BUF_NYJ','00-josh','BUF','QB',7900,'legacy','old-created','old-updated')")
+            .execute(&mut *conn).await?;
+        Ok::<_, sqlx::Error>(())
+    }).await.unwrap();
+    let import_id = SalaryImportService::new(&nfl)
+        .upload(
+            &csv(&[
+                ("1-1201", "QB", "Josh", "Allen", "8000", "BUF"),
+                ("1-1202", "RB", "Bam", "Knight", "5100", "BUF"),
+            ]),
+            Some("late-commit-failure.csv"),
+        )
+        .await
+        .unwrap();
+    let rows = super::store::rows_for(nfl.managed.reader(), import_id)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().all(|row| row.gsis_player_id.is_some()));
+    nfl.managed.write_tx(async |conn| {
+        sqlx::query(
+            "CREATE TRIGGER fail_commit_status BEFORE UPDATE OF status ON salary_imports WHEN NEW.status='committed' BEGIN SELECT RAISE(ABORT, 'injected late commit failure'); END",
+        )
+        .execute(&mut *conn)
+        .await?;
+        Ok::<_, sqlx::Error>(())
+    }).await.unwrap();
+
+    let result = SalaryImportService::new(&nfl).commit(import_id).await;
+    assert!(matches!(
+        result,
+        Err(super::service::ImportError::Internal(_))
+    ));
+    let imports = super::store::get(nfl.managed.reader(), import_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(imports.status, "pending");
+    assert!(imports.committed_at.is_none());
+    let prices = nfl.salaries_for_games(&["2026_01_BUF_NYJ"]).await.unwrap();
+    assert_eq!(prices.len(), 1);
+    assert_eq!(prices[0].gsis_player_id.as_deref(), Some("00-josh"));
+    assert_eq!(prices[0].salary, 7900);
+    let old_provenance: (String, Option<i64>, Option<i64>) = sqlx::query_as(
+        "SELECT provenance, import_id, source_row_id FROM current_salaries WHERE gsis_game_id='2026_01_BUF_NYJ' AND gsis_player_id='00-josh'",
+    )
+    .fetch_one(nfl.managed.reader())
+    .await
+    .unwrap();
+    assert_eq!(old_provenance, ("legacy".into(), None, None));
+    let mappings: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM confirmed_player_mappings")
+        .fetch_one(nfl.managed.reader())
+        .await
+        .unwrap();
+    assert_eq!(mappings, 0);
+    let rows_with_import_provenance: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM current_salaries WHERE import_id=? OR source_row_id IS NOT NULL",
+    )
+    .bind(import_id)
+    .fetch_one(nfl.managed.reader())
+    .await
+    .unwrap();
+    assert_eq!(rows_with_import_provenance, 0);
+    assert!(
+        nfl.fanduel
+            .upload(imports.source_upload_id)
+            .await
+            .unwrap()
+            .is_some()
+    );
 }
 
 #[tokio::test]

@@ -288,7 +288,39 @@ async fn forged_salary_mutations_return_not_found_conflict_and_validation() {
         &[("content-type", "application/x-www-form-urlencoded")],
     )
     .await;
-    assert_eq!(invalid.0, StatusCode::SEE_OTHER);
+    assert_eq!(invalid.0, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        invalid
+            .1
+            .contains("selected player is not an eligible canonical candidate")
+    );
+    let (_status, commit_feedback) = call(
+        app.clone(),
+        "GET",
+        &format!("/nfl-data-admin/salary-imports/{id}?error=commit_invalid"),
+        Body::empty(),
+        &[],
+    )
+    .await;
+    assert!(commit_feedback.contains("Resolve or skip every unmatched row and retry."));
+    let htmx_invalid = call(
+        app.clone(),
+        "POST",
+        &format!("/nfl-data-admin/salary-imports/{id}/rows/{}", row.id),
+        Body::from("action=resolve&player_id=unknown"),
+        &[
+            ("HX-Request", "true"),
+            ("content-type", "application/x-www-form-urlencoded"),
+        ],
+    )
+    .await;
+    assert_eq!(htmx_invalid.0, StatusCode::OK);
+    assert!(htmx_invalid.1.contains("id=\"salary-review-panel\""));
+    assert!(
+        htmx_invalid
+            .1
+            .contains("selected player is not an eligible canonical candidate")
+    );
     SalaryImportService::new(&nfl).discard(id).await.unwrap();
     let absent = call(
         app,
@@ -299,6 +331,133 @@ async fn forged_salary_mutations_return_not_found_conflict_and_validation() {
     )
     .await;
     assert_eq!(absent.0, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn invalid_salary_upload_shows_its_diagnostic() {
+    let (app, _, _) = setup().await;
+    let boundary = "empty-salary-boundary";
+    let body = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"empty.csv\"\r\nContent-Type: text/csv\r\n\r\n\r\n--{boundary}--\r\n"
+    );
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/nfl-data-admin/salary-imports")
+                .header(
+                    "content-type",
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let html = String::from_utf8(bytes.to_vec()).unwrap();
+    assert!(html.contains("salary CSV is empty"), "{html}");
+}
+
+#[tokio::test]
+async fn salary_review_names_selected_and_suggested_roster_only_players() {
+    let (app, nfl, id) = setup_with_csv(TWO_UNMATCHED_CSV).await;
+    nfl.seed_weekly_roster_for_test(&[crate::WeeklyRosterEntry {
+        season: Season(2026),
+        week: Week(1),
+        team: TeamAbbr("BUF".into()),
+        gsis_id: Some("00-roster-only".into()),
+        espn_id: None,
+        full_name: "Bam Knight".into(),
+        last_name: Some("Knight".into()),
+        position: Some("RB".into()),
+    }])
+    .await
+    .unwrap();
+    let rows = store::rows_for(nfl.managed.reader(), id).await.unwrap();
+    let selected_row = &rows[0];
+    let fallback_row = &rows[1];
+    sqlx::query(
+        "UPDATE salary_import_rows SET suggested_gsis_player_id='00-roster-only' WHERE id=?",
+    )
+    .bind(selected_row.id)
+    .execute(nfl.managed.reader())
+    .await
+    .unwrap();
+    sqlx::query("UPDATE salary_import_rows SET suggested_gsis_player_id='00-missing' WHERE id=?")
+        .bind(fallback_row.id)
+        .execute(nfl.managed.reader())
+        .await
+        .unwrap();
+    SalaryImportService::new(&nfl)
+        .resolve(id, selected_row.id, "00-roster-only")
+        .await
+        .unwrap();
+
+    let (status, full_page) = call(
+        app.clone(),
+        "GET",
+        &format!("/nfl-data-admin/salary-imports/{id}/resolved"),
+        Body::empty(),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(full_page.contains("Canonical player: Bam Knight (RB) · 00-roster-only"));
+    assert!(full_page.contains("Suggested canonical player: Bam Knight (RB) · 00-roster-only"));
+
+    let (status, fragment) = call(
+        app.clone(),
+        "GET",
+        &format!("/nfl-data-admin/salary-imports/{id}/resolved"),
+        Body::empty(),
+        &[("HX-Request", "true")],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!fragment.contains("<!doctype html>"));
+    assert!(fragment.contains("Canonical player: Bam Knight (RB) · 00-roster-only"));
+    assert!(fragment.contains("Suggested canonical player: Bam Knight (RB) · 00-roster-only"));
+
+    let (status, unmatched) = call(
+        app.clone(),
+        "GET",
+        &format!("/nfl-data-admin/salary-imports/{id}"),
+        Body::empty(),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(unmatched.contains("Suggested canonical player: 00-missing"));
+    let (status, unmatched_fragment) = call(
+        app.clone(),
+        "GET",
+        &format!("/nfl-data-admin/salary-imports/{id}/triage"),
+        Body::empty(),
+        &[("HX-Request", "true")],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(unmatched_fragment.contains("Suggested canonical player: 00-missing"));
+
+    SalaryImportService::new(&nfl)
+        .skip(id, fallback_row.id)
+        .await
+        .unwrap();
+    SalaryImportService::new(&nfl).commit(id).await.unwrap();
+    let (status, committed) = call(
+        app,
+        "GET",
+        &format!("/nfl-data-admin/salary-imports/{id}"),
+        Body::empty(),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(committed.contains("Bam Knight (RB) · 00-roster-only"));
 }
 
 #[tokio::test]

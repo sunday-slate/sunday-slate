@@ -1,3 +1,7 @@
+use std::collections::{BTreeSet, HashMap};
+
+use askama::Template;
+
 use crate::{
     NflData,
     salary_imports::{
@@ -7,7 +11,6 @@ use crate::{
     },
     web::error::AdminError,
 };
-use askama::Template;
 
 #[derive(Template)]
 #[template(
@@ -27,7 +30,7 @@ pub(super) struct IndexTemplate {
 )]
 pub(super) struct ReviewTemplate {
     pub(super) import: SalaryImport,
-    pub(super) rows: Vec<SalaryImportRow>,
+    pub(super) rows: Vec<ReviewRow>,
     pub(super) counts: StateCounts,
     pub(super) group: RowGroup,
     pub(super) error: Option<String>,
@@ -40,8 +43,14 @@ pub(super) struct ReviewTemplate {
 )]
 pub(super) struct CommittedTemplate {
     pub(super) import: SalaryImport,
-    pub(super) rows: Vec<SalaryImportRow>,
+    pub(super) rows: Vec<ReviewRow>,
     pub(super) counts: StateCounts,
+}
+
+pub(super) struct ReviewRow {
+    pub(super) source: SalaryImportRow,
+    pub(super) canonical_identity: Option<String>,
+    pub(super) suggested_identity: Option<String>,
 }
 
 #[derive(Template)]
@@ -82,16 +91,21 @@ impl SalaryPage {
             error: None,
         })
     }
+
     pub(super) async fn review(
         nfl: &NflData,
         id: i64,
         group: RowGroup,
         error: Option<String>,
-    ) -> Result<ReviewTemplate, sqlx::Error> {
+    ) -> Result<ReviewTemplate, AdminError> {
         let import = store::get(nfl.managed.reader(), id)
             .await?
             .ok_or(sqlx::Error::RowNotFound)?;
-        let rows = store::grouped_rows(nfl.managed.reader(), id, group).await?;
+        let rows = review_rows(
+            nfl,
+            store::grouped_rows(nfl.managed.reader(), id, group).await?,
+        )
+        .await?;
         let counts = store::counts(nfl.managed.reader(), id).await?;
         Ok(ReviewTemplate {
             import,
@@ -101,14 +115,12 @@ impl SalaryPage {
             error,
         })
     }
-    pub(super) async fn committed(
-        nfl: &NflData,
-        id: i64,
-    ) -> Result<CommittedTemplate, sqlx::Error> {
+
+    pub(super) async fn committed(nfl: &NflData, id: i64) -> Result<CommittedTemplate, AdminError> {
         let import = store::get(nfl.managed.reader(), id)
             .await?
             .ok_or(sqlx::Error::RowNotFound)?;
-        let rows = store::rows_for(nfl.managed.reader(), id).await?;
+        let rows = review_rows(nfl, store::rows_for(nfl.managed.reader(), id).await?).await?;
         let counts = store::counts(nfl.managed.reader(), id).await?;
         Ok(CommittedTemplate {
             import,
@@ -116,4 +128,50 @@ impl SalaryPage {
             counts,
         })
     }
+}
+
+async fn review_rows(
+    nfl: &NflData,
+    rows: Vec<SalaryImportRow>,
+) -> Result<Vec<ReviewRow>, AdminError> {
+    let identity_ids: BTreeSet<String> = rows
+        .iter()
+        .flat_map(|row| {
+            row.gsis_player_id
+                .iter()
+                .chain(row.suggested_gsis_player_id.iter())
+                .cloned()
+        })
+        .collect();
+    let ids: Vec<&str> = identity_ids.iter().map(String::as_str).collect();
+    let identities = if ids.is_empty() {
+        HashMap::new()
+    } else {
+        nfl.identify(&ids).await?
+    };
+    Ok(rows
+        .into_iter()
+        .map(|source| ReviewRow {
+            canonical_identity: source
+                .gsis_player_id
+                .as_deref()
+                .map(|id| identity_label(id, &identities)),
+            suggested_identity: source
+                .suggested_gsis_player_id
+                .as_deref()
+                .map(|id| identity_label(id, &identities)),
+            source,
+        })
+        .collect())
+}
+
+fn identity_label(id: &str, identities: &HashMap<String, crate::PlayerIdentity>) -> String {
+    let Some(identity) = identities.get(id) else {
+        return id.to_owned();
+    };
+    let player_name = match identity.position.as_deref() {
+        Some(position) => format!("{} ({position})", identity.name),
+        None => identity.name.clone(),
+    };
+    format!("{player_name} · {id}")
 }
