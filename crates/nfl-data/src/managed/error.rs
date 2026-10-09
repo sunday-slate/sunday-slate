@@ -31,7 +31,7 @@ impl From<sqlx::migrate::MigrateError> for SalaryError {
 }
 
 impl SalaryError {
-    pub(super) fn conflict(message: impl Into<String>) -> Self {
+    pub(crate) fn conflict(message: impl Into<String>) -> Self {
         Self(SalaryErrorKind::Conflict(message.into()))
     }
 

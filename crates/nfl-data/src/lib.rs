@@ -3,12 +3,14 @@ mod data_revision;
 mod identity;
 mod managed;
 mod salaries;
-#[cfg(test)]
+#[allow(dead_code)] // Private admin adapter consumes this subsystem in the next integration task.
 mod salary_imports;
 #[cfg(test)]
 mod test;
 #[cfg(feature = "test-support")]
 mod test_support;
+#[cfg(feature = "test-support")]
+pub use test_support::TestSalaryImportReport;
 mod web;
 
 use std::collections::HashMap;
@@ -52,8 +54,9 @@ pub enum NflDataConnectError {
 
 pub struct NflData {
     provider: NflverseData,
-    fanduel: fanduel_data::FanduelData,
-    managed: managed::ManagedStore,
+    pub(crate) fanduel: fanduel_data::FanduelData,
+    pub(crate) managed: managed::ManagedStore,
+    pub(crate) managed_season: Season,
     refresh_interval: Option<std::time::Duration>,
 }
 
@@ -127,6 +130,7 @@ impl NflData {
             provider,
             fanduel,
             managed,
+            managed_season: config.managed_season,
             refresh_interval,
         })
     }
@@ -148,6 +152,7 @@ impl NflData {
             provider,
             fanduel,
             managed,
+            managed_season: Season(2026),
             refresh_interval: None,
         })
     }
