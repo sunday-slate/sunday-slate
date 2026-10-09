@@ -4,6 +4,8 @@ mod identity;
 mod managed;
 mod salaries;
 #[cfg(test)]
+mod salary_imports;
+#[cfg(test)]
 mod test;
 #[cfg(feature = "test-support")]
 mod test_support;
