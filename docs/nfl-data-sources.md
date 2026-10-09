@@ -64,7 +64,9 @@ NFL Data. Unexpected pending legacy salary reviews stop startup without a
 pending-review migration. Resolve or otherwise investigate that state before
 retrying the upgrade. Legacy committed review history is not reconstructed in
 the new administration UI. Existing media associations remain in the Sunday
-Slate database.
+Slate database. The old Sunday Slate setup-reminder banner, including its salary
+and slate reminders, has been removed; salary administration is now available
+through NFL Data Admin.
 
 An unrelated or historical database at the new NFL Data managed path is not
 reset or repurposed. Choose a new empty path for a first install, or restore the
