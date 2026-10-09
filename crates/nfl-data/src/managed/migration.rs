@@ -31,9 +31,9 @@ impl ManagedStore {
                 }).collect();
         }
         let mut mappings = Vec::new();
-        if table_exists(&mut source, "nfl_player").await? {
+        if table_exists(&mut source, "nfl_players").await? {
             mappings = sqlx::query_as::<_, (String, String, String, String)>(
-                "SELECT fd_player_id, gsis_player_id, created_at, updated_at FROM nfl_player WHERE fd_player_id IS NOT NULL ORDER BY id")
+                "SELECT fd_player_id, gsis_player_id, created_at, updated_at FROM nfl_players WHERE fd_player_id IS NOT NULL ORDER BY id")
                 .fetch_all(&mut *source).await?
                 .into_iter().map(|(fd_player_id, gsis_player_id, created_at, updated_at)| LegacyMapping {
                     fd_player_id, gsis_player_id, created_at, updated_at,

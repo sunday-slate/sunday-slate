@@ -41,7 +41,9 @@ async fn nfl() -> (tempfile::TempDir, NflData, SqlitePool, SqlitePool) {
 async fn legacy_schema(db: &SqlitePool) {
     sqlx::query("CREATE TABLE nfl_player_salaries (id INTEGER PRIMARY KEY, gsis_game_id TEXT NOT NULL, gsis_player_id TEXT, team_abbr TEXT NOT NULL, dfs_position TEXT NOT NULL, salary INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
         .execute(db).await.unwrap();
-    sqlx::query("CREATE TABLE nfl_player (id INTEGER PRIMARY KEY, gsis_player_id TEXT NOT NULL UNIQUE, fd_player_id TEXT UNIQUE, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
+    sqlx::query("CREATE TABLE media (id INTEGER PRIMARY KEY, path TEXT UNIQUE, content_type TEXT NOT NULL, byte_size INTEGER NOT NULL, width INTEGER NOT NULL, height INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
+        .execute(db).await.unwrap();
+    sqlx::query("CREATE TABLE nfl_players (id INTEGER PRIMARY KEY, gsis_player_id TEXT NOT NULL UNIQUE, fd_player_id TEXT UNIQUE, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, headshot_media_id INTEGER REFERENCES media(id) ON DELETE SET NULL)")
         .execute(db).await.unwrap();
     sqlx::query("CREATE TABLE salary_imports (id INTEGER PRIMARY KEY, status TEXT NOT NULL)")
         .execute(db)
@@ -55,7 +57,9 @@ async fn migrates_legacy_player_and_defense_prices() {
     legacy_schema(&legacy).await;
     sqlx::query("INSERT INTO nfl_player_salaries VALUES (1, '2025_01_BUF_NYJ', '00-1', 'BUF', 'QB', 8200, '2025-08-01T01:02:03Z', '2025-08-02T01:02:03Z'), (2, '2025_01_BUF_NYJ', NULL, 'NYJ', 'DST', 4000, '2025-08-01T02:02:03Z', '2025-08-02T02:02:03Z')")
         .execute(&legacy).await.unwrap();
-    sqlx::query("INSERT INTO nfl_player VALUES (1, '00-1', '62239', '2025-07-01T01:02:03Z', '2025-07-02T01:02:03Z')")
+    sqlx::query("INSERT INTO media VALUES (1, 'players/00-1.webp', 'image/webp', 100, 80, 80, 'media-created', 'media-updated')")
+        .execute(&legacy).await.unwrap();
+    sqlx::query("INSERT INTO nfl_players VALUES (1, '00-1', '62239', '2025-07-01T01:02:03Z', '2025-07-02T01:02:03Z', 1)")
         .execute(&legacy).await.unwrap();
     nfl.migrate_legacy_salaries(&legacy).await.unwrap();
     assert_eq!(
@@ -112,11 +116,31 @@ async fn migrates_legacy_player_and_defense_prices() {
         .fetch_one(&legacy)
         .await
         .unwrap();
-    let source_players: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM nfl_player")
+    let source_players: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM nfl_players")
         .fetch_one(&legacy)
         .await
         .unwrap();
     assert_eq!((source_salaries, source_players), (2, 1));
+    let association: Option<i64> = sqlx::query_scalar(
+        "SELECT headshot_media_id FROM nfl_players WHERE gsis_player_id = '00-1'",
+    )
+    .fetch_one(&legacy)
+    .await
+    .unwrap();
+    let media: (String, String, String) =
+        sqlx::query_as("SELECT path, created_at, updated_at FROM media WHERE id = 1")
+            .fetch_one(&legacy)
+            .await
+            .unwrap();
+    assert_eq!(association, Some(1));
+    assert_eq!(
+        media,
+        (
+            "players/00-1.webp".into(),
+            "media-created".into(),
+            "media-updated".into()
+        )
+    );
 }
 
 #[tokio::test]
@@ -149,7 +173,7 @@ async fn migration_failure_rolls_back_all_target_facts_and_can_retry() {
     legacy_schema(&legacy).await;
     sqlx::query("INSERT INTO nfl_player_salaries VALUES (1, '2025_01_BUF_NYJ', '00-1', 'BUF', 'QB', 8200, 'created', 'updated')")
         .execute(&legacy).await.unwrap();
-    sqlx::query("INSERT INTO nfl_player VALUES (1, '00-1', '62239', 'created', 'updated')")
+    sqlx::query("INSERT INTO nfl_players VALUES (1, '00-1', '62239', 'created', 'updated', NULL)")
         .execute(&legacy)
         .await
         .unwrap();
@@ -192,6 +216,38 @@ async fn conflicting_legacy_price_aborts_without_marker() {
         .await
         .unwrap();
     assert_eq!(marker, 0);
+}
+
+#[tokio::test]
+async fn reverse_mapping_conflict_rolls_back_copied_salaries_and_new_mappings() {
+    let (_dir, nfl, legacy, managed) = nfl().await;
+    legacy_schema(&legacy).await;
+    sqlx::query("INSERT INTO nfl_player_salaries VALUES (1, '2025_01_BUF_NYJ', '00-1', 'BUF', 'QB', 8200, 'created', 'updated')")
+        .execute(&legacy).await.unwrap();
+    sqlx::query("INSERT INTO nfl_players VALUES (1, '00-new', '60000', 'new-created', 'new-updated', NULL), (2, '00-1', '62239', 'source-created', 'source-updated', NULL)")
+        .execute(&legacy).await.unwrap();
+    sqlx::query("INSERT INTO confirmed_player_mappings VALUES ('old-fd-id', '00-1', 'existing-created', 'existing-updated')")
+        .execute(&managed).await.unwrap();
+
+    assert!(nfl.migrate_legacy_salaries(&legacy).await.is_err());
+
+    let salary_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM current_salaries")
+        .fetch_one(&managed)
+        .await
+        .unwrap();
+    let marker_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM migration_state")
+        .fetch_one(&managed)
+        .await
+        .unwrap();
+    let mappings: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT fd_player_id, gsis_player_id, created_at FROM confirmed_player_mappings ORDER BY fd_player_id",
+    ).fetch_all(&managed).await.unwrap();
+    assert_eq!(salary_count, 0);
+    assert_eq!(marker_count, 0);
+    assert_eq!(
+        mappings,
+        vec![("old-fd-id".into(), "00-1".into(), "existing-created".into())]
+    );
 }
 
 #[tokio::test]
