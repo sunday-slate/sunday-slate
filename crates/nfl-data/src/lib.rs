@@ -1,9 +1,12 @@
 mod config;
 mod data_revision;
 mod identity;
+mod managed;
 mod salaries;
 #[cfg(test)]
 mod test;
+#[cfg(feature = "test-support")]
+mod test_support;
 mod web;
 
 use std::collections::HashMap;
@@ -19,6 +22,7 @@ pub use live::{
     LiveScoreboard, LiveScoreboardGame, LiveSlate, LiveTeamStats, ProviderOutcome,
     ProviderResponse, RawBody,
 };
+pub use managed::{Salary, SalaryError};
 pub use nfl_model::live;
 pub use nfl_model::{
     DfsPosition, Game, Player, PlayerWeekStats, Season, SeasonType, TeamAbbr, TeamWeekStats, Week,
@@ -36,6 +40,8 @@ pub use web::router as admin_router;
 
 #[derive(Debug, thiserror::Error)]
 pub enum NflDataConnectError {
+    #[error("managed NFL Data salary store startup failed: {0}")]
+    Managed(#[source] SalaryError),
     #[error("nflverse provider startup failed: {0}")]
     Nflverse(#[source] NflDataError),
     #[error("FanDuel provider startup failed: {0}")]
@@ -45,6 +51,7 @@ pub enum NflDataConnectError {
 pub struct NflData {
     provider: NflverseData,
     fanduel: fanduel_data::FanduelData,
+    managed: managed::ManagedStore,
     refresh_interval: Option<std::time::Duration>,
 }
 
@@ -72,6 +79,22 @@ impl NflData {
         ))
     }
 
+    /// Read current canonical salaries for the supplied game ids.
+    pub async fn salaries_for_games<I: AsRef<str>>(
+        &self,
+        game_ids: &[I],
+    ) -> Result<Vec<Salary>, SalaryError> {
+        self.managed.salaries_for_games(game_ids).await
+    }
+
+    /// Copy pre-ownership prices and confirmed mappings once during startup.
+    pub async fn migrate_legacy_salaries(
+        &self,
+        legacy: &sqlx::SqlitePool,
+    ) -> Result<(), SalaryError> {
+        self.managed.migrate_legacy(legacy).await
+    }
+
     /// Archives and interprets a FanDuel salary upload without exposing archive identities.
     pub async fn receive_salary_upload(
         &self,
@@ -95,9 +118,13 @@ impl NflData {
         })
         .await
         .map_err(NflDataConnectError::Fanduel)?;
+        let managed = managed::ManagedStore::open(&config.managed_database_url)
+            .await
+            .map_err(NflDataConnectError::Managed)?;
         Ok(Self {
             provider,
             fanduel,
+            managed,
             refresh_interval,
         })
     }
@@ -112,9 +139,13 @@ impl NflData {
         let fanduel = fanduel_data::FanduelData::in_memory()
             .await
             .map_err(NflDataConnectError::Fanduel)?;
+        let managed = managed::ManagedStore::in_memory()
+            .await
+            .map_err(NflDataConnectError::Managed)?;
         Ok(Self {
             provider,
             fanduel,
+            managed,
             refresh_interval: None,
         })
     }

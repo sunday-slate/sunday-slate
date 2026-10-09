@@ -16,6 +16,7 @@ path = "src/web/tests/admin_router.rs"
 
 [features]
 default = []
+test-support = []
 debug-embed = ["rust-embed/debug-embed"]
 
 [dependencies]
@@ -32,6 +33,7 @@ nflverse-data = { path = "../nflverse-data" }
 nfl-model = { path = "../nfl-model" }
 utils = { path = "../utils" }
 time = { workspace = true }
+sqlx = { workspace = true }
 
 [dev-dependencies]
 axum-test = { workspace = true }

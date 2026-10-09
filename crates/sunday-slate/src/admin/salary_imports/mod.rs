@@ -857,6 +857,8 @@ mod tests {
         let nfl = nfl_data::NflData::connect(nfl_data::NflDataConfig {
             database_url: "sqlite::memory:".into(),
             fanduel_database_url: fanduel_url.clone(),
+            managed_database_url: format!("sqlite://{}", dir.path().join("managed.db").display()),
+            managed_season: nfl_data::Season(2025),
             ..Default::default()
         })
         .await

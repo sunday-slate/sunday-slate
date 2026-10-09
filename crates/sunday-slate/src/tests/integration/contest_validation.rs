@@ -46,6 +46,11 @@ async fn resolve_matches_fanduel_2025() {
             "sqlite://{}",
             source_dir.path().join("fanduel.db").display()
         ),
+        managed_database_url: format!(
+            "sqlite://{}",
+            source_dir.path().join("managed.db").display()
+        ),
+        managed_season: nfl_data::Season(2025),
         ..Default::default()
     })
     .await

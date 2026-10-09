@@ -27,6 +27,8 @@ pub(crate) async fn mocked_nfl() -> (Arc<NflData>, MockServer, tempfile::TempDir
     let nfl = NflData::connect(NflDataConfig {
         database_url: format!("sqlite://{}/cache.db", dir.path().display()),
         fanduel_database_url: format!("sqlite://{}/fanduel.db", dir.path().display()),
+        managed_database_url: format!("sqlite://{}/managed.db", dir.path().display()),
+        managed_season: nfl_data::Season(2025),
         github_api_base: server.uri(),
         refresh_interval: Some(Duration::ZERO),
         ..Default::default()

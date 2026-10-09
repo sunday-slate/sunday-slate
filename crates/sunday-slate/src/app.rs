@@ -33,6 +33,7 @@ impl App {
             nfl_data::NflData::connect(nfl_data::NflDataConfig {
                 database_url: config.nflverse_database_url.clone(),
                 fanduel_database_url: config.fanduel_database_url.clone(),
+                managed_season: nfl_data::Season(config.season),
                 github_token: config.nflverse_github_token.clone(),
                 refresh_interval: config.nflverse_sync_interval(),
                 ..Default::default()

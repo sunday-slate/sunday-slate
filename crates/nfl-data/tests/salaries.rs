@@ -9,6 +9,10 @@ fn config(nflverse: &std::path::Path, fanduel: &std::path::Path) -> NflDataConfi
     NflDataConfig {
         database_url: format!("sqlite://{}", nflverse.display()),
         fanduel_database_url: format!("sqlite://{}", fanduel.display()),
+        managed_database_url: format!(
+            "sqlite://{}",
+            nflverse.parent().unwrap().join("managed.db").display()
+        ),
         ..Default::default()
     }
 }
