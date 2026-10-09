@@ -5,9 +5,14 @@ pub struct TestSalaryImportReport {
     pub games: usize,
     pub salaries: usize,
     pub unmatched: Vec<String>,
+    pub player_ids: Vec<(String, String)>,
 }
 
 impl NflData {
+    pub async fn in_memory_for_test(season: u16) -> Result<Self, crate::NflDataConnectError> {
+        Self::in_memory_with_season(crate::Season(season)).await
+    }
+
     /// Seed accepted legacy-like prices for fixtures; available only with `test-support`.
     pub async fn seed_salaries_for_test(&self, salaries: &[Salary]) -> Result<(), SalaryError> {
         self.managed.write_tx(async |conn| {
@@ -41,6 +46,14 @@ impl NflData {
             .filter(|r| r.state == RowState::Unmatched)
             .map(|r| r.fd_name.clone())
             .collect();
+        let player_ids = rows
+            .iter()
+            .filter_map(|r| {
+                r.gsis_player_id
+                    .as_ref()
+                    .map(|gsis| (r.fd_player_id.clone(), gsis.clone()))
+            })
+            .collect();
         for row in rows.iter().filter(|r| r.state == RowState::Unmatched) {
             service
                 .skip(import_id, row.id)
@@ -57,6 +70,7 @@ impl NflData {
             games: committed.games,
             salaries: committed.salaries,
             unmatched,
+            player_ids,
         })
     }
 }

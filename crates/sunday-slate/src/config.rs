@@ -24,6 +24,9 @@ fn default_nflverse_database_url() -> String {
 fn default_fanduel_database_url() -> String {
     "sqlite://./storage/fanduel-data.db".to_string()
 }
+fn default_nfl_data_database_url() -> String {
+    "sqlite://./storage/nfl-data.db".to_string()
+}
 fn default_season() -> u16 {
     2026
 }
@@ -62,6 +65,9 @@ pub struct Config {
 
     #[serde(default = "default_fanduel_database_url")]
     pub fanduel_database_url: String,
+
+    #[serde(default = "default_nfl_data_database_url")]
+    pub nfl_data_database_url: String,
 
     #[serde(default)]
     pub nflverse_github_token: Option<Secret>,
@@ -157,6 +163,10 @@ mod tests {
                 "sqlite://source.db".into(),
             ),
             (
+                "SUNDAY_SLATE__NFL_DATA_DATABASE_URL".into(),
+                "sqlite://managed.db".into(),
+            ),
+            (
                 "SUNDAY_SLATE__NFLVERSE_GITHUB_TOKEN".into(),
                 "nfl-token-sentinel".into(),
             ),
@@ -179,6 +189,7 @@ mod tests {
         );
         assert_eq!(cfg.nflverse_database_url, "sqlite://cache.db");
         assert_eq!(cfg.fanduel_database_url, "sqlite://source.db");
+        assert_eq!(cfg.nfl_data_database_url, "sqlite://managed.db");
         assert_eq!(
             cfg.nflverse_github_token.as_ref().unwrap().expose(),
             "nfl-token-sentinel"
@@ -206,6 +217,18 @@ mod tests {
             cfg.fanduel_database_url,
             "sqlite://./storage/fanduel-data.db"
         );
+    }
+
+    #[test]
+    fn nfl_data_database_url_defaults_to_durable_store_path() {
+        let cfg: super::Config = config::Config::builder()
+            .add_source(environment_source().source(Some(HashMap::new())))
+            .build()
+            .unwrap()
+            .try_deserialize()
+            .unwrap();
+
+        assert_eq!(cfg.nfl_data_database_url, "sqlite://./storage/nfl-data.db");
     }
 
     #[test]
@@ -287,6 +310,7 @@ mod tests {
             mail_from: "Sunday Slate <no-reply@example.com>".into(),
             nflverse_database_url: "sqlite://./storage/nflverse-cache.db".into(),
             fanduel_database_url: "sqlite://:memory:".into(),
+            nfl_data_database_url: "sqlite://./storage/nfl-data.db".into(),
             nflverse_github_token: None,
             tank01_api_key: None,
             live_dev_feed: false,

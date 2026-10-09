@@ -19,7 +19,6 @@ mod mail;
 mod nfl_data_admin;
 mod password_reset;
 mod rules;
-mod salary_imports;
 mod scoring_validation;
 mod slate_publishing;
 mod smoke;

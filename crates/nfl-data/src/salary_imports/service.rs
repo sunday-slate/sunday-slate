@@ -312,15 +312,20 @@ impl<'a> SalaryImportService<'a> {
                 let Some(player_id) = row.gsis_player_id.as_deref() else {
                     return Err(ImportError::Conflict);
                 };
-                let valid = candidates::is_eligible(
-                    self.nfl,
-                    Season(preview.season as u16),
-                    Week(preview.week as u8),
-                    &row.fd_team,
-                    player_id,
-                )
-                .await
-                .map_err(|e| ImportError::Unavailable(e.to_string()))?;
+                let valid = if row.state == RowState::Matched {
+                    self.matched_identity_exists(&row.fd_player_id, player_id)
+                        .await?
+                } else {
+                    candidates::is_eligible(
+                        self.nfl,
+                        Season(preview.season as u16),
+                        Week(preview.week as u8),
+                        &row.fd_team,
+                        player_id,
+                    )
+                    .await
+                    .map_err(|e| ImportError::Unavailable(e.to_string()))?
+                };
                 if !valid {
                     return Err(ImportError::InvalidInput(
                         "selected player is no longer an eligible canonical candidate".into(),
@@ -368,6 +373,37 @@ impl<'a> SalaryImportService<'a> {
             Ok::<_,ImportError>(CommitReport { games:batch.2 as usize,salaries })
         }).await
     }
+    async fn matched_identity_exists(
+        &self,
+        fd_player_id: &str,
+        gsis_player_id: &str,
+    ) -> Result<bool, ImportError> {
+        let ids = [gsis_player_id];
+        let players = self
+            .nfl
+            .players_by_gsis(&ids)
+            .await
+            .map_err(|e| ImportError::Unavailable(e.to_string()))?;
+        if players.contains_key(gsis_player_id) {
+            return Ok(true);
+        }
+        let roster = self
+            .nfl
+            .weekly_roster_entries_by_gsis(&ids)
+            .await
+            .map_err(|e| ImportError::Unavailable(e.to_string()))?;
+        if roster.contains_key(gsis_player_id) {
+            return Ok(true);
+        }
+        Ok(self
+            .nfl
+            .managed
+            .mapping_by_fd_id(fd_player_id)
+            .await?
+            .as_deref()
+            == Some(gsis_player_id))
+    }
+
     pub(crate) async fn discard(&self, import_id: i64) -> Result<(), ImportError> {
         self.nfl
             .managed

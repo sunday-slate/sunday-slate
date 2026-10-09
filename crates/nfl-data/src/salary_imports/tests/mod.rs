@@ -55,6 +55,70 @@ async fn nfl_with_roster() -> NflData {
 }
 
 #[tokio::test]
+async fn auto_matched_defensive_player_keeps_the_quoted_wr_salary() {
+    let nfl = NflData::in_memory_with_season(Season(2025)).await.unwrap();
+    nfl.seed_for_test(
+        &[Player {
+            gsis_id: "00-0037253".into(),
+            espn_id: None,
+            full_name: "Marcus Jones".into(),
+            first_name: Some("Marcus".into()),
+            last_name: Some("Jones".into()),
+            position: Some("CB".into()),
+            latest_team: Some(TeamAbbr("NE".into())),
+            headshot_url: None,
+        }],
+        &[Game {
+            gsis_game_id: "2025_21_NE_DEN".into(),
+            season: Season(2025),
+            week: Week(21),
+            season_type: SeasonType::Post,
+            kickoff: Some(datetime!(2026-01-25 18:00 UTC)),
+            home_team: TeamAbbr("DEN".into()),
+            away_team: TeamAbbr("NE".into()),
+            home_score: None,
+            away_score: None,
+        }],
+    )
+    .await
+    .unwrap();
+    nfl.seed_weekly_roster_for_test(&[WeeklyRosterEntry {
+        season: Season(2025),
+        week: Week(21),
+        team: TeamAbbr("NE".into()),
+        gsis_id: Some("00-0037253".into()),
+        espn_id: None,
+        full_name: "Marcus Jones".into(),
+        last_name: Some("Jones".into()),
+        position: Some("DB".into()),
+    }])
+    .await
+    .unwrap();
+
+    let import_id = SalaryImportService::new(&nfl)
+        .upload(
+            b"\"Id\",\"Position\",\"First Name\",\"Nickname\",\"Last Name\",\"FPPG\",\"Played\",\"Salary\",\"Game\",\"Team\",\"Opponent\",\"Injury Indicator\",\"Injury Details\"\n\"125787-92166\",\"WR\",\"Marcus\",\"\",\"Jones\",\"0\",\"0\",\"4000\",\"NE@DEN\",\"NE\",\"DEN\",\"\",\"\"\n",
+            None,
+        )
+        .await
+        .unwrap();
+    let rows = super::store::rows_for(nfl.managed.reader(), import_id)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].state, super::model::RowState::Matched);
+    assert_eq!(rows[0].gsis_player_id.as_deref(), Some("00-0037253"));
+    SalaryImportService::new(&nfl)
+        .commit(import_id)
+        .await
+        .unwrap();
+    let price = nfl.salaries_for_games(&["2025_21_NE_DEN"]).await.unwrap();
+    assert_eq!(price.len(), 1);
+    assert_eq!(price[0].dfs_position, crate::DfsPosition::Wr);
+    assert_eq!(price[0].salary, 4000);
+}
+
+#[tokio::test]
 async fn upload_archives_and_stages_without_price_changes() {
     let nfl = nfl_with_roster().await;
     let service = SalaryImportService::new(&nfl);

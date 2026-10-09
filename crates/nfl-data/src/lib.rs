@@ -139,6 +139,10 @@ impl NflData {
     /// `NflData` handle without a database file. Migrations are applied; no data
     /// is synced.
     pub async fn in_memory() -> Result<Self, NflDataConnectError> {
+        Self::in_memory_with_season(Season(2026)).await
+    }
+
+    async fn in_memory_with_season(season: Season) -> Result<Self, NflDataConnectError> {
         let provider = NflverseData::in_memory()
             .await
             .map_err(NflDataConnectError::Nflverse)?;
@@ -152,7 +156,7 @@ impl NflData {
             provider,
             fanduel,
             managed,
-            managed_season: Season(2026),
+            managed_season: season,
             refresh_interval: None,
         })
     }

@@ -73,4 +73,4 @@ wiremock.workspace = true
 http-body-util = "0.1"
 tempfile.workspace = true
 csv = { workspace = true }
-fanduel-data = { path = "../fanduel-data" }
+nfl-data = { path = "../nfl-data", features = ["test-support"] }

@@ -47,6 +47,9 @@ pub enum AppError {
     NflData(#[from] nfl_data::NflDataError),
 
     #[error(transparent)]
+    Salary(#[from] nfl_data::SalaryError),
+
+    #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
 
@@ -75,6 +78,7 @@ impl IntoResponse for AppError {
             | Self::Entries(_)
             | Self::Internal(_)
             | Self::NflData(_)
+            | Self::Salary(_)
             | Self::Other(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
 

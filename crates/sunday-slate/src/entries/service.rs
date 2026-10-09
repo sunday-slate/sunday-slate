@@ -949,6 +949,19 @@ pub fn compute_ownership<'a>(lineups: impl IntoIterator<Item = &'a Lineup>) -> O
         defenses: def_counts.into_iter().map(|(k, c)| (k, frac(c))).collect(),
     }
 }
+async fn slate_salaries<'e, E>(
+    state: &AppState,
+    reader: E,
+    contest_id: ContestId,
+) -> Result<SlateSalaries, AppError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite> + Copy,
+{
+    let game_ids = crate::contests::store::game_ids(reader, contest_id).await?;
+    let prices = state.nfl.salaries_for_games(&game_ids).await?;
+    Ok(store::slate_salaries(&prices))
+}
+
 pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryView, AppError> {
     let reader = state.db.reader();
     let entry = store::by_id(reader, id).await?.ok_or(AppError::NotFound)?;
@@ -972,7 +985,7 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
         let avatars =
             crate::avatars::for_lineup(&state.db, &player_ids, &[entry.lineup.def.0.as_str()])
                 .await?;
-        let salaries = store::slate_salaries(reader, entry.contest.id).await?;
+        let salaries = slate_salaries(state, reader, entry.contest.id).await?;
         let averages = scoring_service::season_averages(&state.nfl, season, &ids, week).await?;
         let (rows, spent) = build_preview(
             &entry.lineup,
@@ -1010,7 +1023,7 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
             crate::avatars::for_lineup(&state.db, &player_ids, &[entry.lineup.def.0.as_str()])
                 .await?;
         let contest_entries = store::by_contest(reader, entry.contest.id, entry.league_id).await?;
-        let salaries = store::slate_salaries(reader, entry.contest.id).await?;
+        let salaries = slate_salaries(state, reader, entry.contest.id).await?;
 
         let ownership = compute_ownership(contest_entries.iter().map(|e| &e.lineup));
 

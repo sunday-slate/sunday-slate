@@ -32,17 +32,6 @@ impl TestApp {
         Self::build(pool, mailer, None, false, None).await
     }
 
-    pub async fn from_pool_with_nfl(pool: SqlitePool, nfl: Arc<nfl_data::NflData>) -> Self {
-        Self::build(
-            pool,
-            Mailer::capture("Sunday Slate <no-reply@example.com>"),
-            None,
-            false,
-            Some(nfl),
-        )
-        .await
-    }
-
     /// Like `from_pool` but with the config clock pinned to `now`.
     pub async fn from_pool_at(pool: SqlitePool, now: time::OffsetDateTime) -> Self {
         Self::build(
@@ -92,6 +81,7 @@ impl TestApp {
             nflverse_sync_interval_secs: 0,
             nflverse_database_url: "sqlite://./storage/nflverse-cache.db".to_string(),
             fanduel_database_url: "sqlite://:memory:".to_string(),
+            nfl_data_database_url: "sqlite://:memory:".to_string(),
             season: 2025,
             media_dir: media_dir.path().to_path_buf(),
             smtp: None,
@@ -107,7 +97,7 @@ impl TestApp {
         let nfl = match nfl_override {
             Some(nfl) => nfl,
             None => Arc::new(
-                nfl_data::NflData::in_memory()
+                nfl_data::NflData::in_memory_for_test(2025)
                     .await
                     .expect("in-memory nfl-data"),
             ),

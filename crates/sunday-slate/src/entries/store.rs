@@ -444,38 +444,18 @@ impl SlateSalaries {
     }
 }
 
-/// Salaries for every game on a contest's frozen slate. One row per player or
-/// team defense priced that week.
-pub async fn slate_salaries<'e, E>(
-    ex: E,
-    contest_id: ContestId,
-) -> Result<SlateSalaries, EntriesError>
-where
-    E: sqlx::Executor<'e, Database = Sqlite> + Copy,
-{
-    let rows = sqlx::query!(
-        r#"SELECT s.gsis_player_id AS "gsis_player_id?: NflPlayerId",
-                  s.team_abbr      AS "team_abbr!: NflTeamAbbr",
-                  s.dfs_position   AS "dfs_position!: String",
-                  s.salary         AS "salary!: i64"
-           FROM nfl_player_salaries s
-           JOIN contest_games cg ON cg.gsis_game_id = s.gsis_game_id
-           WHERE cg.contest_id = ?1"#,
-        contest_id,
-    )
-    .fetch_all(ex)
-    .await?;
-
+/// Assemble a contest's price maps from the canonical NFL Data salary values.
+pub fn slate_salaries(rows: &[nfl_data::Salary]) -> SlateSalaries {
     let mut salaries = SlateSalaries::default();
-    for r in rows {
+    for row in rows {
         salaries.insert_row(
-            r.dfs_position == "DST",
-            r.gsis_player_id,
-            r.team_abbr,
-            r.salary,
+            row.dfs_position.is_defense(),
+            row.gsis_player_id.clone().map(NflPlayerId),
+            NflTeamAbbr(row.team_abbr.0.clone()),
+            row.salary,
         );
     }
-    Ok(salaries)
+    salaries
 }
 
 /// Upsert the (contest, fantasy team) entry and replace its slots with the
@@ -921,40 +901,32 @@ mod tests {
         assert!(by_id(&pool, EntryId(999)).await.expect("query").is_none());
     }
 
-    #[sqlx::test]
-    async fn slate_salaries_keys_players_and_defense(pool: SqlitePool) {
-        let contest = factories::contest(&pool, "Week 1").await;
-        // Freeze the slate onto one game.
-        sqlx::query(
-            "INSERT INTO contest_games (contest_id, gsis_game_id) VALUES (?1, '2025_01_BUF_KC')",
-        )
-        .bind(contest)
-        .execute(&pool)
-        .await
-        .unwrap();
-        // A player salary and a DST salary on that game.
-        sqlx::query(
-            "INSERT INTO nfl_player_salaries (gsis_game_id, gsis_player_id, team_abbr, dfs_position, salary)
-             VALUES ('2025_01_BUF_KC', '00-A', 'KC', 'RB', 5700)",
-        ).execute(&pool).await.unwrap();
-        sqlx::query(
-            "INSERT INTO nfl_player_salaries (gsis_game_id, gsis_player_id, team_abbr, dfs_position, salary)
-             VALUES ('2025_01_BUF_KC', NULL, 'KC', 'DST', 3500)",
-        ).execute(&pool).await.unwrap();
-        // A salary on a game NOT on the slate must be excluded.
-        sqlx::query(
-            "INSERT INTO nfl_player_salaries (gsis_game_id, gsis_player_id, team_abbr, dfs_position, salary)
-             VALUES ('2025_01_OTHER', '00-Z', 'SF', 'WR', 9999)",
-        ).execute(&pool).await.unwrap();
-
-        let s = slate_salaries(&pool, ContestId(contest))
-            .await
-            .expect("load");
-        assert_eq!(s.players.get(&NflPlayerId("00-A".into())), Some(&5700));
-        assert_eq!(s.defenses.get(&NflTeamAbbr("KC".into())), Some(&3500));
-        assert!(
-            !s.players.contains_key(&NflPlayerId("00-Z".into())),
-            "off-slate salary excluded"
+    #[test]
+    fn slate_salaries_keys_canonical_players_and_defense() {
+        let prices = [
+            nfl_data::Salary {
+                gsis_game_id: "2025_01_BUF_KC".into(),
+                gsis_player_id: Some("00-A".into()),
+                team_abbr: nfl_data::TeamAbbr("KC".into()),
+                dfs_position: nfl_data::DfsPosition::Rb,
+                salary: 5700,
+            },
+            nfl_data::Salary {
+                gsis_game_id: "2025_01_BUF_KC".into(),
+                gsis_player_id: None,
+                team_abbr: nfl_data::TeamAbbr("KC".into()),
+                dfs_position: nfl_data::DfsPosition::Dst,
+                salary: 3500,
+            },
+        ];
+        let salaries = slate_salaries(&prices);
+        assert_eq!(
+            salaries.players.get(&NflPlayerId("00-A".into())),
+            Some(&5700)
+        );
+        assert_eq!(
+            salaries.defenses.get(&NflTeamAbbr("KC".into())),
+            Some(&3500)
         );
     }
 
