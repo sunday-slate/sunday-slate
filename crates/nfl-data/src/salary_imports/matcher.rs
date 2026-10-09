@@ -59,58 +59,63 @@ struct RosterHit {
     position: Option<String>,
 }
 pub(crate) struct RosterIndex {
-    entries: Vec<(String, String, RosterHit)>,
+    by_team_name: HashMap<(String, String), Vec<RosterHit>>,
+    by_team_stem: HashMap<(String, String), Vec<RosterHit>>,
 }
 impl RosterIndex {
     pub(crate) fn build(roster: &[WeeklyRosterEntry]) -> Self {
-        let entries = roster
-            .iter()
-            .filter_map(|entry| {
-                Some((
-                    entry.team.0.clone(),
-                    strip_suffix(&entry.full_name),
-                    RosterHit {
-                        id: entry.gsis_id.clone()?,
-                        position: entry.position.clone(),
-                    },
-                ))
-            })
-            .collect();
-        Self { entries }
+        let mut by_team_name: HashMap<(String, String), Vec<RosterHit>> = HashMap::new();
+        let mut by_team_stem: HashMap<(String, String), Vec<RosterHit>> = HashMap::new();
+        for entry in roster {
+            let Some(id) = entry.gsis_id.clone() else {
+                continue;
+            };
+            let hit = || RosterHit {
+                id: id.clone(),
+                position: entry.position.clone(),
+            };
+            by_team_name
+                .entry((entry.team.0.clone(), normalize(&entry.full_name)))
+                .or_default()
+                .push(hit());
+            by_team_stem
+                .entry((entry.team.0.clone(), strip_suffix(&entry.full_name)))
+                .or_default()
+                .push(hit());
+        }
+        Self {
+            by_team_name,
+            by_team_stem,
+        }
     }
     pub(crate) fn match_one(&self, name: &str, team: &str, position: &str) -> Option<String> {
-        let wanted = normalize(name);
-        let stem = strip_suffix(name);
-        for key in [&wanted, &stem] {
-            let hits: Vec<&RosterHit> = self
-                .entries
-                .iter()
-                .filter(|(t, n, _)| t == team && n == key)
-                .map(|(_, _, h)| h)
-                .collect();
-            if let Some(found) = choose(&hits, position) {
-                return Some(found);
-            }
-        }
-        None
+        let exact = self.by_team_name.get(&(team.to_owned(), normalize(name)));
+        exact.and_then(|hits| choose(hits, position)).or_else(|| {
+            self.by_team_stem
+                .get(&(team.to_owned(), strip_suffix(name)))
+                .and_then(|hits| choose(hits, position))
+        })
     }
     pub(crate) fn suggest_one(&self, name: &str, team: &str, position: &str) -> Option<String> {
         let normalized = strip_suffix(name);
         let surname = normalized.rsplit(' ').next().unwrap_or_default();
-        let mut hits = self.entries.iter().filter(|(t, stem, hit)| {
-            t == team
-                && stem.rsplit(' ').next() == Some(surname)
-                && hit.position.as_deref() == Some(position)
-        });
-        let first = &hits.next()?.2.id;
+        let mut hits = self
+            .by_team_stem
+            .iter()
+            .filter(|((candidate_team, stem), _)| {
+                candidate_team == team && stem.rsplit(' ').next() == Some(surname)
+            })
+            .flat_map(|(_, hits)| hits.iter())
+            .filter(|hit| hit.position.as_deref() == Some(position));
+        let first = hits.next()?;
         if hits.next().is_none() {
-            Some(first.clone())
+            Some(first.id.clone())
         } else {
             None
         }
     }
 }
-fn choose(hits: &[&RosterHit], position: &str) -> Option<String> {
+fn choose(hits: &[RosterHit], position: &str) -> Option<String> {
     match hits {
         [] => None,
         [hit] => Some(hit.id.clone()),
@@ -125,5 +130,41 @@ fn choose(hits: &[&RosterHit], position: &str) -> Option<String> {
                 None
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nfl_model::{Season, TeamAbbr, Week};
+
+    fn entry(id: &str, name: &str) -> WeeklyRosterEntry {
+        WeeklyRosterEntry {
+            season: Season(2026),
+            week: Week(1),
+            team: TeamAbbr("BUF".into()),
+            gsis_id: Some(id.into()),
+            espn_id: None,
+            full_name: name.into(),
+            last_name: Some("Guy".into()),
+            position: Some("WR".into()),
+        }
+    }
+
+    #[test]
+    fn exact_roster_name_precedes_suffix_stripped_teammates() {
+        let index = RosterIndex::build(&[
+            entry("00-plain", "Same Guy"),
+            entry("00-jr", "Same Guy Jr."),
+        ]);
+
+        assert_eq!(
+            index.match_one("Same Guy", "BUF", "WR").as_deref(),
+            Some("00-plain")
+        );
+        assert_eq!(
+            index.match_one("Same Guy Jr.", "BUF", "WR").as_deref(),
+            Some("00-jr")
+        );
     }
 }

@@ -212,6 +212,59 @@ async fn incomplete_commit_is_rejected() {
 }
 
 #[tokio::test]
+async fn repeated_provider_id_with_conflicting_players_rolls_back_commit() {
+    let nfl = nfl_with_roster().await;
+    let service = SalaryImportService::new(&nfl);
+    let import_id = service
+        .upload(
+            &csv(&[
+                ("1-100", "WR", "Unknown", "First", "5100", "BUF"),
+                ("2-100", "WR", "Unknown", "Second", "5200", "BUF"),
+            ]),
+            None,
+        )
+        .await
+        .unwrap();
+    let rows = super::store::rows_for(nfl.managed.reader(), import_id)
+        .await
+        .unwrap();
+    service
+        .resolve(import_id, rows[0].id, "00-josh")
+        .await
+        .unwrap();
+    service
+        .resolve(import_id, rows[1].id, "00-roster-only")
+        .await
+        .unwrap();
+
+    let error = service.commit(import_id).await.unwrap_err();
+    assert!(matches!(error, super::service::ImportError::Conflict));
+    assert_eq!(
+        super::store::get(nfl.managed.reader(), import_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .status,
+        "pending"
+    );
+    assert!(
+        nfl.salaries_for_games(&["2026_01_BUF_NYJ"])
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        sqlx::query_scalar::<_, String>(
+            "SELECT gsis_player_id FROM confirmed_player_mappings WHERE fd_player_id='100'"
+        )
+        .fetch_optional(nfl.managed.reader())
+        .await
+        .unwrap()
+        .is_none()
+    );
+}
+
+#[tokio::test]
 async fn conflicting_resolution_rolls_back_commit() {
     let nfl = nfl_with_roster().await;
     let service = SalaryImportService::new(&nfl);
@@ -234,7 +287,7 @@ async fn conflicting_resolution_rolls_back_commit() {
         .await
         .unwrap();
     let result = service.commit(import_id).await;
-    assert!(result.is_err());
+    assert!(matches!(result, Err(super::service::ImportError::Conflict)));
     assert_eq!(
         super::store::get(nfl.managed.reader(), import_id)
             .await
@@ -306,7 +359,7 @@ async fn concurrent_decision_cannot_mutate_committed_review() {
     let service = SalaryImportService::new(&nfl);
     let import_id = service
         .upload(
-            &csv(&[("1-601", "QB", "Josh", "Allen", "8000", "BUF")]),
+            &csv(&[("1-601", "WR", "Unknown", "Player", "5100", "BUF")]),
             None,
         )
         .await
@@ -315,15 +368,40 @@ async fn concurrent_decision_cannot_mutate_committed_review() {
         .await
         .unwrap()[0]
         .clone();
-    let (committed, decided) =
-        tokio::join!(service.commit(import_id), service.skip(import_id, row.id));
-    assert!(committed.is_ok());
-    let _ = decided;
-    assert!(service.skip(import_id, row.id).await.is_err());
-    let fresh = super::store::rows_for(nfl.managed.reader(), import_id)
+    service
+        .resolve(import_id, row.id, "00-roster-only")
         .await
         .unwrap();
-    assert_eq!(fresh[0].state, super::model::RowState::Matched);
+
+    // Both operations race for the serialized writer. Either linearization is
+    // valid, but the decision must never mutate the review after commit.
+    let (committed, decision) =
+        tokio::join!(service.commit(import_id), service.skip(import_id, row.id));
+    assert!(committed.is_ok());
+    let after_race = super::store::rows_for(nfl.managed.reader(), import_id)
+        .await
+        .unwrap()[0]
+        .clone();
+    match decision {
+        Ok(()) => assert_eq!(after_race.state, super::model::RowState::Skipped),
+        Err(super::service::ImportError::Conflict) => {
+            assert_eq!(after_race.state, super::model::RowState::Resolved)
+        }
+        Err(error) => panic!("unexpected concurrent decision error: {error:?}"),
+    }
+    assert!(matches!(
+        service.skip(import_id, row.id).await,
+        Err(super::service::ImportError::Conflict)
+    ));
+    assert!(matches!(
+        service.undo(import_id, row.id).await,
+        Err(super::service::ImportError::Conflict)
+    ));
+    let after_post_commit_attempt = super::store::rows_for(nfl.managed.reader(), import_id)
+        .await
+        .unwrap()[0]
+        .clone();
+    assert_eq!(after_post_commit_attempt.state, after_race.state);
     assert_eq!(
         super::store::get(nfl.managed.reader(), import_id)
             .await
@@ -500,6 +578,95 @@ async fn discard_removes_pending_review_but_preserves_provider_archive() {
             .is_some()
     );
     assert!(service.discard(import_id).await.is_err());
+}
+
+#[tokio::test]
+async fn candidate_query_preserves_team_week_scope_and_search_floor() {
+    let nfl = nfl_with_roster().await;
+    let one_character = super::candidates::query(&nfl, Season(2026), Week(1), "BUF", "B", false)
+        .await
+        .unwrap();
+    assert_eq!(
+        one_character.source,
+        super::candidates::CandidateSource::Week(Week(1))
+    );
+    assert_eq!(one_character.source.label("BUF"), "on BUF, week 1");
+    assert_eq!(
+        one_character
+            .candidates
+            .iter()
+            .map(|c| c.gsis_id.as_str())
+            .collect::<Vec<_>>(),
+        ["00-roster-only"]
+    );
+    let widened_short = super::candidates::query(&nfl, Season(2026), Week(1), "BUF", "B", true)
+        .await
+        .unwrap();
+    assert!(widened_short.too_short);
+    assert!(widened_short.candidates.is_empty());
+}
+
+#[tokio::test]
+async fn candidate_query_reports_latest_team_fallback_and_widened_source() {
+    let nfl = NflData::in_memory().await.unwrap();
+    nfl.seed_for_test(
+        &[
+            Player {
+                gsis_id: "00-josh".into(),
+                espn_id: None,
+                full_name: "Josh Allen".into(),
+                first_name: Some("Josh".into()),
+                last_name: Some("Allen".into()),
+                position: Some("QB".into()),
+                latest_team: Some(TeamAbbr("BUF".into())),
+                headshot_url: None,
+            },
+            Player {
+                gsis_id: "00-faraway".into(),
+                espn_id: None,
+                full_name: "Faraway Smith".into(),
+                first_name: Some("Faraway".into()),
+                last_name: Some("Smith".into()),
+                position: Some("WR".into()),
+                latest_team: Some(TeamAbbr("NYG".into())),
+                headshot_url: None,
+            },
+        ],
+        &[Game {
+            gsis_game_id: "2026_01_BUF_NYJ".into(),
+            season: Season(2026),
+            week: Week(1),
+            season_type: SeasonType::Reg,
+            kickoff: None,
+            home_team: TeamAbbr("NYJ".into()),
+            away_team: TeamAbbr("BUF".into()),
+            home_score: None,
+            away_score: None,
+        }],
+    )
+    .await
+    .unwrap();
+    let fallback = super::candidates::query(&nfl, Season(2026), Week(1), "BUF", "", false)
+        .await
+        .unwrap();
+    assert_eq!(
+        fallback.source,
+        super::candidates::CandidateSource::LatestTeam
+    );
+    assert_eq!(
+        fallback.source.label("BUF"),
+        "on BUF, no weekly roster synced"
+    );
+    assert_eq!(fallback.candidates[0].gsis_id, "00-josh");
+    let widened = super::candidates::query(&nfl, Season(2026), Week(1), "BUF", "smith", true)
+        .await
+        .unwrap();
+    assert_eq!(
+        widened.source,
+        super::candidates::CandidateSource::AllTeamsWeeks
+    );
+    assert_eq!(widened.source.label("BUF"), "across all teams and weeks");
+    assert_eq!(widened.candidates[0].gsis_id, "00-faraway");
 }
 
 #[tokio::test]

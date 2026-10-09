@@ -334,16 +334,28 @@ impl<'a> SalaryImportService<'a> {
             let rows = sqlx::query_as::<_,(i64,String,String,String,i64,String,Option<String>,String)>("SELECT id,fd_player_id,fd_team,dfs_position,salary,gsis_game_id,gsis_player_id,state FROM salary_import_rows WHERE import_id=?").bind(import_id).fetch_all(&mut *conn).await?;
             if rows.iter().any(|r| !matches!(r.7.as_str(), "matched" | "dst" | "unmatched" | "resolved" | "skipped") || r.7 == "unmatched" || ((r.7 == "resolved" || r.7 == "matched") && r.6.is_none()) || (r.7 == "dst" && r.6.is_some())) { return Err(ImportError::Conflict); }
             let mut subjects = std::collections::HashSet::new();
+            let mut provider_mappings = HashMap::new();
             for row in rows.iter().filter(|r| r.7 != "skipped") {
                 let key = if row.3 == "DST" { format!("{}:DST:{}", row.5, row.2) } else { format!("{}:PLAYER:{}", row.5, row.6.as_deref().unwrap_or_default()) };
                 if !subjects.insert(key) { return Err(ImportError::Conflict); }
+                if matches!(row.7.as_str(), "resolved" | "matched") {
+                    let gsis = row.6.as_deref().ok_or(ImportError::Conflict)?;
+                    if provider_mappings.insert(row.1.as_str(), gsis).is_some_and(|prior| prior != gsis) {
+                        return Err(ImportError::Conflict);
+                    }
+                }
             }
             let mut salaries=0;
             for row in rows.iter().filter(|r| r.7 != "skipped") {
                 if matches!(row.7.as_str(), "resolved" | "matched") {
                     let valid: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM salary_import_rows WHERE id=? AND import_id=? AND gsis_player_id=? AND state=?").bind(row.0).bind(import_id).bind(row.6.as_deref()).bind(&row.7).fetch_one(&mut *conn).await?;
                     if valid != 1 { return Err(ImportError::Conflict); }
-                    sqlx::query("INSERT INTO confirmed_player_mappings(fd_player_id,gsis_player_id,created_at,updated_at) VALUES(?,?,datetime('now','subsec'),datetime('now','subsec')) ON CONFLICT(fd_player_id) DO UPDATE SET gsis_player_id=excluded.gsis_player_id,updated_at=excluded.updated_at WHERE confirmed_player_mappings.gsis_player_id <> excluded.gsis_player_id").bind(&row.1).bind(row.6.as_deref().unwrap()).execute(&mut *conn).await?;
+                    let gsis = row.6.as_deref().ok_or(ImportError::Conflict)?;
+                    let by_provider: Option<String> = sqlx::query_scalar("SELECT gsis_player_id FROM confirmed_player_mappings WHERE fd_player_id=?").bind(&row.1).fetch_optional(&mut *conn).await?;
+                    if by_provider.as_deref().is_some_and(|existing| existing != gsis) { return Err(ImportError::Conflict); }
+                    let by_canonical: Option<String> = sqlx::query_scalar("SELECT fd_player_id FROM confirmed_player_mappings WHERE gsis_player_id=?").bind(gsis).fetch_optional(&mut *conn).await?;
+                    if by_canonical.as_deref().is_some_and(|existing| existing != row.1) { return Err(ImportError::Conflict); }
+                    sqlx::query("INSERT INTO confirmed_player_mappings(fd_player_id,gsis_player_id,created_at,updated_at) VALUES(?,?,datetime('now','subsec'),datetime('now','subsec')) ON CONFLICT(fd_player_id) DO UPDATE SET gsis_player_id=excluded.gsis_player_id,updated_at=excluded.updated_at WHERE confirmed_player_mappings.gsis_player_id <> excluded.gsis_player_id").bind(&row.1).bind(gsis).execute(&mut *conn).await?;
                 }
                 let position = if row.3 == "D" || row.3 == "DEF" { "DST" } else { row.3.as_str() };
                 let subject = row.6.as_deref();

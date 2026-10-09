@@ -1,4 +1,4 @@
-mod candidates;
+pub(crate) mod candidates;
 mod matcher;
 pub(crate) mod model;
 mod schedule;
