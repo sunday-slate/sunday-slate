@@ -1177,6 +1177,7 @@ dependencies = [
  "thiserror",
  "time",
  "tokio",
+ "url",
 ]
 
 [[package]]
@@ -2164,13 +2165,16 @@ dependencies = [
  "nfl-model",
  "nflverse-data",
  "rust-embed",
+ "serde",
  "sha2 0.11.0",
  "sqlx",
  "tempfile",
  "thiserror",
  "time",
  "tokio",
+ "tower",
  "tracing",
+ "url",
  "utils",
  "wiremock",
 ]
@@ -3576,7 +3580,6 @@ dependencies = [
  "config",
  "csv",
  "fake",
- "fanduel-data",
  "futures-util",
  "garde",
  "http",

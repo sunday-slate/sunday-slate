@@ -1,11 +1,16 @@
 use std::time::Duration;
 
+use nfl_model::Season;
 use utils::Secret;
 
 #[derive(Debug, Clone)]
 pub struct NflDataConfig {
     pub database_url: String,
     pub fanduel_database_url: String,
+    /// Durable database for accepted prices, mappings, and managed reviews.
+    pub managed_database_url: String,
+    /// Season configured for the salary administration workflow.
+    pub managed_season: Season,
     /// Per-season datasets fetch seasons >= this. Lower bound only, so the
     /// exact NFL season boundary doesn't matter.
     pub earliest_season: u16,
@@ -34,6 +39,8 @@ impl Default for NflDataConfig {
         Self {
             database_url: config.database_url,
             fanduel_database_url: "sqlite://./storage/fanduel-data.db".to_owned(),
+            managed_database_url: "sqlite://./storage/nfl-data.db".to_owned(),
+            managed_season: Season(2026),
             earliest_season: config.earliest_season,
             github_token: config.github_token,
             github_api_base: config.github_api_base,
@@ -49,7 +56,13 @@ mod tests {
 
     #[test]
     fn config_defaults_to_manual_refresh() {
-        assert!(NflDataConfig::default().refresh_interval.is_none());
+        let config = NflDataConfig::default();
+        assert!(config.refresh_interval.is_none());
+        assert_eq!(
+            config.managed_database_url,
+            "sqlite://./storage/nfl-data.db"
+        );
+        assert_eq!(config.managed_season, super::Season(2026));
     }
 
     #[test]
@@ -61,6 +74,7 @@ mod tests {
             github_token: Some(Secret::new("sentinel")),
             github_api_base: "https://api.example.test".into(),
             refresh_interval: Some(std::time::Duration::from_secs(30)),
+            ..Default::default()
         }
         .into();
         assert_eq!(provider.database_url, "sqlite://cache.db");

@@ -8,19 +8,13 @@
 //! quarantined; each slot must match FanDuel exactly except the explicit
 //! `KNOWN_IRREDUCIBLE` allow-list.
 
-use std::collections::HashMap;
-use std::path::Path;
-
 use nfl_data::{
     NflData, NflDataConfig, PlayerWeekStats as NflPlayerWeekStats, Season,
     TeamWeekStats as NflTeamWeekStats, Week,
 };
+use std::collections::HashMap;
 
-use crate::Db;
-use crate::admin::salary_imports as import;
-use crate::nfl_players::store as player_store;
 use crate::scoring;
-use crate::tests::utils::in_memory_pool;
 
 const SEASON: u16 = 2025;
 // Every FanDuel scoring category is now derived from nflverse: the D/ST ones
@@ -37,15 +31,14 @@ fn touches_uncovered(stats: &str) -> bool {
 
 #[tokio::test]
 async fn full_season_scores_match_fanduel() {
-    let manifest = env!("CARGO_MANIFEST_DIR");
-    let nfl_db = format!("{manifest}/../../storage/nflverse-cache.db");
-    if !Path::new(&nfl_db).exists() {
-        eprintln!("skipping: {nfl_db} not present (run `just nfl-sync`)");
+    let Some(snapshot) = crate::tests::utils::NflverseCacheSnapshot::new().await else {
+        eprintln!("skipping: storage/nflverse-cache.db not present (run `just nfl-sync`)");
         return;
-    }
+    };
+    let nfl_db = snapshot.database_path.display().to_string();
+    let manifest = env!("CARGO_MANIFEST_DIR");
     let fixtures = format!("{manifest}/src/tests/fixtures/fanduel");
 
-    let db = Db::test(in_memory_pool().await);
     let source_dir = tempfile::tempdir().unwrap();
     let nfl = NflData::connect(NflDataConfig {
         database_url: format!("sqlite://{nfl_db}"),
@@ -53,13 +46,17 @@ async fn full_season_scores_match_fanduel() {
             "sqlite://{}",
             source_dir.path().join("fanduel.db").display()
         ),
+        managed_database_url: format!(
+            "sqlite://{}",
+            source_dir.path().join("managed.db").display()
+        ),
+        managed_season: nfl_data::Season(2025),
         ..Default::default()
     })
     .await
     .unwrap();
 
-    // Import every salary fixture. The test is the loader: it opens each file and
-    // passes a reader into `import`.
+    // Import every salary fixture through NFL Data's test-only workflow helper.
     let mut paths: Vec<_> = std::fs::read_dir(format!("{fixtures}/salaries"))
         .unwrap()
         .filter_map(|e| e.ok())
@@ -67,11 +64,14 @@ async fn full_season_scores_match_fanduel() {
         .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("csv"))
         .collect();
     paths.sort();
+    let mut player_ids = HashMap::new();
     for path in &paths {
-        let file = std::fs::File::open(path).unwrap();
-        import::import(&db, &nfl, file, SEASON)
+        let bytes = std::fs::read(path).unwrap();
+        let report = nfl
+            .import_salary_csv_for_test(&bytes, path.file_name().and_then(|name| name.to_str()))
             .await
             .unwrap_or_else(|e| panic!("import {}: {e}", path.display()));
+        player_ids.extend(report.player_ids);
     }
 
     let mut pstats: HashMap<u8, Vec<NflPlayerWeekStats>> = HashMap::new();
@@ -114,12 +114,9 @@ async fn full_season_scores_match_fanduel() {
                 .find(|t| t.team.0 == team)
                 .map(|t| scoring::score_defense(t).total)
         } else {
-            match player_store::by_fd_id(db.reader(), fd_player_id)
-                .await
-                .unwrap()
-            {
+            match player_ids.get(fd_player_id) {
                 None => None,
-                Some(x) => {
+                Some(gsis_player_id) => {
                     if let std::collections::hash_map::Entry::Vacant(e) = pstats.entry(week) {
                         e.insert(
                             nfl.player_week_stats(Season(SEASON), Week(week))
@@ -130,7 +127,7 @@ async fn full_season_scores_match_fanduel() {
                     Some(
                         pstats[&week]
                             .iter()
-                            .find(|s| s.gsis_id == x.gsis_player_id)
+                            .find(|s| &s.gsis_id == gsis_player_id)
                             .map(|s| scoring::score_player(s).total)
                             .unwrap_or(0.0),
                     )
@@ -207,4 +204,5 @@ async fn full_season_scores_match_fanduel() {
          KNOWN_IRREDUCIBLE:\n{}",
         fixed.join("\n")
     );
+    snapshot.assert_source_unchanged();
 }

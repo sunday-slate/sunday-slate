@@ -36,25 +36,6 @@
 {% block page_action %}{% endblock %}
 {% endblock %}
 
-{% block pre_main %}
-{% if let Some(banner) = crate::context::admin_banner() %}
-<div class="mx-auto w-full max-w-md px-4 pt-5">
-  <div class="alert alert-warning flex flex-wrap items-center gap-x-3 gap-y-2">
-    <i class="ph ph-wrench text-lg"></i>
-    <span class="font-medium">Get {{ banner.name }} ready</span>
-    <div class="ms-auto flex gap-2">
-      {% if banner.needs_salaries %}
-      <a href="/admin/salary-imports" class="btn btn-warning btn-xs">Upload salaries</a>
-      {% endif %}
-      {% if banner.needs_slate %}
-      <a href="/admin/contests/{{ banner.contest.0 }}/slate" class="btn btn-outline btn-xs">Set slate</a>
-      {% endif %}
-    </div>
-  </div>
-</div>
-{% endif %}
-{% endblock %}
-
 {% block shell %}
 {{ super() }}
 {% if chrome.close.is_none() %}

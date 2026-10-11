@@ -1,0 +1,13 @@
+{% extends "admin/layout.html" %}
+{% block title %}Committed salary import #{{ import.id }} · NFL Data Admin{% endblock %}
+{% block content %}
+<section class="max-w-5xl">
+  <a class="link link-primary" href="/nfl-data-admin/salary-imports">← Salary imports</a>
+  <p class="mt-5 font-mono text-xs uppercase tracking-[0.2em] text-primary">Committed import #{{ import.id }}</p>
+  <h1 class="mt-2 text-4xl font-semibold">{{ import.season }} · {{ import.season_type }} week {{ import.week }}</h1>
+  <p class="alert mt-5">Committed {{ import.committed_at.as_deref().unwrap_or("") }}. This review is read-only.</p>
+  <p class="mt-3 text-base-content/70">{{ counts.matched }} matched · {{ counts.dst }} defenses · {{ counts.unmatched }} unmatched · {{ counts.resolved }} resolved · {{ counts.skipped }} skipped</p>
+  <nav class="tabs tabs-bordered mt-5" aria-label="Review groups"><a class="tab" href="/nfl-data-admin/salary-imports/{{ import.id }}">All rows</a><a class="tab" href="/nfl-data-admin/salary-imports/{{ import.id }}/resolved">Resolved ({{ counts.resolved }})</a><a class="tab" href="/nfl-data-admin/salary-imports/{{ import.id }}/skipped">Skipped ({{ counts.skipped }})</a></nav>
+  <div class="mt-6 space-y-3">{% for row in rows %}<article class="card border border-base-300 bg-base-100 p-4"><h2 class="font-semibold">{{ row.source.fd_name }}</h2><p class="text-sm text-base-content/70">{{ row.source.fd_team }} · {{ row.source.original_position }} · ${{ row.source.salary }} · {{ row.source.state.as_str() }}</p>{% if let Some(label) = row.canonical_identity %}<p class="mt-2 text-sm">Canonical player: {{ label }}</p>{% endif %}{% if let Some(label) = row.suggested_identity %}<p class="mt-2 text-sm">Suggested canonical player: {{ label }}</p>{% endif %}</article>{% endfor %}</div>
+</section>
+{% endblock %}

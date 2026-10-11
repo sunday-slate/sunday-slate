@@ -32,11 +32,17 @@ Then import and enable the module:
 
 The service runs as `sunday-slate` in `/var/lib/sunday-slate`. Databases and
 media use the application's default `./storage` paths beneath that directory.
-Migrations run at startup. The Sunday Slate database and FanDuel source archive
-are durable data and should both be included in backups. The nflverse database
-is a rebuildable cache; it can be recreated without affecting either durable
-store. The default bind address is `127.0.0.1:3000`;
-configure a reverse proxy or host firewall separately if exposing the service.
+Migrations and the one-time legacy salary/mapping handoff run before the
+application serves requests. The Sunday Slate, NFL Data, and FanDuel Data
+databases are durable and all three must be included in routine backups. NFL
+Data owns current salaries, confirmed mappings, and new import-review history;
+FanDuel Data retains original uploads. The old Sunday Slate salary tables remain
+inert migration inputs, and historical committed review history is not copied
+to the NFL Data UI. Unexpected pending legacy reviews stop startup rather than
+being migrated. The nflverse database is a rebuildable cache; it can be
+recreated without affecting durable records. Keep all four stores separate.
+The default bind address is `127.0.0.1:3000`; configure a reverse proxy or host
+firewall separately if exposing the service.
 
 The module has four options: `enable`, `package`, `settings`, and
 `environmentFile`. `settings` uses the same snake_case names and structure as
@@ -56,6 +62,7 @@ Example contents (use systemd environment-file quoting rules):
 ```sh
 SUNDAY_SLATE__SMTP__PASSWORD="replace-with-password"
 SUNDAY_SLATE__NFLVERSE_GITHUB_TOKEN="replace-with-token"
+SUNDAY_SLATE__NFL_DATA_DATABASE_URL="sqlite://./storage/nfl-data.db"
 SUNDAY_SLATE__TANK01_API_KEY="replace-with-key"
 ```
 

@@ -33,12 +33,15 @@ impl App {
             nfl_data::NflData::connect(nfl_data::NflDataConfig {
                 database_url: config.nflverse_database_url.clone(),
                 fanduel_database_url: config.fanduel_database_url.clone(),
+                managed_database_url: config.nfl_data_database_url.clone(),
+                managed_season: nfl_data::Season(config.season),
                 github_token: config.nflverse_github_token.clone(),
                 refresh_interval: config.nflverse_sync_interval(),
                 ..Default::default()
             })
             .await?,
         );
+        nfl.migrate_legacy_salaries(db.reader()).await?;
         let avatar_runner = Arc::new(crate::avatars::AvatarFetchRunner::new());
         let live_enabled = config.tank01_api_key.is_some() || config.live_dev_feed;
         let live = Arc::new(crate::live::LiveContestHub::new(live_enabled));
@@ -180,8 +183,70 @@ mod tests {
     use axum_test::TestServer;
 
     use super::App;
+    use crate::Config;
     use crate::mail::Mailer;
     use crate::tests::TestApp;
+
+    #[tokio::test]
+    async fn startup_migrates_prices_before_requests() {
+        let dir = tempfile::tempdir().unwrap();
+        let database_url = format!("sqlite://{}/host.db", dir.path().display());
+        let db = crate::Db::open(&database_url).await.unwrap();
+        let writer = sqlx::SqlitePool::connect(&database_url).await.unwrap();
+        sqlx::query("INSERT INTO nfl_player_salaries (gsis_game_id, gsis_player_id, team_abbr, dfs_position, salary) VALUES ('2025_01_BUF_KC', '00-Q', 'KC', 'QB', 8000)")
+            .execute(&writer).await.unwrap();
+        sqlx::query(
+            "INSERT INTO nfl_players (gsis_player_id, fd_player_id) VALUES ('00-Q', 'fd-1')",
+        )
+        .execute(&writer)
+        .await
+        .unwrap();
+        writer.close().await;
+        drop(db);
+
+        let config = Config {
+            database_url,
+            bind_addr: "127.0.0.1:0".into(),
+            base_url: "http://localhost:3000".into(),
+            mail_from: "Sunday Slate <no-reply@example.com>".into(),
+            nflverse_database_url: format!("sqlite://{}/cache.db", dir.path().display()),
+            fanduel_database_url: format!("sqlite://{}/fanduel.db", dir.path().display()),
+            nfl_data_database_url: format!("sqlite://{}/managed.db", dir.path().display()),
+            nflverse_github_token: None,
+            tank01_api_key: None,
+            live_dev_feed: false,
+            live_dev_feed_tick_ms: 3000,
+            nflverse_sync_interval_secs: 0,
+            season: 2025,
+            media_dir: dir.path().join("media"),
+            smtp: None,
+            now_override: None,
+        };
+        let app = App::build_with_mailer(
+            config,
+            Mailer::capture("Sunday Slate <no-reply@example.com>"),
+        )
+        .await
+        .unwrap();
+        let prices = app
+            .state
+            .nfl
+            .salaries_for_games(&["2025_01_BUF_KC"])
+            .await
+            .unwrap();
+        assert_eq!(prices.len(), 1);
+        assert_eq!(prices[0].salary, 8000);
+        assert_eq!(prices[0].gsis_player_id.as_deref(), Some("00-Q"));
+
+        let server = TestServer::builder().build(app.router);
+        assert!(
+            server
+                .get("/nfl-data-admin/salary-imports")
+                .await
+                .status_code()
+                .is_redirection()
+        );
+    }
 
     #[tokio::test]
     async fn host_configuration_preserves_refresh_cadence() {

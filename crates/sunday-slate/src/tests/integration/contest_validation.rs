@@ -5,10 +5,8 @@
 //! Requires a synced `storage/nflverse-cache.db` (run `just nfl-sync`). Skips cleanly
 //! when it is absent, so CI without a sync stays green.
 
-use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
-
 use nfl_data::{NflData, NflDataConfig, Season};
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::contests::rule::{Rule, resolve};
 
@@ -29,12 +27,12 @@ fn load_fanduel(path: &str) -> BTreeMap<String, BTreeSet<String>> {
 
 #[tokio::test]
 async fn resolve_matches_fanduel_2025() {
-    let manifest = env!("CARGO_MANIFEST_DIR");
-    let nfl_db = format!("{manifest}/../../storage/nflverse-cache.db");
-    if !Path::new(&nfl_db).exists() {
-        eprintln!("skipping: {nfl_db} not present (run `just nfl-sync`)");
+    let Some(snapshot) = crate::tests::utils::NflverseCacheSnapshot::new().await else {
+        eprintln!("skipping: storage/nflverse-cache.db not present (run `just nfl-sync`)");
         return;
-    }
+    };
+    let nfl_db = snapshot.database_path.display().to_string();
+    let manifest = env!("CARGO_MANIFEST_DIR");
     let fixture = format!("{manifest}/src/tests/fixtures/contests/fanduel-2025.csv");
     let fanduel = load_fanduel(&fixture);
     assert_eq!(fanduel.len(), 23, "expected 23 FanDuel contests");
@@ -46,6 +44,11 @@ async fn resolve_matches_fanduel_2025() {
             "sqlite://{}",
             source_dir.path().join("fanduel.db").display()
         ),
+        managed_database_url: format!(
+            "sqlite://{}",
+            source_dir.path().join("managed.db").display()
+        ),
+        managed_season: nfl_data::Season(2025),
         ..Default::default()
     })
     .await
@@ -73,4 +76,5 @@ async fn resolve_matches_fanduel_2025() {
 
         assert_eq!(&got, &expected, "slate mismatch for {name}");
     }
+    snapshot.assert_source_unchanged();
 }

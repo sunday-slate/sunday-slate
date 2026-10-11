@@ -4,7 +4,7 @@ use nfl_model::{DfsPosition, TeamAbbr};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{
-    ConnectOptions, SqlitePool,
+    SqlitePool,
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
 };
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
@@ -107,21 +107,29 @@ impl TryFrom<StoredRow> for InterpretedRow {
     }
 }
 
-fn pool_options(options: &SqliteConnectOptions, pool: SqlitePoolOptions) -> SqlitePoolOptions {
-    let filename = options.get_filename();
-    // SQLx 0.9 serializes its generated `file:sqlx-in-memory-*` filenames as invalid URLs.
-    let is_sqlx_memory = filename
+fn pool_options(
+    database_url: &str,
+    options: &SqliteConnectOptions,
+    pool: SqlitePoolOptions,
+    force_memory: bool,
+) -> SqlitePoolOptions {
+    let is_sqlx_memory = options
+        .get_filename()
         .to_string_lossy()
         .starts_with("file:sqlx-in-memory-");
-    let is_memory = filename == Path::new(":memory:")
-        || is_sqlx_memory
-        || options
-            .to_url_lossy()
-            .query_pairs()
-            .any(|(key, value)| key == "mode" && value == "memory");
-    if is_memory {
-        // Retiring the last memory connection destroys both archive data and migrations.
-        pool.idle_timeout(None).max_lifetime(None)
+    let is_memory_file = options.get_filename() == Path::new(":memory:");
+    let query = database_url
+        .split_once('?')
+        .map(|(_, query)| query)
+        .unwrap_or_default();
+    let is_memory_mode = url::form_urlencoded::parse(query.as_bytes())
+        .any(|(key, value)| key == "mode" && value == "memory");
+    if force_memory || is_sqlx_memory || is_memory_file || is_memory_mode {
+        // Retiring the only connection destroys the in-memory archive and migration state.
+        pool.max_connections(1)
+            .idle_timeout(None)
+            .max_lifetime(None)
+            .test_before_acquire(false)
     } else {
         pool
     }
@@ -149,17 +157,27 @@ impl Store {
                 .create_if_missing(true)
                 .journal_mode(SqliteJournalMode::Wal),
         );
-        let pool = pool_options(&options, SqlitePoolOptions::new().max_connections(1))
-            .connect_with(options)
-            .await?;
+        let pool = pool_options(
+            database_url,
+            &options,
+            SqlitePoolOptions::new().max_connections(1),
+            false,
+        )
+        .connect_with(options)
+        .await?;
         Self::migrate(pool).await
     }
 
     pub(crate) async fn in_memory() -> Result<Self, FanduelDataError> {
         let options = archive_options(SqliteConnectOptions::new().filename(":memory:"));
-        let pool = pool_options(&options, SqlitePoolOptions::new().max_connections(1))
-            .connect_with(options)
-            .await?;
+        let pool = pool_options(
+            "",
+            &options,
+            SqlitePoolOptions::new().max_connections(1),
+            true,
+        )
+        .connect_with(options)
+        .await?;
         Self::migrate(pool).await
     }
 
@@ -327,50 +345,61 @@ mod tests {
         let cases = [
             (
                 "low-level filename",
+                "",
                 SqliteConnectOptions::new().filename(":memory:"),
-                false,
             ),
             (
                 "sqlite::memory:",
+                "sqlite::memory:",
                 SqliteConnectOptions::from_str("sqlite::memory:").unwrap(),
-                true,
             ),
             (
                 "sqlite://:memory:",
+                "sqlite://:memory:",
                 SqliteConnectOptions::from_str("sqlite://:memory:").unwrap(),
-                true,
             ),
             (
                 "anonymous memory URL",
+                "sqlite://?mode=memory",
                 SqliteConnectOptions::from_str("sqlite://?mode=memory").unwrap(),
-                true,
             ),
             (
                 "named private memory URL",
+                "sqlite://named-archive?mode=memory&cache=private",
                 SqliteConnectOptions::from_str("sqlite://named-archive?mode=memory&cache=private")
                     .unwrap(),
-                true,
             ),
             (
                 "named shared memory URL",
+                "sqlite://named-archive?mode=memory&cache=shared",
                 SqliteConnectOptions::from_str("sqlite://named-archive?mode=memory&cache=shared")
                     .unwrap(),
-                true,
             ),
         ];
 
-        for (name, options, is_url) in cases {
+        for (name, database_url, options) in cases {
             let mut options = options
                 .foreign_keys(true)
                 .synchronous(SqliteSynchronous::Normal);
-            if is_url {
+            if !database_url.is_empty() {
                 options = options.journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
             }
+            let configured = pool_options(
+                database_url,
+                &options,
+                SqlitePoolOptions::new().max_connections(1),
+                false,
+            );
+            assert_eq!(configured.get_idle_timeout(), None, "{name}");
+            assert_eq!(configured.get_max_lifetime(), None, "{name}");
+            assert!(!configured.get_test_before_acquire(), "{name}");
             let pool = pool_options(
+                database_url,
                 &options,
                 SqlitePoolOptions::new()
                     .max_connections(1)
                     .max_lifetime(Duration::ZERO),
+                false,
             )
             .connect_with(options)
             .await
@@ -412,6 +441,14 @@ mod tests {
         }
     }
 
+    #[test]
+    fn colon_filename_pool_detection_does_not_serialize_the_url() {
+        let database_url = "sqlite://archive:week1.db";
+        let options = SqliteConnectOptions::from_str(database_url).unwrap();
+        let pool = pool_options(database_url, &options, SqlitePoolOptions::new(), false);
+        assert_eq!(pool.get_max_connections(), 10);
+        assert_eq!(pool.get_idle_timeout(), Some(Duration::from_secs(10 * 60)));
+    }
     #[tokio::test]
     async fn file_stores_connect_with_the_app_pragma_set() {
         let directory = tempfile::tempdir().unwrap();

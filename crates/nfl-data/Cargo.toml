@@ -9,18 +9,26 @@ build = "src/web/build.rs"
 [[test]]
 name = "admin_assets"
 path = "src/web/tests/admin_assets.rs"
+required-features = ["test-support"]
 
 [[test]]
 name = "admin_router"
 path = "src/web/tests/admin_router.rs"
+required-features = ["test-support"]
+
+[[test]]
+name = "facade"
+path = "tests/facade.rs"
+required-features = ["test-support"]
 
 [features]
 default = []
+test-support = []
 debug-embed = ["rust-embed/debug-embed"]
 
 [dependencies]
 askama = { workspace = true }
-axum = { workspace = true }
+axum = { workspace = true, features = ["multipart"] }
 axum-htmx = { workspace = true }
 mime_guess = { workspace = true }
 rust-embed = { workspace = true }
@@ -32,10 +40,15 @@ nflverse-data = { path = "../nflverse-data" }
 nfl-model = { path = "../nfl-model" }
 utils = { path = "../utils" }
 time = { workspace = true }
+serde = { workspace = true }
+url.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+sqlx = { workspace = true }
 
 [dev-dependencies]
 axum-test = { workspace = true }
 tokio = { workspace = true }
 tempfile = { workspace = true }
 wiremock = { workspace = true }
+tower = { workspace = true }
 sqlx = { workspace = true }

@@ -1,0 +1,8 @@
+{% extends "admin/layout.html" %}
+{% block title %}Salary import #{{ import.id }} · NFL Data Admin{% endblock %}
+{% block content %}
+<section class="max-w-5xl">
+  <a class="link link-primary" href="/nfl-data-admin/salary-imports">← Salary imports</a>
+  {% block panel %}{% include "admin/salary_imports/_results.html" %}{% endblock %}
+</section>
+{% endblock %}

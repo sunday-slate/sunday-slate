@@ -318,7 +318,7 @@ async fn link_local_pick_media(app: &TestApp) -> String {
         .state
         .db
         .write_tx(async |conn| -> Result<_, crate::AppError> {
-            let player = player_store::upsert(&mut *conn, "00-A", "00-A").await?;
+            let player = player_store::upsert_for_gsis(&mut *conn, "00-A").await?;
             let media_id = media::save_png(
                 &mut *conn,
                 &app.state.config.media_dir,
@@ -762,10 +762,18 @@ async fn roster_only_pick_is_named_from_the_weekly_roster(pool: SqlitePool) {
 async fn expanded_row_shows_salary_ownership_and_breakdown(pool: SqlitePool) {
     let app = TestApp::from_pool_at(pool.clone(), KICKOFF).await;
     let (a, _b, entry_id) = setup(&pool, &app).await;
-    sqlx::query(
-        "INSERT INTO nfl_player_salaries (gsis_game_id, gsis_player_id, team_abbr, dfs_position, salary)
-         VALUES (?1, '00-A', 'KC', 'RB', 5700)",
-    ).bind(SLATE_GAME).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO nfl_player_salaries (gsis_game_id, gsis_player_id, team_abbr, dfs_position, salary) VALUES (?1, '00-A', 'KC', 'RB', 4100)")
+        .bind(SLATE_GAME).execute(&pool).await.unwrap();
+    app.nfl
+        .seed_salaries_for_test(&[nfl_data::Salary {
+            gsis_game_id: SLATE_GAME.into(),
+            gsis_player_id: Some("00-A".into()),
+            team_abbr: nfl_data::TeamAbbr("KC".into()),
+            dfs_position: nfl_data::DfsPosition::Rb,
+            salary: 5700,
+        }])
+        .await
+        .unwrap();
 
     app.login_as(&a.owner).await;
     let body = app.get(&format!("/entries/{entry_id}")).await.text();

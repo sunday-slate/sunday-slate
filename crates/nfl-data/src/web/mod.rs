@@ -1,6 +1,7 @@
 mod assets;
 mod error;
 mod nflverse;
+mod salary_imports;
 mod view;
 
 use std::sync::Arc;
@@ -23,6 +24,7 @@ where
             "/nflverse",
             axum::routing::get(nflverse::show).post(nflverse::start),
         )
+        .merge(salary_imports::router())
         .route(
             "/static/{*path}",
             axum::routing::get(assets::serve).head(assets::serve),

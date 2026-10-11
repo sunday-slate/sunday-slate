@@ -1,9 +1,22 @@
+//! The public API exposes canonical NFL data and current salaries, not upload
+//! interpretation records.
+//!
+//! ```compile_fail
+//! use nfl_data::SalaryRow;
+//! ```
+
 mod config;
 mod data_revision;
 mod identity;
-mod salaries;
+mod managed;
+#[allow(dead_code)] // Private admin adapter consumes this subsystem in the next integration task.
+mod salary_imports;
 #[cfg(test)]
 mod test;
+#[cfg(feature = "test-support")]
+mod test_support;
+#[cfg(feature = "test-support")]
+pub use test_support::TestSalaryImportReport;
 mod web;
 
 use std::collections::HashMap;
@@ -19,32 +32,37 @@ pub use live::{
     LiveScoreboard, LiveScoreboardGame, LiveSlate, LiveTeamStats, ProviderOutcome,
     ProviderResponse, RawBody,
 };
+pub use managed::{Salary, SalaryError};
 pub use nfl_model::live;
 pub use nfl_model::{
     DfsPosition, Game, Player, PlayerWeekStats, Season, SeasonType, TeamAbbr, TeamWeekStats, Week,
     WeeklyRosterEntry, eastern_offset, to_eastern,
 };
-pub use nflverse_data::{
-    Dataset, DatasetFreshness, DatasetReport, DatasetStatus, NflverseDataError as NflDataError,
-    RefreshStatus, SyncReport,
-};
-pub use salaries::{
-    SalaryCsvDiagnostic, SalaryMatchup, SalaryRow, SalaryRowDiagnostic, SalaryUploadError,
-    SalaryUploadOutcome,
-};
+pub use nflverse_data::NflverseDataError as NflDataError;
 pub use web::router as admin_router;
 
 #[derive(Debug, thiserror::Error)]
 pub enum NflDataConnectError {
+    #[error("managed NFL Data salary store startup failed: {0}")]
+    Managed(#[source] SalaryError),
     #[error("nflverse provider startup failed: {0}")]
     Nflverse(#[source] NflDataError),
     #[error("FanDuel provider startup failed: {0}")]
     Fanduel(#[source] fanduel_data::FanduelDataError),
 }
 
+/// Apply the managed salary-store migrations after validating the existing schema.
+pub async fn migrate_managed_database(database_url: &str) -> Result<(), SalaryError> {
+    let store = managed::ManagedStore::open(database_url).await?;
+    drop(store);
+    Ok(())
+}
+
 pub struct NflData {
     provider: NflverseData,
-    fanduel: fanduel_data::FanduelData,
+    pub(crate) fanduel: fanduel_data::FanduelData,
+    pub(crate) managed: managed::ManagedStore,
+    pub(crate) managed_season: Season,
     refresh_interval: Option<std::time::Duration>,
 }
 
@@ -72,14 +90,20 @@ impl NflData {
         ))
     }
 
-    /// Archives and interprets a FanDuel salary upload without exposing archive identities.
-    pub async fn receive_salary_upload(
+    /// Read current canonical salaries for the supplied game ids.
+    pub async fn salaries_for_games<I: AsRef<str>>(
         &self,
-        bytes: &[u8],
-        filename: Option<&str>,
-    ) -> Result<SalaryUploadOutcome, SalaryUploadError> {
-        let received = self.fanduel.receive(bytes, filename).await?;
-        Ok(received.interpretation.into())
+        game_ids: &[I],
+    ) -> Result<Vec<Salary>, SalaryError> {
+        self.managed.salaries_for_games(game_ids).await
+    }
+
+    /// Copy pre-ownership prices and confirmed mappings once during startup.
+    pub async fn migrate_legacy_salaries(
+        &self,
+        legacy: &sqlx::SqlitePool,
+    ) -> Result<(), SalaryError> {
+        self.managed.migrate_legacy(legacy).await
     }
 
     /// Opens both provider databases and runs their migrations.
@@ -95,9 +119,14 @@ impl NflData {
         })
         .await
         .map_err(NflDataConnectError::Fanduel)?;
+        let managed = managed::ManagedStore::open(&config.managed_database_url)
+            .await
+            .map_err(NflDataConnectError::Managed)?;
         Ok(Self {
             provider,
             fanduel,
+            managed,
+            managed_season: config.managed_season,
             refresh_interval,
         })
     }
@@ -105,16 +134,27 @@ impl NflData {
     /// A fresh, empty, in-memory cache — for tests and tooling that need an
     /// `NflData` handle without a database file. Migrations are applied; no data
     /// is synced.
+    #[cfg(any(test, feature = "test-support"))]
     pub async fn in_memory() -> Result<Self, NflDataConnectError> {
+        Self::in_memory_with_season(Season(2026)).await
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    async fn in_memory_with_season(season: Season) -> Result<Self, NflDataConnectError> {
         let provider = NflverseData::in_memory()
             .await
             .map_err(NflDataConnectError::Nflverse)?;
         let fanduel = fanduel_data::FanduelData::in_memory()
             .await
             .map_err(NflDataConnectError::Fanduel)?;
+        let managed = managed::ManagedStore::in_memory()
+            .await
+            .map_err(NflDataConnectError::Managed)?;
         Ok(Self {
             provider,
             fanduel,
+            managed,
+            managed_season: season,
             refresh_interval: None,
         })
     }
@@ -169,6 +209,7 @@ impl NflData {
 
     /// Seed weekly roster entries directly, for tests and tooling. Not part of
     /// the stable API — bypasses the sync pipeline and `sync_state` bookkeeping.
+    #[cfg(any(test, feature = "test-support"))]
     #[doc(hidden)]
     pub async fn seed_weekly_roster_for_test(
         &self,
@@ -179,6 +220,7 @@ impl NflData {
 
     /// Seed players and games directly, for tests and tooling. Not part of the
     /// stable API — bypasses the sync pipeline and `sync_state` bookkeeping.
+    #[cfg(any(test, feature = "test-support"))]
     #[doc(hidden)]
     pub async fn seed_for_test(
         &self,
@@ -240,6 +282,7 @@ impl NflData {
     /// Seed player and team week stats directly, for tests and tooling. Reuses the
     /// sync-path `replace` inserts (per-season delete-then-insert). Not part of the
     /// stable API.
+    #[cfg(any(test, feature = "test-support"))]
     #[doc(hidden)]
     pub async fn seed_week_stats_for_test(
         &self,

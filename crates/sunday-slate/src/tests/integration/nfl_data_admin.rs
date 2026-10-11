@@ -86,6 +86,45 @@ async fn anonymous_and_non_admin_cannot_read_or_sync_nfl_data() {
     assert!(server.received_requests().await.unwrap().is_empty());
 }
 
+#[tokio::test]
+async fn salary_admin_requires_global_admin_without_league() {
+    let app = TestApp::new().await;
+    let admin = factories::user(
+        &app.pool,
+        UserOptions {
+            is_admin: true,
+            ..Default::default()
+        },
+    )
+    .await;
+    app.login_as(&admin.user).await;
+    let page = app.get("/nfl-data-admin/salary-imports").await;
+    page.assert_status_ok();
+    assert!(page.text().contains("Salary imports"));
+
+    let ordinary = TestApp::new().await;
+    let user = factories::user(&ordinary.pool, UserOptions::default()).await;
+    ordinary.login_as(&user.user).await;
+    ordinary
+        .get("/nfl-data-admin/salary-imports")
+        .await
+        .assert_status(StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn old_salary_routes_are_removed() {
+    let app = TestApp::new().await;
+    app.login_admin().await;
+    for path in ["/admin/salary-imports", "/admin/salary-imports/new"] {
+        app.get(path).await.assert_status(StatusCode::NOT_FOUND);
+    }
+    for path in ["/admin/salary-imports", "/admin/salary-imports/1/commit"] {
+        app.post(path, "")
+            .await
+            .assert_status(StatusCode::NOT_FOUND);
+    }
+}
+
 #[test]
 fn nfl_admin_prefix_matching_is_boundary_aware() {
     use crate::admin::is_admin_path;
@@ -117,12 +156,7 @@ async fn old_sync_route_is_removed_and_other_tools_remain() {
         response.assert_status(StatusCode::NOT_FOUND);
     }
     let tools = app.get("/admin").await.text();
-    for href in [
-        "/admin/contests",
-        "/admin/salary-imports",
-        "/admin/avatars",
-        "/leagues/new",
-    ] {
+    for href in ["/admin/contests", "/admin/avatars", "/leagues/new"] {
         assert!(tools.contains(href), "{href}");
     }
 }
