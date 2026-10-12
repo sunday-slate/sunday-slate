@@ -26,3 +26,11 @@ CREATE TABLE salaries (
 
 CREATE INDEX idx_salaries_player_id ON salaries (player_id);
 CREATE INDEX idx_salaries_game_id ON salaries (game_id);
+
+CREATE UNIQUE INDEX idx_salaries_game_player
+    ON salaries (game_id, player_id)
+    WHERE position <> 'DST';
+
+CREATE UNIQUE INDEX idx_salaries_game_dst_team
+    ON salaries (game_id, team)
+    WHERE position = 'DST';
