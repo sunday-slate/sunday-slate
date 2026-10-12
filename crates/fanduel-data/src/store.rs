@@ -1,9 +1,9 @@
 use std::{collections::HashMap, str::FromStr};
 
-use nfl_model::DfsPosition;
+use nfl_model::{DfsPosition, SeasonWeek, TeamAbbr};
 use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
 
-use crate::{FanduelDataError, SalariedPlayer};
+use crate::{FanduelDataError, Game, Matchup, Player, SalariedPlayer};
 
 #[derive(Clone)]
 pub(crate) struct Store {
@@ -35,6 +35,61 @@ impl Store {
     async fn from_pool(pool: SqlitePool) -> Result<Self, FanduelDataError> {
         sqlx::migrate!("./migrations").run(&pool).await?;
         Ok(Self { pool })
+    }
+
+    pub(crate) async fn salaried_players_for(
+        &self,
+        season_week: SeasonWeek,
+    ) -> Result<Vec<SalariedPlayer>, FanduelDataError> {
+        let rows = sqlx::query!(
+            r#"SELECT
+                   p.id AS "player_id?",
+                   p.first_name AS "first_name?",
+                   p.last_name AS "last_name?",
+                   g.season_week,
+                   g.away_team AS "away_team: TeamAbbr",
+                   g.home_team AS "home_team: TeamAbbr",
+                   s.salary,
+                   s.position AS "position: DfsPosition",
+                   s.team AS "team: TeamAbbr"
+               FROM salaries s
+               JOIN games g ON g.id = s.game_id
+               LEFT JOIN players p ON p.id = s.player_id
+               WHERE g.season_week = ?
+               ORDER BY g.away_team, g.home_team, s.position, s.team, p.id"#,
+            i64::from(season_week.encode()),
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter()
+            .map(|row| {
+                let position = row.position;
+                
+                let player = match position {
+                    DfsPosition::Dst => None,
+                    _ => Some(Player {
+                        id: row.player_id.unwrap() as u32,
+                        first_name: row.first_name.unwrap(),
+                        last_name: row.last_name.unwrap()
+                    })
+                };
+
+                Ok(SalariedPlayer {
+                    player,
+                    game: Game {
+                        season_week: season_week.clone(),
+                        matchup: Matchup {
+                            away: row.away_team,
+                            home: row.home_team,
+                        },
+                    },
+                    salary: row.salary as u32,
+                    position,
+                    team: row.team,
+                })
+            })
+            .collect()
     }
 
     pub(crate) async fn save_salaried_players(
@@ -180,5 +235,25 @@ mod tests {
             .unwrap();
         assert_eq!(games, 1);
         assert_eq!(players, 1);
+
+        let fetched = store
+            .salaried_players_for(SeasonWeek::reg(1))
+            .await
+            .unwrap();
+        assert_eq!(fetched.len(), 2);
+        assert!(fetched.iter().any(|salary| {
+            salary
+                .player
+                .as_ref()
+                .is_some_and(|player| player.id == 62239)
+                && salary.salary == 8400
+                && salary.position == DfsPosition::Qb
+        }));
+        assert!(fetched.iter().any(|salary| {
+            salary.player.is_none()
+                && salary.team == TeamAbbr::NYJ
+                && salary.salary == 3700
+                && salary.position == DfsPosition::Dst
+        }));
     }
 }
