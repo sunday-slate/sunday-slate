@@ -1,5 +1,5 @@
-use time::OffsetDateTime;
 use std::fmt::{Display, Formatter};
+use time::OffsetDateTime;
 
 const DEFAULT_SEASON: u16 = 2026;
 
@@ -70,14 +70,77 @@ impl Default for Season {
 #[serde(transparent)]
 pub struct Week(pub u8);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, sqlx::Type)]
-#[sqlx(transparent)]
-#[serde(transparent)]
-pub struct TeamAbbr(pub String);
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+    sqlx::Type,
+    strum::AsRefStr,
+    strum::EnumString,
+)]
+#[allow(non_camel_case_types)]
+#[serde(rename_all = "UPPERCASE")]
+#[sqlx(type_name = "TEXT", rename_all = "UPPERCASE")]
+#[strum(serialize_all = "UPPERCASE", ascii_case_insensitive)]
+pub enum TeamAbbr {
+    ARI,
+    ATL,
+    BAL,
+    BUF,
+    CAR,
+    CHI,
+    CIN,
+    CLE,
+    DAL,
+    DEN,
+    DET,
+    GB,
+    HOU,
+    IND,
+    #[serde(alias = "JAC")]
+    #[strum(serialize = "JAX", serialize = "JAC")]
+    JAX,
+    KC,
+    LAC,
+    #[serde(alias = "LAR")]
+    #[strum(serialize = "LA", serialize = "LAR")]
+    LA,
+    LV,
+    MIA,
+    MIN,
+    NE,
+    NO,
+    NYG,
+    NYJ,
+    PHI,
+    PIT,
+    SEA,
+    SF,
+    TB,
+    TEN,
+    WAS,
+}
+
+impl TeamAbbr {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::JAX => "JAX",
+            Self::LA => "LA",
+            _ => self.as_ref(),
+        }
+    }
+}
 
 impl Display for TeamAbbr {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        f.write_str(self.as_str())
     }
 }
 
@@ -85,7 +148,16 @@ impl Display for TeamAbbr {
 /// map to Post at ingest.
 #[repr(u8)]
 #[derive(
-    Default, Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, sqlx::Type,
+    Default,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+    sqlx::Type,
 )]
 #[serde(rename_all = "UPPERCASE")]
 pub enum SeasonType {
@@ -144,8 +216,8 @@ impl SeasonWeek {
 
     pub fn encode(&self) -> u32 {
         u32::from(self.season.0) * 1_000
-        + u32::from(self.season_type) * 100
-        + u32::from(self.week.0)
+            + u32::from(self.season_type) * 100
+            + u32::from(self.week.0)
     }
 
     pub fn decode(value: u32) -> Option<Self> {
@@ -183,6 +255,19 @@ impl Game {
     /// the transition instants for its year.
     pub fn kickoff_eastern(&self) -> Option<OffsetDateTime> {
         self.kickoff.map(crate::eastern::to_eastern)
+    }
+}
+
+#[cfg(test)]
+mod team_abbr_tests {
+    use super::TeamAbbr;
+
+    #[test]
+    fn parses_legacy_abbreviations_to_canonical_variants() {
+        assert_eq!("JAC".parse(), Ok(TeamAbbr::JAX));
+        assert_eq!("LAR".parse(), Ok(TeamAbbr::LA));
+        assert_eq!(TeamAbbr::JAX.as_str(), "JAX");
+        assert_eq!(TeamAbbr::LA.as_str(), "LA");
     }
 }
 
@@ -285,8 +370,8 @@ mod kickoff_eastern_tests {
             week: Week(1),
             season_type: SeasonType::Reg,
             kickoff,
-            home_team: TeamAbbr("LA".into()),
-            away_team: TeamAbbr("SF".into()),
+            home_team: TeamAbbr::LA,
+            away_team: TeamAbbr::SF,
             home_score: None,
             away_score: None,
         }

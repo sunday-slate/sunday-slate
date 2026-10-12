@@ -90,7 +90,7 @@ async fn roster_candidates(
 ) -> Result<Vec<Candidate>, AppError> {
     let entries = state
         .nfl
-        .weekly_roster(season, week, &NflTeamAbbr(team.to_string()))
+        .weekly_roster(season, week, &team.parse().unwrap())
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
     Ok(entries.iter().filter_map(roster_candidate).collect())

@@ -554,9 +554,9 @@ mod tests {
         LivePlayerStats {
             espn_id: Some(EspnPlayerId(format!("espn-{team}"))),
             name: Some(format!("Player {team}")),
-            team: Some(TeamAbbr(team.into())),
+            team: Some(team.parse().unwrap()),
             position: Some("QB".into()),
-            opponent: Some(TeamAbbr(opponent.into())),
+            opponent: Some(opponent.parse().unwrap()),
             completions: 20,
             attempts: 30,
             passing_tds: 2,
@@ -593,8 +593,8 @@ mod tests {
         ];
         let defenses = vec![
             LiveTeamStats {
-                team: TeamAbbr("KC".into()),
-                opponent: TeamAbbr("BUF".into()),
+                team: TeamAbbr::KC,
+                opponent: TeamAbbr::BUF,
                 sacks: 2,
                 interceptions: 1,
                 fumble_recoveries: 0,
@@ -607,8 +607,8 @@ mod tests {
                 team_stats_present: true,
             },
             LiveTeamStats {
-                team: TeamAbbr("BUF".into()),
-                opponent: TeamAbbr("KC".into()),
+                team: TeamAbbr::BUF,
+                opponent: TeamAbbr::KC,
                 sacks: 1,
                 interceptions: 0,
                 fumble_recoveries: 1,
@@ -802,8 +802,8 @@ mod tests {
 
         let qb_stats = PlayerWeekStats {
             gsis_id: "00-A".into(),
-            team: TeamAbbr("KC".into()),
-            opponent: Some(TeamAbbr("BUF".into())),
+            team: TeamAbbr::KC,
+            opponent: Some(TeamAbbr::BUF),
             passing_yards: 400,
             ..factories::player_stats("00-A", 1)
         };
@@ -908,8 +908,8 @@ mod tests {
 
         let qb_stats = PlayerWeekStats {
             gsis_id: "00-A".into(),
-            team: TeamAbbr("KC".into()),
-            opponent: Some(TeamAbbr("BUF".into())),
+            team: TeamAbbr::KC,
+            opponent: Some(TeamAbbr::BUF),
             passing_yards: 400,
             ..factories::player_stats("00-A", 1)
         };

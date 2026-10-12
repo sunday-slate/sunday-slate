@@ -1,6 +1,6 @@
-use nfl_model::{DfsPosition, TeamAbbr};
 use crate::models::game::Game;
 use crate::models::player::Player;
+use nfl_model::{DfsPosition, TeamAbbr};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SalariedPlayer {
@@ -9,4 +9,4 @@ pub struct SalariedPlayer {
     pub salary: u32,
     pub position: DfsPosition,
     pub team: TeamAbbr,
-}   
+}

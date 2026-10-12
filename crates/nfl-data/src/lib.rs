@@ -266,7 +266,7 @@ mod identify_tests {
             first_name: None,
             last_name: None,
             position: Some("RB".into()),
-            latest_team: Some(TeamAbbr("KC".into())),
+            latest_team: Some(TeamAbbr::KC),
             headshot_url: None,
         }
     }
@@ -276,7 +276,7 @@ mod identify_tests {
             season: Season(2025),
             espn_id: None,
             week: Week(1),
-            team: TeamAbbr("BUF".into()),
+            team: TeamAbbr::BUF,
             gsis_id: Some(gsis.into()),
             full_name: name.into(),
             last_name: None,
@@ -298,12 +298,12 @@ mod identify_tests {
 
         let from_players = &got["00-P"];
         assert_eq!(from_players.name, "Player Table");
-        assert_eq!(from_players.team, Some(TeamAbbr("KC".into())));
+        assert_eq!(from_players.team, Some(TeamAbbr::KC));
         assert_eq!(from_players.position.as_deref(), Some("RB"));
 
         let from_roster = &got["00-R"];
         assert_eq!(from_roster.name, "Roster Only");
-        assert_eq!(from_roster.team, Some(TeamAbbr("BUF".into())));
+        assert_eq!(from_roster.team, Some(TeamAbbr::BUF));
         assert_eq!(from_roster.position.as_deref(), Some("WR"));
 
         // An id in neither source has no identity to report.
@@ -320,7 +320,7 @@ mod identify_tests {
             first_name: None,
             last_name: None,
             position: Some("QB".into()),
-            latest_team: Some(TeamAbbr("KC".into())),
+            latest_team: Some(TeamAbbr::KC),
             headshot_url: Some("https://img.example/photo.png".into()),
         };
         nfl.seed_for_test(&[player], &[]).await.unwrap();
@@ -346,7 +346,7 @@ mod seed_week_stats_tests {
             week: Week(1),
             season_type: crate::SeasonType::Reg,
             gsis_id: "00-RB".into(),
-            team: crate::TeamAbbr("KC".into()),
+            team: crate::TeamAbbr::KC,
             opponent: None,
             completions: 0,
             attempts: 0,
@@ -371,8 +371,8 @@ mod seed_week_stats_tests {
             season: Season(2025),
             week: Week(1),
             season_type: crate::SeasonType::Reg,
-            team: crate::TeamAbbr("KC".into()),
-            opponent: crate::TeamAbbr("BUF".into()),
+            team: crate::TeamAbbr::KC,
+            opponent: crate::TeamAbbr::BUF,
             gsis_game_id: "2025_01_BUF_KC".into(),
             sacks: 3,
             interceptions: 1,

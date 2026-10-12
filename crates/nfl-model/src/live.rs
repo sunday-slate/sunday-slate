@@ -228,7 +228,7 @@ mod tests {
             entries: vec![InjuryEntry {
                 espn_id: Some(EspnPlayerId("4044138".into())),
                 name: "Matt Hennessy".into(),
-                team: Some(TeamAbbr("DAL".into())),
+                team: Some(TeamAbbr::DAL),
                 position: Some("C".into()),
                 designation: InjuryDesignation::InjuredReserve,
             }],

@@ -39,7 +39,7 @@ async fn admin_fetches_missing_images_from_rendered_links(pool: SqlitePool) {
                 first_name: None,
                 last_name: None,
                 position: Some("QB".into()),
-                latest_team: Some(nfl_data::TeamAbbr("KC".into())),
+                latest_team: Some(nfl_data::TeamAbbr::KC),
                 headshot_url: None,
             }],
             &[],

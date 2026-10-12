@@ -98,7 +98,7 @@ fn map_row(raw: &RawRow) -> Option<InjuryEntry> {
         .as_deref()
         .map(str::trim)
         .filter(|team| !team.is_empty())
-        .map(|team| TeamAbbr(team.into()));
+        .and_then(|team| team.parse::<TeamAbbr>().ok());
     let player_id = raw
         .player_id
         .as_deref()
@@ -198,7 +198,7 @@ mod tests {
             .unwrap();
         assert_eq!(kupp.designation, InjuryDesignation::Doubtful);
         assert_eq!(kupp.espn_id, Some(EspnPlayerId("18538".into())));
-        assert_eq!(kupp.team, Some(TeamAbbr("SEA".into())));
+        assert_eq!(kupp.team, Some(TeamAbbr::SEA));
         assert_eq!(kupp.position.as_deref(), Some("WR"));
 
         let hennessy = report

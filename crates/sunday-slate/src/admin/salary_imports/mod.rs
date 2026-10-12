@@ -138,8 +138,14 @@ async fn plan_rows(
 
     let mut game_of: HashMap<String, String> = HashMap::new();
     for game in &slate_games {
-        game_of.insert(game.home_team.0.clone(), game.gsis_game_id.clone());
-        game_of.insert(game.away_team.0.clone(), game.gsis_game_id.clone());
+        game_of.insert(
+            game.home_team.as_str().to_owned(),
+            game.gsis_game_id.clone(),
+        );
+        game_of.insert(
+            game.away_team.as_str().to_owned(),
+            game.gsis_game_id.clone(),
+        );
     }
 
     let players = nfl
@@ -151,12 +157,12 @@ async fn plan_rows(
     if let Some(week) = slate_games.first().map(|game| game.week) {
         let mut teams: BTreeSet<&String> = BTreeSet::new();
         for game in &slate_games {
-            teams.insert(&game.home_team.0);
-            teams.insert(&game.away_team.0);
+            teams.insert(&game.home_team.as_str());
+            teams.insert(&game.away_team.as_str());
         }
         for team in teams {
             let entries = nfl
-                .weekly_roster(Season(season), week, &NflTeamAbbr(team.clone()))
+                .weekly_roster(Season(season), week, &team.parse().unwrap())
                 .await
                 .map_err(|error| PlanError::Data(error.to_string()))?;
             roster_entries.extend(entries);
@@ -189,7 +195,7 @@ async fn plan_rows(
                 .push(format!("{} (bad salary {})", row.name, row.original_salary));
             continue;
         };
-        let team = row.team.0.clone();
+        let team = row.team.as_str().to_owned();
         let Some(gsis_game_id) = game_of.get(&team).cloned() else {
             plan.offending
                 .push(format!("{} (no game for {})", row.name, team));
@@ -380,8 +386,8 @@ mod tests {
             week: Week(week),
             season_type: SeasonType::Reg,
             kickoff: None,
-            home_team: NflTeamAbbr(home.into()),
-            away_team: NflTeamAbbr(away.into()),
+            home_team: home.parse().unwrap(),
+            away_team: away.parse().unwrap(),
             home_score: None,
             away_score: None,
         }
@@ -395,7 +401,7 @@ mod tests {
             first_name: None,
             last_name: None,
             position: None,
-            latest_team: Some(NflTeamAbbr(team.into())),
+            latest_team: Some(team.parse().unwrap()),
             headshot_url: None,
         }
     }
@@ -449,7 +455,7 @@ mod tests {
         WeeklyRosterEntry {
             season: Season(2025),
             week: Week(week),
-            team: NflTeamAbbr(team.into()),
+            team: team.parse().unwrap(),
             gsis_id: Some(gsis.into()),
             espn_id: None,
             full_name: name.into(),

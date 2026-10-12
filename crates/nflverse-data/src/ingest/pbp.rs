@@ -82,6 +82,12 @@ pub(crate) fn parse(asset: &str, bytes: &[u8]) -> Result<Vec<TeamWeekStats>, Nfl
     // row errors (a malformed play fails the asset, as with every other feed).
     let plays = parse_csv(asset, bytes, |raw: RawPlay| {
         let season_type = parse_season_type(&raw.season_type)?;
+        raw.home_team
+            .parse::<TeamAbbr>()
+            .map_err(|error| error.to_string())?;
+        raw.away_team
+            .parse::<TeamAbbr>()
+            .map_err(|error| error.to_string())?;
         Ok(Some((raw, season_type)))
     })?;
 
@@ -206,8 +212,8 @@ pub(crate) fn parse(asset: &str, bytes: &[u8]) -> Result<Vec<TeamWeekStats>, Nfl
                 season: Season(g.season),
                 week: Week(g.week),
                 season_type: g.season_type,
-                team: TeamAbbr(team.clone()),
-                opponent: TeamAbbr(opponent.clone()),
+                team: team.parse().expect("validated team abbreviation"),
+                opponent: opponent.parse().expect("validated team abbreviation"),
                 gsis_game_id: game_id.clone(),
                 sacks: a.sacks,
                 interceptions: a.interceptions,
@@ -230,7 +236,9 @@ mod tests {
     const PBP: &str = include_str!("../../tests/fixtures/play_by_play_sample.csv");
 
     fn find<'a>(rows: &'a [TeamWeekStats], team: &str) -> &'a TeamWeekStats {
-        rows.iter().find(|r| r.team.0 == team).expect("team row")
+        rows.iter()
+            .find(|r| r.team.as_str() == team)
+            .expect("team row")
     }
 
     #[test]
@@ -238,9 +246,9 @@ mod tests {
         let rows = parse("play_by_play_2025.csv", PBP.as_bytes()).unwrap();
         assert_eq!(rows.len(), 2);
 
-        let aaa = find(&rows, "AAA");
-        assert_eq!(aaa.opponent, TeamAbbr("BBB".into()));
-        assert_eq!(aaa.gsis_game_id, "2025_01_AAA_BBB");
+        let aaa = find(&rows, "BUF");
+        assert_eq!(aaa.opponent, TeamAbbr::KC);
+        assert_eq!(aaa.gsis_game_id, "2025_01_BUF_KC");
         assert_eq!(aaa.sacks, 1);
         assert_eq!(aaa.interceptions, 1);
         assert_eq!(aaa.fumble_recoveries, 1);
@@ -248,35 +256,35 @@ mod tests {
         assert_eq!(aaa.touchdowns, 2); // pick-six + strip-sack return
         assert_eq!(aaa.blocked_kicks, 0);
         assert_eq!(aaa.conversion_returns, 1);
-        assert_eq!(aaa.points_allowed, 10); // BBB offense: TD+XP(7) + FG(3)
+        assert_eq!(aaa.points_allowed, 10); // KC offense: TD+XP(7) + FG(3)
 
-        let bbb = find(&rows, "BBB");
+        let bbb = find(&rows, "KC");
         assert_eq!(bbb.safeties, 1);
         assert_eq!(bbb.blocked_kicks, 1);
         assert_eq!(bbb.touchdowns, 0);
-        assert_eq!(bbb.points_allowed, 0); // AAA scored only non-offensively
+        assert_eq!(bbb.points_allowed, 0); // BUF scored only non-offensively
     }
 
     #[test]
     fn fr_counts_muffed_kick_second_recovery_and_touchback_but_not_onside() {
-        // CCC gets a fumble recovery from each of: a muffed kickoff returned for
+        // SF gets a fumble recovery from each of: a muffed kickoff returned for
         // a TD (FanDuel: FR + return TD), a sack-fumble that appears as the
         // play's SECOND recovery after the QB re-grabbed his first fumble, and a
-        // DDD fumble lost out of the end zone for a touchback (no recoverer
-        // recorded). DDD re-grabbing its own first fumble is not a takeaway, and
+        // LA fumble lost out of the end zone for a touchback (no recoverer
+        // recorded). LA re-grabbing its own first fumble is not a takeaway, and
         // a kickoff without own_kickoff_recovery_td (an onside recovery) is not
         // a fumble recovery.
         let csv = "game_id,season,week,season_type,home_team,away_team,posteam,defteam,td_team,fumbled_1_team,fumble_recovery_1_team,fumbled_2_team,fumble_recovery_2_team,fumble_lost,sack,interception,touchdown,return_touchdown,own_kickoff_recovery_td,safety,punt_blocked,field_goal_result,extra_point_result,two_point_conv_result,defensive_extra_point_conv,defensive_two_point_conv\n\
-2025_01_DDD_CCC,2025,1,REG,CCC,DDD,DDD,CCC,CCC,,,,,0,0,0,1,0,1,0,0,,,,0,0\n\
-2025_01_DDD_CCC,2025,1,REG,CCC,DDD,DDD,CCC,,DDD,DDD,,CCC,0,1,0,0,0,0,0,0,,,,0,0\n\
-2025_01_DDD_CCC,2025,1,REG,CCC,DDD,DDD,CCC,,,,,,0,0,0,0,0,0,0,0,,,,0,0\n\
-2025_01_DDD_CCC,2025,1,REG,CCC,DDD,DDD,CCC,,DDD,,,,1,0,0,0,0,0,0,0,,,,0,0\n";
+2025_01_LA_SF,2025,1,REG,SF,LA,LA,SF,SF,,,,,0,0,0,1,0,1,0,0,,,,0,0\n\
+2025_01_LA_SF,2025,1,REG,SF,LA,LA,SF,,LA,LA,,SF,0,1,0,0,0,0,0,0,,,,0,0\n\
+2025_01_LA_SF,2025,1,REG,SF,LA,LA,SF,,,,,,0,0,0,0,0,0,0,0,,,,0,0\n\
+2025_01_LA_SF,2025,1,REG,SF,LA,LA,SF,,LA,,,,1,0,0,0,0,0,0,0,,,,0,0\n";
         let rows = parse("play_by_play_2025.csv", csv.as_bytes()).unwrap();
-        let ccc = find(&rows, "CCC");
+        let ccc = find(&rows, "SF");
         assert_eq!(ccc.fumble_recoveries, 3); // muffed-kick TD + 2nd recovery + touchback
         assert_eq!(ccc.touchdowns, 1); // the muffed-kick return TD
         assert_eq!(ccc.sacks, 1);
-        let ddd = find(&rows, "DDD");
+        let ddd = find(&rows, "LA");
         assert_eq!(ddd.fumble_recoveries, 0); // own-fumble re-grab; onside is not an FR
     }
 }

@@ -30,12 +30,12 @@ async fn upload_projects_id_free_salary_and_archives_exact_source_facts() {
         SalaryUploadOutcome::Parsed(vec![nfl_data::SalaryRow {
             fd_player_id: "62239".into(),
             name: "Josh Allen".into(),
-            team: TeamAbbr("BUF".into()),
+            team: TeamAbbr::BUF,
             original_position: "QB".into(),
             position: Some(DfsPosition::Qb),
             matchup: Some(SalaryMatchup {
-                away: TeamAbbr("BUF".into()),
-                home: TeamAbbr("NYJ".into()),
+                away: TeamAbbr::BUF,
+                home: TeamAbbr::NYJ,
             }),
             original_salary: "8200".into(),
             salary: Some(8200),
@@ -78,12 +78,12 @@ async fn in_memory_facades_keep_fanduel_receipts_independent() {
         SalaryUploadOutcome::Parsed(vec![nfl_data::SalaryRow {
             fd_player_id: "62239".into(),
             name: "Josh Allen".into(),
-            team: TeamAbbr("BUF".into()),
+            team: TeamAbbr::BUF,
             original_position: "QB".into(),
             position: Some(DfsPosition::Qb),
             matchup: Some(SalaryMatchup {
-                away: TeamAbbr("BUF".into()),
-                home: TeamAbbr("NYJ".into()),
+                away: TeamAbbr::BUF,
+                home: TeamAbbr::NYJ,
             }),
             original_salary: "8200".into(),
             salary: Some(8200),

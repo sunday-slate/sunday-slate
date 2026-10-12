@@ -85,9 +85,9 @@ fn live_player_stats(
     LivePlayerStats {
         espn_id: Some(EspnPlayerId(espn_id.into())),
         name: Some(name.into()),
-        team: Some(NflTeamAbbr(team.into())),
+        team: Some(team.parse().unwrap()),
         position: Some(position.into()),
-        opponent: Some(NflTeamAbbr(opponent.into())),
+        opponent: Some(opponent.parse().unwrap()),
         completions: 0,
         attempts: 0,
         passing_tds: 0,
@@ -231,8 +231,8 @@ async fn setup(pool: &SqlitePool, app: &TestApp) -> (GeneratedTeam, GeneratedTea
         .seed_for_test(&[factories::player("00-A", "Alpha Runner")], &[])
         .await
         .unwrap();
-    let buf = NflTeamAbbr("BUF".into());
-    let kc = NflTeamAbbr("KC".into());
+    let buf = TeamAbbr::BUF;
+    let kc = TeamAbbr::KC;
     let rb = NflPlayerWeekStats {
         opponent: Some(buf.clone()),
         ..factories::rb_stats("00-A", 1, 100)
@@ -281,11 +281,11 @@ pub(crate) async fn setup_staggered_entry(
 
     let early = factories::game_at(SLATE_GAME, 1, datetime!(2025-09-07 17:00 UTC));
     let mut finished = factories::game_at("2025_01_LA_SF", 1, datetime!(2025-09-07 16:00 UTC));
-    finished.home_team = NflTeamAbbr("SF".into());
-    finished.away_team = NflTeamAbbr("LA".into());
+    finished.home_team = TeamAbbr::SF;
+    finished.away_team = TeamAbbr::LA;
     let mut later = factories::game_at("2025_01_DAL_PHI", 1, datetime!(2025-09-07 20:25 UTC));
-    later.home_team = NflTeamAbbr("PHI".into());
-    later.away_team = NflTeamAbbr("DAL".into());
+    later.home_team = TeamAbbr::PHI;
+    later.away_team = TeamAbbr::DAL;
     let games = vec![early, finished, later];
     let game_ids: Vec<&str> = games
         .iter()
@@ -296,13 +296,13 @@ pub(crate) async fn setup_staggered_entry(
 
     let mut alpha = factories::player("00-A", "Alpha Runner");
     alpha.espn_id = Some("live-alpha".into());
-    alpha.latest_team = Some(NflTeamAbbr("KC".into()));
+    alpha.latest_team = Some(TeamAbbr::KC);
     let mut later_qb = factories::player("00-F1", "Later Quarterback");
     later_qb.espn_id = Some("live-later-qb".into());
-    later_qb.latest_team = Some(NflTeamAbbr("PHI".into()));
+    later_qb.latest_team = Some(TeamAbbr::PHI);
     let mut finished_rb = factories::player("00-F2", "Finished Runner");
     finished_rb.espn_id = Some("live-finished-rb".into());
-    finished_rb.latest_team = Some(NflTeamAbbr("SF".into()));
+    finished_rb.latest_team = Some(TeamAbbr::SF);
     let fillers: Vec<_> = (3..=7)
         .map(|i| factories::player(&format!("00-F{i}"), &format!("Filler Player{i}")))
         .collect();
@@ -1649,8 +1649,8 @@ async fn live_contest_official_streams_close_after_membership_loss(pool: SqliteP
     assert!(entry_initial.contains("data: "));
     assert!(contest_initial.contains("data: "));
 
-    let buf = NflTeamAbbr("BUF".into());
-    let kc = NflTeamAbbr("KC".into());
+    let buf = TeamAbbr::BUF;
+    let kc = TeamAbbr::KC;
     let rb = NflPlayerWeekStats {
         opponent: Some(buf.clone()),
         ..factories::rb_stats("00-A", 1, 100)
@@ -1785,9 +1785,9 @@ async fn live_snapshot_scores_entry_before_official_stats(pool: SqlitePool) {
                 players: Some(vec![LivePlayerStats {
                     espn_id: Some(EspnPlayerId("live-alpha".into())),
                     name: Some("Alpha Runner".into()),
-                    team: Some(NflTeamAbbr("KC".into())),
+                    team: Some(TeamAbbr::KC),
                     position: Some("RB".into()),
-                    opponent: Some(NflTeamAbbr("BUF".into())),
+                    opponent: Some(TeamAbbr::BUF),
                     completions: 0,
                     attempts: 0,
                     passing_tds: 0,
@@ -1807,8 +1807,8 @@ async fn live_snapshot_scores_entry_before_official_stats(pool: SqlitePool) {
                 }]),
                 defenses: Some(vec![
                     LiveTeamStats {
-                        team: NflTeamAbbr("KC".into()),
-                        opponent: NflTeamAbbr("BUF".into()),
+                        team: TeamAbbr::KC,
+                        opponent: TeamAbbr::BUF,
                         sacks: 1,
                         interceptions: 0,
                         fumble_recoveries: 0,
@@ -1821,8 +1821,8 @@ async fn live_snapshot_scores_entry_before_official_stats(pool: SqlitePool) {
                         team_stats_present: true,
                     },
                     LiveTeamStats {
-                        team: NflTeamAbbr("BUF".into()),
-                        opponent: NflTeamAbbr("KC".into()),
+                        team: TeamAbbr::BUF,
+                        opponent: TeamAbbr::KC,
                         sacks: 0,
                         interceptions: 0,
                         fumble_recoveries: 0,

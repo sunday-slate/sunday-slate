@@ -186,8 +186,8 @@ mod tests {
             week: Week(5),
             season_type: SeasonType::Reg,
             kickoff,
-            away_team: NflTeamAbbr("BUF".into()),
-            home_team: NflTeamAbbr("KC".into()),
+            away_team: TeamAbbr::BUF,
+            home_team: TeamAbbr::KC,
             home_score: None,
             away_score: None,
         }

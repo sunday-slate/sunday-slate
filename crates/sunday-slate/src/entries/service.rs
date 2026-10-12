@@ -166,13 +166,13 @@ fn side_str(team: &str, score: Option<i32>) -> String {
 pub fn game_line(slate: &[Game], team: &str) -> Option<GameLine> {
     slate
         .iter()
-        .find(|g| g.home_team.0 == team || g.away_team.0 == team)
+        .find(|g| g.home_team.as_str() == team || g.away_team.as_str() == team)
         .map(|g| GameLine {
-            away: g.away_team.0.clone(),
+            away: g.away_team.as_str().to_owned(),
             away_score: g.away_score,
-            home: g.home_team.0.clone(),
+            home: g.home_team.as_str().to_owned(),
             home_score: g.home_score,
-            home_is_pick: g.home_team.0 == team,
+            home_is_pick: g.home_team.as_str() == team,
         })
 }
 
@@ -246,13 +246,13 @@ impl PickInfo {
         salary: Option<i64>,
     ) -> Self {
         PickInfo {
-            name: format!("{} D/ST", team.0),
+            name: format!("{} D/ST", team.as_str()),
             avatar: Avatar::TeamLogo(
                 logo.map_or_else(|| SILHOUETTE.to_string(), |media| media.url()),
             ),
-            game: scoreless_game_line(slate, &team.0),
-            kickoff: team_kickoff(slate, &team.0),
-            team: Some(team.0.clone()),
+            game: scoreless_game_line(slate, &team.as_str()),
+            kickoff: team_kickoff(slate, &team.as_str()),
+            team: Some(team.as_str().to_owned()),
             salary,
             fppg: None,
             played: None,
@@ -620,7 +620,7 @@ pub fn build_picks(
             let known = names.get(id.as_ref());
             let stat = stats.players.get(id);
             let team = stat
-                .map(|s| s.team.0.clone())
+                .map(|s| s.team.as_str().to_owned())
                 .or_else(|| known.and_then(|k| k.team.as_ref().map(|t| t.0.clone())));
             let avatar = match headshots.get(id.as_ref()) {
                 Some(media) => Avatar::Headshot(media.url()),
@@ -667,7 +667,7 @@ pub fn build_picks(
         ),
         team: Some(def_team.clone()),
         kickoff: team_kickoff(slate, &def_team),
-        opponent: defense.map(|t| t.opponent.0.clone()),
+        opponent: defense.map(|t| t.opponent.as_str().to_owned()),
         game: game_line(slate, &def_team),
         // A defense has no box score; its collapsed line is its scoring line.
         // With no defense stat row there is nothing to show, not even a dash.
@@ -897,7 +897,7 @@ pub(crate) fn scoreless_game_line(slate: &[Game], team: &str) -> Option<GameLine
 pub(crate) fn team_kickoff(slate: &[Game], team: &str) -> Option<String> {
     slate
         .iter()
-        .find(|g| g.home_team.0 == team || g.away_team.0 == team)
+        .find(|g| g.home_team.as_str() == team || g.away_team.as_str() == team)
         .and_then(|g| g.kickoff_eastern())
         .map(short_kickoff)
 }
@@ -1103,7 +1103,7 @@ mod tests {
             wr3: NflPlayerId("00-WR3".into()),
             te: NflPlayerId("00-TE".into()),
             flex: NflPlayerId("00-FLEX".into()),
-            def: NflTeamAbbr("KC".into()),
+            def: TeamAbbr::KC,
         }
     }
 
@@ -1128,7 +1128,7 @@ mod tests {
     /// (7.00); every other slot has no stat row.
     fn week_stats() -> WeekStats {
         let rb = NflPlayerWeekStats {
-            opponent: Some(NflTeamAbbr("BUF".into())),
+            opponent: Some(TeamAbbr::BUF),
             ..factories::rb_stats("00-RB1", 1, 100)
         };
         let def = NflTeamWeekStats {
@@ -1137,7 +1137,7 @@ mod tests {
         };
         WeekStats {
             players: [(NflPlayerId("00-RB1".into()), rb)].into(),
-            defenses: [(NflTeamAbbr("KC".into()), def)].into(),
+            defenses: [(TeamAbbr::KC, def)].into(),
         }
     }
 
@@ -1543,7 +1543,7 @@ mod tests {
             ..factories::defense_stats("KC", "LA", 1)
         };
         let mut f = Fixture::default();
-        f.stats.defenses = [(NflTeamAbbr("KC".into()), scoreless)].into();
+        f.stats.defenses = [(TeamAbbr::KC, scoreless)].into();
         let picks = f.picks();
         let def = &picks.rows[8];
         assert_eq!(def.matchup_str(), "KC vs LA");
@@ -1595,7 +1595,7 @@ mod tests {
 
     #[test]
     fn abbreviated_name_preserves_defense_rows() {
-        let team = NflTeamAbbr("KC".into());
+        let team = TeamAbbr::KC;
         let info = PickInfo::defense(&team, None, &[], None);
         assert!(info.is_dst());
         assert_eq!(info.abbreviated_name(), "KC D/ST");
@@ -1689,13 +1689,13 @@ mod tests {
         let a = lineup(); // rb1 = 00-RB1, def = KC
         let mut b = lineup();
         b.rb1 = NflPlayerId("00-OTHER".into());
-        b.def = NflTeamAbbr("SF".into());
+        b.def = TeamAbbr::SF;
         let own = compute_ownership(&[a.clone(), b]);
         // 00-QB is in both lineups -> 1.0; 00-RB1 in one of two -> 0.5.
         assert_eq!(own.player(&NflPlayerId("00-QB".into())), Some(1.0));
         assert_eq!(own.player(&NflPlayerId("00-RB1".into())), Some(0.5));
         // KC defense in one of two -> 0.5; a team nobody has -> None.
-        assert_eq!(own.defense(&NflTeamAbbr("KC".into())), Some(0.5));
-        assert_eq!(own.defense(&NflTeamAbbr("DEN".into())), None);
+        assert_eq!(own.defense(&TeamAbbr::KC), Some(0.5));
+        assert_eq!(own.defense(&TeamAbbr::DEN), None);
     }
 }

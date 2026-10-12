@@ -10,7 +10,7 @@ fn player() -> Player {
         first_name: None,
         last_name: None,
         position: Some("RB".into()),
-        latest_team: Some(TeamAbbr("KC".into())),
+        latest_team: Some(TeamAbbr::KC),
         headshot_url: Some("https://example.test/player.png".into()),
     }
 }
@@ -22,8 +22,8 @@ fn game() -> Game {
         week: Week(1),
         season_type: SeasonType::Reg,
         kickoff: None,
-        home_team: TeamAbbr("KC".into()),
-        away_team: TeamAbbr("BUF".into()),
+        home_team: TeamAbbr::KC,
+        away_team: TeamAbbr::BUF,
         home_score: None,
         away_score: None,
     }
@@ -42,7 +42,7 @@ async fn empty_provider_reads_preserve_missing_result_behavior() {
             .is_empty()
     );
     assert!(nfl.identify(&["missing"]).await.unwrap().is_empty());
-    let team = TeamAbbr("KC".into());
+    let team = TeamAbbr::KC;
     assert!(
         nfl.weekly_roster(Season(2025), Week(1), &team)
             .await
@@ -80,7 +80,7 @@ async fn seeded_records_survive_reopening_and_identity_prefers_players() {
     let roster = |id: &str| WeeklyRosterEntry {
         season: Season(2025),
         week: Week(1),
-        team: TeamAbbr("BUF".into()),
+        team: TeamAbbr::BUF,
         gsis_id: Some(id.into()),
         espn_id: None,
         full_name: "Roster Name".into(),
@@ -101,7 +101,7 @@ async fn seeded_records_survive_reopening_and_identity_prefers_players() {
     assert_eq!(players.len(), 1);
     assert_eq!(players["00-P"], player());
     assert_eq!(
-        nfl.weekly_roster(Season(2025), Week(1), &TeamAbbr("BUF".into()))
+        nfl.weekly_roster(Season(2025), Week(1), &TeamAbbr::BUF)
             .await
             .unwrap()
             .len(),
@@ -112,7 +112,7 @@ async fn seeded_records_survive_reopening_and_identity_prefers_players() {
     assert_eq!(identities["00-P"].name, "Player Table");
     assert_eq!(identities["00-P"].headshot_url, player().headshot_url);
     assert_eq!(identities["00-R"].name, "Roster Name");
-    assert_eq!(identities["00-R"].team, Some(TeamAbbr("BUF".into())));
+    assert_eq!(identities["00-R"].team, Some(TeamAbbr::BUF));
     assert!(identities["00-R"].headshot_url.is_none());
     assert_eq!(
         nfl.data_revision().await.unwrap(),

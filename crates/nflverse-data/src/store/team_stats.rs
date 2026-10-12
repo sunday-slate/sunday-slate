@@ -99,8 +99,8 @@ mod tests {
             season: Season(2025),
             week: Week(1),
             season_type: SeasonType::Reg,
-            team: TeamAbbr(team.into()),
-            opponent: TeamAbbr(opp.into()),
+            team: team.parse().unwrap(),
+            opponent: opp.parse().unwrap(),
             gsis_game_id: "2025_01_AAA_BBB".into(),
             sacks: 3,
             interceptions: 5,
@@ -124,7 +124,7 @@ mod tests {
             asset_name: "play_by_play_2025.csv",
             updated_at: "2026-06-30T10:36:16Z",
         };
-        let aaa = row("AAA", "BBB");
+        let aaa = row("KC", "BUF");
         replace(&store, &asset, Season(2025), std::slice::from_ref(&aaa))
             .await
             .unwrap();

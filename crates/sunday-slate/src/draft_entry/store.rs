@@ -193,7 +193,7 @@ mod tests {
             wr3: NflPlayerId("00-W3".into()),
             te: NflPlayerId("00-T".into()),
             flex: NflPlayerId("00-F".into()),
-            def: NflTeamAbbr("KC".into()),
+            def: TeamAbbr::KC,
         }
     }
 
@@ -213,7 +213,7 @@ mod tests {
         .await
         .expect("create");
         assert_eq!(d.qb, Some(NflPlayerId("00-Q".into())));
-        assert_eq!(d.def, Some(NflTeamAbbr("KC".into())));
+        assert_eq!(d.def, Some(TeamAbbr::KC));
 
         // Second call: returns the existing row, ignoring a new seed.
         let d2 = get_or_create_tx(

@@ -111,7 +111,7 @@ async fn full_season_scores_match_fanduel() {
             }
             tstats[&week]
                 .iter()
-                .find(|t| t.team.0 == team)
+                .find(|t| t.team.as_str() == team)
                 .map(|t| scoring::score_defense(t).total)
         } else {
             match player_store::by_fd_id(db.reader(), fd_player_id)

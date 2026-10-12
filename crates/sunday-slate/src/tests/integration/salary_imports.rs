@@ -15,8 +15,8 @@ fn game(id: &str, away: &str, home: &str) -> Game {
         week: Week(1),
         season_type: SeasonType::Reg,
         kickoff: None,
-        home_team: NflTeamAbbr(home.into()),
-        away_team: NflTeamAbbr(away.into()),
+        home_team: home.parse().unwrap(),
+        away_team: away.parse().unwrap(),
         home_score: None,
         away_score: None,
     }
@@ -29,7 +29,7 @@ fn player(gsis: &str, name: &str, team: &str) -> Player {
         first_name: None,
         last_name: None,
         position: Some("WR".into()),
-        latest_team: Some(NflTeamAbbr(team.into())),
+        latest_team: Some(team.parse().unwrap()),
         headshot_url: None,
     }
 }

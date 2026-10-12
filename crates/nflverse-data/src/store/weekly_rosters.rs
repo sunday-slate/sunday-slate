@@ -137,7 +137,7 @@ mod tests {
         WeeklyRosterEntry {
             season: Season(2025),
             week: Week(week),
-            team: TeamAbbr(team.into()),
+            team: team.parse().unwrap(),
             espn_id: None,
             gsis_id: gsis.map(String::from),
             full_name: name.into(),
@@ -211,35 +211,20 @@ mod tests {
         .await
         .unwrap();
 
-        let min_13 = for_team_week(
-            store.reader(),
-            Season(2025),
-            Week(13),
-            &TeamAbbr("MIN".into()),
-        )
-        .await
-        .unwrap();
+        let min_13 = for_team_week(store.reader(), Season(2025), Week(13), &TeamAbbr::MIN)
+            .await
+            .unwrap();
         assert_eq!(min_13.len(), 1);
-        assert_eq!(min_13[0].team, TeamAbbr("MIN".into()));
+        assert_eq!(min_13[0].team, TeamAbbr::MIN);
 
-        let pit_13 = for_team_week(
-            store.reader(),
-            Season(2025),
-            Week(13),
-            &TeamAbbr("PIT".into()),
-        )
-        .await
-        .unwrap();
+        let pit_13 = for_team_week(store.reader(), Season(2025), Week(13), &TeamAbbr::PIT)
+            .await
+            .unwrap();
         assert!(pit_13.is_empty(), "not on PIT yet in week 13");
 
-        let pit_14 = for_team_week(
-            store.reader(),
-            Season(2025),
-            Week(14),
-            &TeamAbbr("PIT".into()),
-        )
-        .await
-        .unwrap();
+        let pit_14 = for_team_week(store.reader(), Season(2025), Week(14), &TeamAbbr::PIT)
+            .await
+            .unwrap();
         assert_eq!(pit_14.len(), 1);
     }
 
@@ -270,23 +255,13 @@ mod tests {
         .await
         .unwrap();
 
-        let gb_2024 = for_team_week(
-            store.reader(),
-            Season(2024),
-            Week(1),
-            &TeamAbbr("GB".into()),
-        )
-        .await
-        .unwrap();
+        let gb_2024 = for_team_week(store.reader(), Season(2024), Week(1), &TeamAbbr::GB)
+            .await
+            .unwrap();
         assert_eq!(gb_2024.len(), 1, "2024 survived the 2025 replace");
-        let gb_2025 = for_team_week(
-            store.reader(),
-            Season(2025),
-            Week(1),
-            &TeamAbbr("GB".into()),
-        )
-        .await
-        .unwrap();
+        let gb_2025 = for_team_week(store.reader(), Season(2025), Week(1), &TeamAbbr::GB)
+            .await
+            .unwrap();
         assert_eq!(gb_2025.len(), 1);
     }
 
@@ -308,14 +283,9 @@ mod tests {
         .await
         .unwrap();
 
-        let gb = for_team_week(
-            store.reader(),
-            Season(2025),
-            Week(5),
-            &TeamAbbr("GB".into()),
-        )
-        .await
-        .unwrap();
+        let gb = for_team_week(store.reader(), Season(2025), Week(5), &TeamAbbr::GB)
+            .await
+            .unwrap();
         assert_eq!(gb.len(), 2, "both unassigned players survived");
     }
 }

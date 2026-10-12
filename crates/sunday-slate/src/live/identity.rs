@@ -5,7 +5,7 @@ use nfl_data::{
 };
 
 use crate::entries::NflPlayerId;
-use crate::player_identity::{canonical_team, normalize_name, normalize_team};
+use crate::player_identity::{canonical_team, normalize_name};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IdentityMatch {
@@ -100,7 +100,7 @@ impl LiveIdentityIndex {
                         .by_name
                         .entry((
                             name.clone(),
-                            normalize_team(&team.0).to_owned(),
+                            team.as_str().to_owned(),
                             normalize_position(position),
                         ))
                         .or_default()
@@ -121,7 +121,7 @@ impl LiveIdentityIndex {
         let mut rosters = Vec::new();
         let mut seen = BTreeSet::new();
         for team in teams {
-            if !seen.insert(team.0.clone()) {
+            if !seen.insert(team.as_str().to_owned()) {
                 continue;
             }
             rosters.extend(nfl.weekly_roster(season, week, team).await?);
@@ -151,7 +151,7 @@ impl LiveIdentityIndex {
         };
         let key = (
             normalize_name(name),
-            normalize_team(&team.0).to_owned(),
+            team.as_str().to_owned(),
             normalize_position(position),
         );
         match self.by_name.get(&key) {
@@ -249,7 +249,7 @@ mod tests {
             first_name: None,
             last_name: None,
             position: Some(position.into()),
-            latest_team: Some(TeamAbbr(team.into())),
+            latest_team: Some(team.parse().unwrap()),
             headshot_url: None,
         }
     }
@@ -264,7 +264,7 @@ mod tests {
         WeeklyRosterEntry {
             season: Season(2025),
             week: Week(1),
-            team: TeamAbbr(team.into()),
+            team: team.parse().unwrap(),
             gsis_id: Some(gsis.into()),
             espn_id: espn.map(str::to_owned),
             full_name: name.into(),
@@ -283,7 +283,7 @@ mod tests {
             index.resolve(
                 Some(&EspnPlayerId("e1".into())),
                 Some("wrong"),
-                Some(&TeamAbbr("BUF".into())),
+                Some(&TeamAbbr::BUF),
                 Some("RB"),
             ),
             IdentityMatch::Matched(NflPlayerId("a".into()))
@@ -300,7 +300,7 @@ mod tests {
             conflict.resolve(
                 Some(&EspnPlayerId("e1".into())),
                 Some("A Player"),
-                Some(&TeamAbbr("BUF".into())),
+                Some(&TeamAbbr::BUF),
                 Some("RB"),
             ),
             IdentityMatch::Ambiguous
@@ -312,16 +312,11 @@ mod tests {
         let index =
             LiveIdentityIndex::from_sources(&[], &[roster("a", None, "A Player", "LAR", "RB")]);
         assert_eq!(
-            index.resolve(
-                None,
-                Some("A Player"),
-                Some(&TeamAbbr("LA".into())),
-                Some("RB"),
-            ),
+            index.resolve(None, Some("A Player"), Some(&TeamAbbr::LA), Some("RB"),),
             IdentityMatch::Matched(NflPlayerId("a".into()))
         );
         assert_eq!(
-            index.resolve(None, Some("A Player"), Some(&TeamAbbr("LA".into())), None,),
+            index.resolve(None, Some("A Player"), Some(&TeamAbbr::LA), None,),
             IdentityMatch::Unresolved
         );
     }
@@ -333,34 +328,19 @@ mod tests {
         );
         assert_eq!(
             index.scheduled_team(&NflPlayerId("a".into())),
-            Some(&TeamAbbr("KC".into()))
+            Some(&TeamAbbr::KC)
         );
         assert_eq!(index.position(&NflPlayerId("a".into())), Some("WR"));
         assert_eq!(
-            index.resolve(
-                None,
-                Some("Global Name"),
-                Some(&TeamAbbr("KC".into())),
-                Some("WR"),
-            ),
+            index.resolve(None, Some("Global Name"), Some(&TeamAbbr::KC), Some("WR"),),
             IdentityMatch::Matched(NflPlayerId("a".into()))
         );
         assert_eq!(
-            index.resolve(
-                None,
-                Some("Weekly Name"),
-                Some(&TeamAbbr("KC".into())),
-                Some("WR"),
-            ),
+            index.resolve(None, Some("Weekly Name"), Some(&TeamAbbr::KC), Some("WR"),),
             IdentityMatch::Matched(NflPlayerId("a".into()))
         );
         assert_eq!(
-            index.resolve(
-                None,
-                Some("Global Name"),
-                Some(&TeamAbbr("BUF".into())),
-                Some("RB"),
-            ),
+            index.resolve(None, Some("Global Name"), Some(&TeamAbbr::BUF), Some("RB"),),
             IdentityMatch::Unresolved
         );
     }
@@ -373,12 +353,7 @@ mod tests {
         ];
         let index = LiveIdentityIndex::from_sources(&[], &rows);
         assert_eq!(
-            index.resolve(
-                None,
-                Some("A Player"),
-                Some(&TeamAbbr("KC".into())),
-                Some("RB"),
-            ),
+            index.resolve(None, Some("A Player"), Some(&TeamAbbr::KC), Some("RB"),),
             IdentityMatch::Matched(NflPlayerId("a".into()))
         );
     }
@@ -395,12 +370,7 @@ mod tests {
             assert_eq!(index.scheduled_team(&NflPlayerId("a".into())), None);
             assert_eq!(index.position(&NflPlayerId("a".into())), None);
             assert_eq!(
-                index.resolve(
-                    None,
-                    Some("A Player"),
-                    Some(&TeamAbbr("KC".into())),
-                    Some("RB"),
-                ),
+                index.resolve(None, Some("A Player"), Some(&TeamAbbr::KC), Some("RB"),),
                 IdentityMatch::Unresolved
             );
         }
@@ -412,7 +382,7 @@ mod tests {
         let index = LiveIdentityIndex::from_sources(&[], &conflicting_positions);
         assert_eq!(
             index.scheduled_team(&NflPlayerId("b".into())),
-            Some(&TeamAbbr("KC".into()))
+            Some(&TeamAbbr::KC)
         );
         assert_eq!(index.position(&NflPlayerId("b".into())), None);
     }

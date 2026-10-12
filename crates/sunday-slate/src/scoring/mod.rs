@@ -278,7 +278,7 @@ mod tests {
             week: Week(5),
             season_type: SeasonType::Reg,
             gsis_id: "00-1".into(),
-            team: NflTeamAbbr("SF".into()),
+            team: TeamAbbr::SF,
             opponent: None,
             completions: 0,
             attempts: 0,
@@ -347,8 +347,8 @@ mod tests {
             season: Season(2025),
             week: Week(5),
             season_type: SeasonType::Reg,
-            team: NflTeamAbbr("SF".into()),
-            opponent: NflTeamAbbr("LA".into()),
+            team: TeamAbbr::SF,
+            opponent: TeamAbbr::LA,
             gsis_game_id: "2025_05_SF_LA".into(),
             sacks: 0,
             interceptions: 0,
@@ -371,7 +371,7 @@ mod tests {
             wr3: NflPlayerId("00-WR3".into()),
             te: NflPlayerId("00-TE".into()),
             flex: NflPlayerId("00-FLEX".into()),
-            def: NflTeamAbbr("KC".into()),
+            def: TeamAbbr::KC,
         }
     }
 
@@ -383,12 +383,12 @@ mod tests {
         rb.rushing_yards = 100;
         // Defense allowing 3 points: 7.0.
         let mut def = zero_defense();
-        def.team = NflTeamAbbr("KC".into());
+        def.team = TeamAbbr::KC;
         def.points_allowed = 3;
 
         let stats = WeekStats {
             players: [(NflPlayerId("00-RB1".into()), rb)].into(),
-            defenses: [(NflTeamAbbr("KC".into()), def)].into(),
+            defenses: [(TeamAbbr::KC, def)].into(),
         };
         // Every other slot has no stat line that week -> contributes 0.
         let total = score_lineup(&test_lineup(), &stats);

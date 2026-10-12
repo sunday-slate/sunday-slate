@@ -95,11 +95,11 @@ impl RosterIndex {
                 position: e.position.clone(),
             };
             by_team_norm
-                .entry((e.team.0.clone(), normalize(&e.full_name)))
+                .entry((e.team.as_str().to_owned(), normalize(&e.full_name)))
                 .or_default()
                 .push(hit());
             by_team_stem
-                .entry((e.team.0.clone(), strip_suffix(&e.full_name)))
+                .entry((e.team.as_str().to_owned(), strip_suffix(&e.full_name)))
                 .or_default()
                 .push(hit());
         }
@@ -201,7 +201,7 @@ mod tests {
             first_name: None,
             last_name: None,
             position: None,
-            latest_team: Some(NflTeamAbbr(team.into())),
+            latest_team: Some(team.parse().unwrap()),
             headshot_url: None,
         }
     }
@@ -241,7 +241,7 @@ mod tests {
         WeeklyRosterEntry {
             season: nfl_data::Season(2025),
             week: nfl_data::Week(1),
-            team: NflTeamAbbr(team.into()),
+            team: team.parse().unwrap(),
             gsis_id: gsis.map(Into::into),
             espn_id: None,
             full_name: name.into(),

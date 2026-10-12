@@ -349,8 +349,8 @@ mod tests {
             week: Week(1),
             season_type: SeasonType::Reg,
             kickoff: Some(datetime!(2026-09-10 20:35:00 -04:00)),
-            home_team: TeamAbbr("LAR".into()),
-            away_team: TeamAbbr("SF".into()),
+            home_team: TeamAbbr::LA,
+            away_team: TeamAbbr::SF,
         }
     }
 

@@ -291,7 +291,7 @@ mod tests {
             player(Flex, "00-8"),
             EntrySlot {
                 slot: Def,
-                value: SlotValue::Defense(NflTeamAbbr("KC".to_string())),
+                value: SlotValue::Defense(TeamAbbr::KC),
             },
         ]
     }
@@ -336,7 +336,7 @@ mod tests {
         let lineup = Lineup::from_slots(full_slots()).expect("nine valid slots");
         assert_eq!(lineup.qb, NflPlayerId("00-1".into()));
         assert_eq!(lineup.flex, NflPlayerId("00-8".into()));
-        assert_eq!(lineup.def, NflTeamAbbr("KC".into()));
+        assert_eq!(lineup.def, TeamAbbr::KC);
     }
 
     #[test]

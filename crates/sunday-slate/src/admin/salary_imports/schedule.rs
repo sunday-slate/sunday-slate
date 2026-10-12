@@ -27,7 +27,7 @@ pub fn resolve_slate_games(
         by_week
             .entry(g.week.0)
             .or_default()
-            .insert((g.away_team.0.as_str(), g.home_team.0.as_str()), g);
+            .insert((g.away_team.as_str(), g.home_team.as_str()), g);
     }
 
     // BTreeMap iterates weeks in ascending order, so `find` yields the earliest
@@ -60,8 +60,8 @@ mod tests {
             week: Week(week),
             season_type: SeasonType::Reg,
             kickoff: Some(kickoff),
-            home_team: NflTeamAbbr(home.into()),
-            away_team: NflTeamAbbr(away.into()),
+            home_team: home.parse().unwrap(),
+            away_team: away.parse().unwrap(),
             home_score: None,
             away_score: None,
         }

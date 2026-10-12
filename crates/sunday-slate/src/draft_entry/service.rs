@@ -154,7 +154,7 @@ impl SlotChoice {
     pub fn value_key(&self) -> &str {
         match &self.key {
             SlotValue::Player(id) => id.as_ref(),
-            SlotValue::Defense(team) => &team.0,
+            SlotValue::Defense(team) => &team.as_str(),
         }
     }
 
@@ -192,7 +192,7 @@ pub async fn page(
     let team_abbrs: Vec<&str> = draft
         .def
         .as_ref()
-        .map(|team| team.0.as_str())
+        .map(|team| team.as_str())
         .into_iter()
         .collect();
     let avatars = crate::avatars::for_lineup(&state.db, &player_ids, &team_abbrs).await?;
@@ -323,7 +323,7 @@ pub async fn choices(
             .iter()
             .filter(|r| r.dfs_position.is_defense())
             .map(|row| {
-                let team = NflTeamAbbr(row.team_abbr.clone());
+                let team = row.team_abbr.parse().unwrap();
                 SlotChoice {
                     position: "D/ST".into(),
                     is_picked: draft.def.as_ref() == Some(&team),
@@ -331,7 +331,7 @@ pub async fn choices(
                     injury: None,
                     info: PickInfo::defense(
                         &team,
-                        avatars.teams.get(team.0.as_str()),
+                        avatars.teams.get(team.as_str()),
                         &ctx.slate,
                         Some(row.salary),
                     ),
@@ -521,17 +521,17 @@ fn validate_pick(
             if slot != RosterSlot::Def {
                 return Err(AppError::BadRequest(format!(
                     "{} is a defense; the {} slot takes a player.",
-                    team.0,
+                    team.as_str(),
                     slot.position_label()
                 )));
             }
             if !pool
                 .iter()
-                .any(|r| r.dfs_position.is_defense() && r.team_abbr == team.0)
+                .any(|r| r.dfs_position.is_defense() && r.team_abbr == team.as_str())
             {
                 return Err(AppError::BadRequest(format!(
                     "{} is not on this slate.",
-                    team.0
+                    team.as_str()
                 )));
             }
             Ok(())
@@ -628,7 +628,7 @@ fn pool_salaries(pool: &[NflPlayerSalary]) -> SlateSalaries {
         salaries.insert_row(
             row.dfs_position.is_defense(),
             row.gsis_player_id.clone().map(NflPlayerId),
-            NflTeamAbbr(row.team_abbr.clone()),
+            row.team_abbr.parse().unwrap(),
             row.salary,
         );
     }
@@ -914,7 +914,7 @@ mod tests {
         let err = validate_pick(
             &draft,
             RosterSlot::Rb1,
-            &SlotValue::Defense(NflTeamAbbr("KC".into())),
+            &SlotValue::Defense(TeamAbbr::KC),
             &pool,
         )
         .unwrap_err();
@@ -944,7 +944,7 @@ mod tests {
         let err = validate_pick(
             &empty_draft(),
             RosterSlot::Def,
-            &SlotValue::Defense(NflTeamAbbr("CAR".into())),
+            &SlotValue::Defense(TeamAbbr::CAR),
             &pool,
         )
         .unwrap_err();
@@ -961,7 +961,7 @@ mod tests {
             wr3: NflPlayerId("00-W3".into()),
             te: NflPlayerId("00-T".into()),
             flex: NflPlayerId("00-F".into()),
-            def: NflTeamAbbr("KC".into()),
+            def: TeamAbbr::KC,
         }
     }
 

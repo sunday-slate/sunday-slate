@@ -743,8 +743,8 @@ mod tests {
             week: Week(1),
             season_type: SeasonType::Reg,
             kickoff: Some(datetime!(2026-09-10 20:35:00 -04:00)),
-            home_team: TeamAbbr("LA".into()),
-            away_team: TeamAbbr("SF".into()),
+            home_team: TeamAbbr::LA,
+            away_team: TeamAbbr::SF,
         }
     }
 
@@ -771,8 +771,8 @@ mod tests {
                         phase: LiveGamePhase::InProgress,
                         period: None,
                         clock: None,
-                        home_team: TeamAbbr("LA".into()),
-                        away_team: TeamAbbr("SF".into()),
+                        home_team: TeamAbbr::LA,
+                        away_team: TeamAbbr::SF,
                         home_score: None,
                         away_score: None,
                     }],
@@ -896,8 +896,8 @@ mod tests {
         let mut second_game = game();
         second_game.gsis_game_id = "2026_01_NE_NYJ".into();
         second_game.provider_game_id = "20260910_NE@NYJ".into();
-        second_game.home_team = TeamAbbr("NYJ".into());
-        second_game.away_team = TeamAbbr("NE".into());
+        second_game.home_team = TeamAbbr::NYJ;
+        second_game.away_team = TeamAbbr::NE;
         let slate = LiveSlate {
             date: date!(2026 - 09 - 10),
             games: vec![game(), second_game],

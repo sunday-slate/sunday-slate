@@ -23,7 +23,10 @@ pub(crate) fn parse(asset: &str, bytes: &[u8]) -> Result<Vec<WeeklyRosterEntry>,
         Ok(Some(WeeklyRosterEntry {
             season: Season(raw.season),
             week: Week(raw.week),
-            team: TeamAbbr(raw.team),
+            team: raw
+                .team
+                .parse::<TeamAbbr>()
+                .map_err(|error| error.to_string())?,
             // Defensive: treat a blank id as unassigned regardless of how csv's
             // empty-field handling represents it, rather than relying implicitly
             // on that behavior for a business-meaningful null.
@@ -55,7 +58,7 @@ mod tests {
 
         let pit = &entries[0];
         assert_eq!(pit.week, Week(14));
-        assert_eq!(pit.team, TeamAbbr("PIT".into()));
+        assert_eq!(pit.team, TeamAbbr::PIT);
         assert_eq!(pit.gsis_id.as_deref(), Some("00-0030035"));
         assert_eq!(pit.position.as_deref(), Some("WR"));
         assert_eq!(pit.last_name.as_deref(), Some("Thielen"));
@@ -63,7 +66,7 @@ mod tests {
         // Same player, same season, earlier week, different team.
         let min = &entries[1];
         assert_eq!(min.week, Week(13));
-        assert_eq!(min.team, TeamAbbr("MIN".into()));
+        assert_eq!(min.team, TeamAbbr::MIN);
         assert_eq!(pit.espn_id.as_deref(), Some("16460"));
         assert_eq!(min.gsis_id.as_deref(), Some("00-0030035"));
         assert_eq!(min.season, Season(2025));

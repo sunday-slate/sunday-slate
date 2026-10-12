@@ -182,8 +182,8 @@ mod tests {
             week: Week(week),
             season_type: st,
             kickoff: Some(kickoff),
-            away_team: NflTeamAbbr(away.into()),
-            home_team: NflTeamAbbr(home.into()),
+            away_team: away.parse().unwrap(),
+            home_team: home.parse().unwrap(),
             home_score: None,
             away_score: None,
         }

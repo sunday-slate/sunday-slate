@@ -11,7 +11,7 @@ use crate::contests::ContestId;
 use crate::entries::{Lineup, NflPlayerId, RosterSlot};
 use crate::live::identity::{IdentityMatch, LiveIdentityIndex};
 use crate::live::{Coverage, LiveContestSnapshot, LiveError, LiveSlotStatus, LiveTotal};
-use crate::player_identity::{canonical_team, normalize_team, provider_team};
+use crate::player_identity::{canonical_team, provider_team};
 use crate::scoring::{self, WeekStats};
 use tank01_data::PollEvent;
 
@@ -65,13 +65,12 @@ impl LiveGameState {
     }
 
     pub fn team_is_scheduled(&self, team: &TeamAbbr) -> bool {
-        normalize_team(&self.game.home_team.0) == normalize_team(&team.0)
-            || normalize_team(&self.game.away_team.0) == normalize_team(&team.0)
+        self.game.home_team == *team || self.game.away_team == *team
     }
     pub fn defense_is_stale(&self, team: &TeamAbbr) -> bool {
         self.defense_stale
             .iter()
-            .find(|(candidate, _)| normalize_team(&candidate.0) == normalize_team(&team.0))
+            .find(|(candidate, _)| **candidate == *team)
             .map(|(_, stale)| *stale)
             .unwrap_or(false)
     }
@@ -90,7 +89,7 @@ impl LiveGameState {
                 || self
                     .defense_observed_at
                     .iter()
-                    .find(|(candidate, _)| normalize_team(&candidate.0) == normalize_team(&team.0))
+                    .find(|(candidate, _)| **candidate == *team)
                     .is_none_or(|(_, at)| now - *at > time::Duration::seconds(60)))
     }
 
@@ -438,8 +437,8 @@ pub fn provider_game_id(game: &Game) -> Option<String> {
     Some(format!(
         "{}_{}@{}",
         date,
-        provider_team(&game.away_team.0),
-        provider_team(&game.home_team.0)
+        provider_team(game.away_team.as_str()),
+        provider_team(game.home_team.as_str())
     ))
 }
 
@@ -685,7 +684,7 @@ fn score_live_defense(
         LiveGamePhase::InProgress | LiveGamePhase::Final | LiveGamePhase::Unknown => state
             .defenses
             .iter()
-            .find(|(candidate, _)| normalize_team(&candidate.0) == normalize_team(&team.0))
+            .find(|(candidate, _)| **candidate == *team)
             .map(|(_, stats)| LiveContribution::Observed(scoring::score_defense(stats).total))
             .unwrap_or(LiveContribution::Unavailable),
     }
@@ -779,9 +778,9 @@ mod tests {
         LivePlayerStats {
             espn_id: Some(EspnPlayerId("e1".into())),
             name: Some("A Runner".into()),
-            team: Some(TeamAbbr("KC".into())),
+            team: Some(TeamAbbr::KC),
             position: Some("RB".into()),
-            opponent: Some(TeamAbbr("BUF".into())),
+            opponent: Some(TeamAbbr::BUF),
             completions: 0,
             attempts: 0,
             passing_tds: 0,
@@ -803,8 +802,8 @@ mod tests {
 
     fn defense_stats() -> LiveTeamStats {
         LiveTeamStats {
-            team: TeamAbbr("KC".into()),
-            opponent: TeamAbbr("BUF".into()),
+            team: TeamAbbr::KC,
+            opponent: TeamAbbr::BUF,
             sacks: 1,
             interceptions: 0,
             fumble_recoveries: 0,
@@ -862,7 +861,7 @@ mod tests {
             wr3: id.clone(),
             te: id.clone(),
             flex: id,
-            def: TeamAbbr("KC".into()),
+            def: TeamAbbr::KC,
         }
     }
 

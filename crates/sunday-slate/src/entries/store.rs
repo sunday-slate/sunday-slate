@@ -913,7 +913,7 @@ mod tests {
         assert_eq!(entry.team.owner_name, fixture.team.owner_name);
         assert!(entry.team.logo.is_none());
         assert_eq!(entry.lineup.rb1, NflPlayerId("00-A".into()));
-        assert_eq!(entry.lineup.def, NflTeamAbbr("KC".into()));
+        assert_eq!(entry.lineup.def, TeamAbbr::KC);
     }
 
     #[sqlx::test]
@@ -951,7 +951,7 @@ mod tests {
             .await
             .expect("load");
         assert_eq!(s.players.get(&NflPlayerId("00-A".into())), Some(&5700));
-        assert_eq!(s.defenses.get(&NflTeamAbbr("KC".into())), Some(&3500));
+        assert_eq!(s.defenses.get(&TeamAbbr::KC), Some(&3500));
         assert!(
             !s.players.contains_key(&NflPlayerId("00-Z".into())),
             "off-slate salary excluded"

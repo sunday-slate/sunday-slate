@@ -145,19 +145,19 @@ async fn fresh_sync_populates_every_dataset() {
     // Weekly roster: Thielen syncs onto the team he was on that week, so the
     // week-13 MIN row and the week-14 PIT row are both retrievable.
     let min_13 = nfl
-        .weekly_roster(Season(2025), Week(13), &TeamAbbr("MIN".into()))
+        .weekly_roster(Season(2025), Week(13), &TeamAbbr::MIN)
         .await
         .unwrap();
     assert_eq!(min_13.len(), 1);
     assert_eq!(min_13[0].full_name, "Adam Thielen");
     let pit_14 = nfl
-        .weekly_roster(Season(2025), Week(14), &TeamAbbr("PIT".into()))
+        .weekly_roster(Season(2025), Week(14), &TeamAbbr::PIT)
         .await
         .unwrap();
     assert_eq!(pit_14.len(), 1);
     assert_eq!(pit_14[0].full_name, "Adam Thielen");
     assert!(
-        nfl.weekly_roster(Season(2025), Week(13), &TeamAbbr("PIT".into()))
+        nfl.weekly_roster(Season(2025), Week(13), &TeamAbbr::PIT)
             .await
             .unwrap()
             .is_empty(),
@@ -172,7 +172,7 @@ async fn fresh_sync_populates_every_dataset() {
     assert_eq!(rodgers.passing_yards, 244);
     let prater = &stats[1];
     assert_eq!(prater.gsis_id, "00-0023853");
-    assert_eq!(prater.team, TeamAbbr("BUF".into()));
+    assert_eq!(prater.team, TeamAbbr::BUF);
     assert_eq!(prater.rushing_yards, 0);
 
     // Team week stats are pbp-derived: the one game yields both teams' D/ST
@@ -180,11 +180,11 @@ async fn fresh_sync_populates_every_dataset() {
     // computed at ingest -- ARI allowed NO's 6, NO allowed ARI's 7+3=10.
     let team = nfl.team_week_stats(Season(2025), Week(1)).await.unwrap();
     assert_eq!(team.len(), 2);
-    assert_eq!(team[0].team, TeamAbbr("ARI".into()));
-    assert_eq!(team[0].opponent, TeamAbbr("NO".into()));
+    assert_eq!(team[0].team, TeamAbbr::ARI);
+    assert_eq!(team[0].opponent, TeamAbbr::NO);
     assert_eq!(team[0].sacks, 1);
     assert_eq!(team[0].points_allowed, 6);
-    assert_eq!(team[1].team, TeamAbbr("NO".into()));
+    assert_eq!(team[1].team, TeamAbbr::NO);
     assert_eq!(team[1].points_allowed, 10);
 }
 
@@ -290,7 +290,7 @@ async fn failing_dataset_is_isolated_and_keeps_previous_data() {
     // Parse failed before any write was attempted: previous rows are intact.
     let team = nfl.team_week_stats(Season(2025), Week(1)).await.unwrap();
     assert_eq!(team.len(), 2);
-    assert_eq!(team[0].team, TeamAbbr("ARI".into()));
+    assert_eq!(team[0].team, TeamAbbr::ARI);
     assert_eq!(team[0].points_allowed, 6);
 }
 
@@ -339,7 +339,7 @@ async fn one_bad_season_does_not_block_other_seasons_in_the_same_dataset() {
     // The good 2025 season was still attempted and stored, despite the
     // dataset-level status being Failed because of the bad 2024 asset.
     let min_13 = nfl
-        .weekly_roster(Season(2025), Week(13), &TeamAbbr("MIN".into()))
+        .weekly_roster(Season(2025), Week(13), &TeamAbbr::MIN)
         .await
         .unwrap();
     assert_eq!(min_13.len(), 1);

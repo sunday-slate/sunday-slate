@@ -1,7 +1,7 @@
+use crate::FanduelDataError;
+use nfl_model::TeamAbbr;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-use nfl_model::TeamAbbr;
-use crate::FanduelDataError;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Matchup {
@@ -13,11 +13,16 @@ impl FromStr for Matchup {
     type Err = FanduelDataError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (away, home) = s.split_once('@').ok_or(FanduelDataError::MatchupParseError(s.to_string()))?;
-        Ok(Matchup {
-            home: TeamAbbr(home.to_string()),
-            away: TeamAbbr(away.to_string())
-        })
+        let (away, home) = s
+            .split_once('@')
+            .ok_or(FanduelDataError::MatchupParseError(s.to_string()))?;
+        let home = home
+            .parse::<TeamAbbr>()
+            .map_err(|_| FanduelDataError::MatchupParseError(s.to_owned()))?;
+        let away = away
+            .parse::<TeamAbbr>()
+            .map_err(|_| FanduelDataError::MatchupParseError(s.to_owned()))?;
+        Ok(Matchup { away, home })
     }
 }
 

@@ -416,8 +416,8 @@ mod tests {
             week: Week(1),
             season_type: SeasonType::Reg,
             kickoff: None,
-            home_team: NflTeamAbbr(home.into()),
-            away_team: NflTeamAbbr(away.into()),
+            home_team: home.parse().unwrap(),
+            away_team: away.parse().unwrap(),
             home_score: None,
             away_score: None,
         }
@@ -436,7 +436,7 @@ mod tests {
             first_name: None,
             last_name: Some(last.into()).filter(|l: &String| !l.is_empty()),
             position: Some(pos.into()),
-            latest_team: Some(NflTeamAbbr(team.into())),
+            latest_team: Some(team.parse().unwrap()),
             headshot_url: None,
         }
     }
@@ -714,7 +714,7 @@ mod tests {
         WeeklyRosterEntry {
             season: Season(2025),
             week: Week(week),
-            team: NflTeamAbbr(team.into()),
+            team: team.parse().unwrap(),
             gsis_id: Some(gsis.into()),
             espn_id: None,
             full_name: name.into(),

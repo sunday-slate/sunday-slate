@@ -815,7 +815,7 @@ pub fn game_rows(games: &[Game]) -> Vec<GameRow> {
                 et,
                 GameRow {
                     id: g.gsis_game_id.clone(),
-                    matchup: format!("{} @ {}", g.away_team.0, g.home_team.0),
+                    matchup: format!("{} @ {}", g.away_team.as_str(), g.home_team.as_str()),
                     kickoff: et.map(format_kickoff),
                 },
             )
@@ -1114,8 +1114,8 @@ mod tests {
             week: Week(19),
             season_type: SeasonType::Post,
             kickoff,
-            away_team: NflTeamAbbr(away.into()),
-            home_team: NflTeamAbbr(home.into()),
+            away_team: away.parse().unwrap(),
+            home_team: home.parse().unwrap(),
             home_score: None,
             away_score: None,
         }
@@ -1349,10 +1349,7 @@ mod tests {
             player_identity_incomplete: false,
             player_observed_at: None,
             player_stale: false,
-            defenses: HashMap::from([(
-                NflTeamAbbr("KC".into()),
-                factories::defense_stats("KC", "BUF", 19),
-            )]),
+            defenses: HashMap::from([(TeamAbbr::KC, factories::defense_stats("KC", "BUF", 19))]),
             defense_observed_at: HashMap::new(),
             defense_stale: HashMap::new(),
             last_error: None,
@@ -1378,7 +1375,7 @@ mod tests {
                 wr3: id.clone(),
                 te: id.clone(),
                 flex: id,
-                def: NflTeamAbbr("KC".into()),
+                def: TeamAbbr::KC,
             }
         };
         let entries = vec![
@@ -1512,8 +1509,8 @@ mod tests {
             .unwrap();
         let buf_player = PlayerWeekStats {
             gsis_id: "00-BUF".into(),
-            team: NflTeamAbbr("BUF".into()),
-            opponent: Some(NflTeamAbbr("KC".into())),
+            team: TeamAbbr::BUF,
+            opponent: Some(TeamAbbr::KC),
             ..factories::player_stats("00-BUF", 1)
         };
         let buf_defense = TeamWeekStats {
@@ -1525,11 +1522,11 @@ mod tests {
                 Season(2025),
                 &[
                     PlayerWeekStats {
-                        opponent: Some(NflTeamAbbr("BUF".into())),
+                        opponent: Some(TeamAbbr::BUF),
                         ..factories::rb_stats("00-A", 1, 100)
                     },
                     PlayerWeekStats {
-                        opponent: Some(NflTeamAbbr("BUF".into())),
+                        opponent: Some(TeamAbbr::BUF),
                         ..factories::rb_stats("00-B", 1, 200)
                     },
                     buf_player,
