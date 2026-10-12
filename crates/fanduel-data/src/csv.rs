@@ -100,3 +100,54 @@ pub(crate) fn parse_csv(
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::parse_csv;
+    use nfl_model::{DfsPosition, SeasonWeek, TeamAbbr};
+
+    #[test]
+    fn parses_fanduel_export_players_games_and_defense() {
+        let salaries = parse_csv(
+            SeasonWeek::reg(1),
+            include_bytes!("../tests/fixtures/fanduel-export.csv"),
+        )
+        .unwrap();
+
+        assert_eq!(salaries.len(), 4);
+        assert_eq!(salaries[0].player.as_ref().unwrap().id, 62239);
+        assert_eq!(salaries[0].player.as_ref().unwrap().first_name, "Josh");
+        assert_eq!(salaries[0].position, DfsPosition::Qb);
+        assert_eq!(salaries[0].team, TeamAbbr::BUF);
+        assert_eq!(salaries[0].game.matchup.away, TeamAbbr::BUF);
+        assert_eq!(
+            salaries[0].game.season_week.encode(),
+            SeasonWeek::reg(1).encode()
+        );
+
+        let defense = &salaries[1];
+        assert!(defense.player.is_none());
+        assert_eq!(defense.position, DfsPosition::Dst);
+        assert_eq!(defense.team, TeamAbbr::NYG);
+
+        let jaguar = salaries
+            .iter()
+            .find(|row| row.team == TeamAbbr::JAX)
+            .unwrap();
+        assert_eq!(jaguar.game.matchup.away, TeamAbbr::JAX);
+        let ram = salaries
+            .iter()
+            .find(|row| row.team == TeamAbbr::LA)
+            .unwrap();
+        assert_eq!(ram.game.matchup.away, TeamAbbr::LA);
+    }
+
+    #[test]
+    fn rejects_an_unrecognized_position_in_the_export() {
+        let csv = include_str!("../tests/fixtures/fanduel-export.csv").replacen(",QB,", ",CPT,", 1);
+        assert!(matches!(
+            parse_csv(SeasonWeek::reg(1), csv.as_bytes()),
+            Err(crate::FanduelDataError::InvalidRow(_))
+        ));
+    }
+}

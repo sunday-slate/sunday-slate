@@ -65,14 +65,14 @@ impl Store {
         rows.into_iter()
             .map(|row| {
                 let position = row.position;
-                
+
                 let player = match position {
                     DfsPosition::Dst => None,
                     _ => Some(Player {
                         id: row.player_id.unwrap() as u32,
                         first_name: row.first_name.unwrap(),
-                        last_name: row.last_name.unwrap()
-                    })
+                        last_name: row.last_name.unwrap(),
+                    }),
                 };
 
                 Ok(SalariedPlayer {
@@ -235,6 +235,25 @@ mod tests {
             .unwrap();
         assert_eq!(games, 1);
         assert_eq!(players, 1);
+    }
+
+    #[tokio::test]
+    async fn salaried_players_for_returns_player_and_dst_rows() {
+        let store = Store::in_memory().await.unwrap();
+        let salaries = vec![
+            salary(
+                DfsPosition::Qb,
+                Some(Player {
+                    id: 62239,
+                    first_name: "Josh".into(),
+                    last_name: "Allen".into(),
+                }),
+                TeamAbbr::BUF,
+                8200,
+            ),
+            salary(DfsPosition::Dst, None, TeamAbbr::NYJ, 3500),
+        ];
+        store.save_salaried_players(&salaries).await.unwrap();
 
         let fetched = store
             .salaried_players_for(SeasonWeek::reg(1))
@@ -242,18 +261,54 @@ mod tests {
             .unwrap();
         assert_eq!(fetched.len(), 2);
         assert!(fetched.iter().any(|salary| {
-            salary
-                .player
-                .as_ref()
-                .is_some_and(|player| player.id == 62239)
-                && salary.salary == 8400
+            salary.player.as_ref().is_some_and(|player| {
+                player.id == 62239 && player.first_name == "Josh" && player.last_name == "Allen"
+            }) && salary.salary == 8200
                 && salary.position == DfsPosition::Qb
+                && salary.team == TeamAbbr::BUF
+                && salary.game.matchup.away == TeamAbbr::BUF
+                && salary.game.matchup.home == TeamAbbr::NYJ
         }));
         assert!(fetched.iter().any(|salary| {
             salary.player.is_none()
-                && salary.team == TeamAbbr::NYJ
-                && salary.salary == 3700
+                && salary.salary == 3500
                 && salary.position == DfsPosition::Dst
+                && salary.team == TeamAbbr::NYJ
         }));
+    }
+
+    #[tokio::test]
+    async fn salaried_players_for_filters_by_season_week_and_returns_empty_when_missing() {
+        let store = Store::in_memory().await.unwrap();
+        let week_one = salary(
+            DfsPosition::Qb,
+            Some(Player {
+                id: 62239,
+                first_name: "Josh".into(),
+                last_name: "Allen".into(),
+            }),
+            TeamAbbr::BUF,
+            8200,
+        );
+        let mut week_two = week_one.clone();
+        week_two.game.season_week = SeasonWeek::reg(2);
+        week_two.salary = 8100;
+        store
+            .save_salaried_players(&[week_one.clone(), week_two])
+            .await
+            .unwrap();
+
+        let fetched = store
+            .salaried_players_for(SeasonWeek::reg(1))
+            .await
+            .unwrap();
+        assert_eq!(fetched, vec![week_one]);
+        assert!(
+            store
+                .salaried_players_for(SeasonWeek::reg(3))
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 }
