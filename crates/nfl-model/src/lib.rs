@@ -13,5 +13,5 @@ pub use live::{
 };
 pub use model::{
     DfsPosition, Game, Player, PlayerWeekStats, Season, SeasonType, TeamAbbr, TeamWeekStats, Week,
-    WeeklyRosterEntry,
+    WeeklyRosterEntry, SeasonWeek
 };

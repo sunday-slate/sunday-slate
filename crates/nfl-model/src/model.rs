@@ -1,4 +1,7 @@
 use time::OffsetDateTime;
+use std::fmt::{Display, Formatter};
+
+const DEFAULT_SEASON: u16 = 2026;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
 #[sqlx(rename_all = "UPPERCASE")]
@@ -44,6 +47,12 @@ impl DfsPosition {
 #[serde(transparent)]
 pub struct Season(pub u16);
 
+impl Default for Season {
+    fn default() -> Self {
+        Season(DEFAULT_SEASON)
+    }
+}
+
 #[derive(
     Debug,
     Clone,
@@ -66,16 +75,92 @@ pub struct Week(pub u8);
 #[serde(transparent)]
 pub struct TeamAbbr(pub String);
 
+impl Display for TeamAbbr {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 /// Stored as TEXT "REG"/"POST". Upstream playoff game types (WC/DIV/CON/SB)
 /// map to Post at ingest.
+#[repr(u8)]
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, sqlx::Type,
+    Default, Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, sqlx::Type,
 )]
-#[sqlx(rename_all = "UPPERCASE")]
 #[serde(rename_all = "UPPERCASE")]
 pub enum SeasonType {
-    Reg,
-    Post,
+    #[default]
+    Reg = 0,
+    Post = 1,
+}
+
+impl From<SeasonType> for u8 {
+    fn from(value: SeasonType) -> Self {
+        value as u8
+    }
+}
+
+impl From<SeasonType> for u32 {
+    fn from(value: SeasonType) -> Self {
+        value as u32
+    }
+}
+
+impl TryFrom<u8> for SeasonType {
+    type Error = ();
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Reg),
+            1 => Ok(Self::Post),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SeasonWeek {
+    pub season: Season,
+    pub season_type: SeasonType,
+    pub week: Week,
+}
+
+impl SeasonWeek {
+    pub fn reg(week_num: u8) -> Self {
+        Self {
+            season: Season::default(),
+            season_type: SeasonType::Reg,
+            week: Week(week_num),
+        }
+    }
+
+    pub fn post(week_num: u8) -> Self {
+        Self {
+            season: Season::default(),
+            season_type: SeasonType::Post,
+            week: Week(week_num),
+        }
+    }
+
+    pub fn encode(&self) -> u32 {
+        u32::from(self.season.0) * 1_000
+        + u32::from(self.season_type) * 100
+        + u32::from(self.week.0)
+    }
+
+    pub fn decode(value: u32) -> Option<Self> {
+        let year = (value / 1_000) as u16;
+        let choice = ((value / 100) % 10) as u8;
+        let week = (value % 100) as u8;
+
+        let season_type = SeasonType::try_from(choice).ok()?;
+
+        Some(Self {
+            season: Season(year),
+            season_type,
+            week: Week(week),
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

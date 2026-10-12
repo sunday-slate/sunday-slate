@@ -1,5 +1,6 @@
 use nfl_model::{DfsPosition, TeamAbbr};
 use serde::{Deserialize, Serialize};
+use crate::Matchup;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RawSalaryRow {
@@ -59,12 +60,6 @@ impl RawSalaryRow {
             _ => None,
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct Matchup {
-    pub away: TeamAbbr,
-    pub home: TeamAbbr,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -3,11 +3,13 @@ mod csv;
 mod error;
 mod model;
 mod store;
+mod models;
 
 pub use config::FanduelDataConfig;
 pub use csv::interpret;
 pub use error::{CsvDiagnostic, FanduelDataError};
-pub use model::{Interpretation, InterpretedRow, Matchup, RawSalaryRow, RowDiagnostic};
+pub use model::{Interpretation, InterpretedRow, RawSalaryRow, RowDiagnostic};
+pub use models::{Matchup, Game, Player, SalariedPlayer};
 pub use store::{ReceivedUpload, SourceRow, Upload, UploadMetadata, UploadState};
 
 #[derive(Clone)]

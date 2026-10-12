@@ -17,4 +17,6 @@ pub enum FanduelDataError {
     TimestampFormat(#[from] time::error::Format),
     #[error("unsupported stored FanDuel position {0:?}")]
     Position(String),
+    #[error("invalid Matchup format: {0}")]
+    MatchupParseError(String)
 }
