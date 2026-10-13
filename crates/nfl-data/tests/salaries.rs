@@ -1,9 +1,6 @@
-use fanduel_data::{FanduelData, FanduelDataConfig};
-use nfl_data::{DfsPosition, NflData, NflDataConfig, SalaryMatchup, SalaryUploadOutcome, TeamAbbr};
+use nfl_data::{DfsPosition, NflData, NflDataConfig, SeasonWeek, TeamAbbr};
 
-const CSV: &[u8] = b"Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,Injury Indicator,Injury Details\n123506-62239,QB,Josh,,Allen,22,0,8200,BUF@NYJ,BUF,NYJ,,\n";
-const INVALID_CSV: &[u8] = b"Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,Injury Indicator,Injury Details\n123506-62239,QB,Josh,,Allen,22,0,8200,BUF@NYJ,BUF,NYJ,,,future-column\n";
-const ROW_DIAGNOSTICS_CSV: &[u8] = b"Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,Injury Indicator,Injury Details\n123506-62239,CPT,Josh,,Allen,22,0,8200,BUF-NYJ,BUF,NYJ,,\n";
+const CSV: &[u8] = include_bytes!("../../fanduel-data/tests/fixtures/fanduel-export.csv");
 
 fn config(nflverse: &std::path::Path, fanduel: &std::path::Path) -> NflDataConfig {
     NflDataConfig {
@@ -14,160 +11,63 @@ fn config(nflverse: &std::path::Path, fanduel: &std::path::Path) -> NflDataConfi
 }
 
 #[tokio::test]
-async fn upload_projects_id_free_salary_and_archives_exact_source_facts() {
+async fn facade_imports_reads_and_counts_typed_salaries_for_exact_week() {
     let dir = tempfile::tempdir().unwrap();
-    let nflverse = dir.path().join("cache.db");
-    let archive = dir.path().join("fanduel.db");
-    let cfg = config(&nflverse, &archive);
-    let nfl = NflData::connect(cfg.clone()).await.unwrap();
-
-    let outcome = nfl
-        .receive_salary_upload(CSV, Some("salaries.csv"))
-        .await
-        .unwrap();
-    assert_eq!(
-        outcome,
-        SalaryUploadOutcome::Parsed(vec![nfl_data::SalaryRow {
-            fd_player_id: "62239".into(),
-            name: "Josh Allen".into(),
-            team: TeamAbbr::BUF,
-            original_position: "QB".into(),
-            position: Some(DfsPosition::Qb),
-            matchup: Some(SalaryMatchup {
-                away: TeamAbbr::BUF,
-                home: TeamAbbr::NYJ,
-            }),
-            original_salary: "8200".into(),
-            salary: Some(8200),
-            diagnostics: vec![],
-        }])
-    );
-    drop(nfl);
-
-    let provider = FanduelData::connect(FanduelDataConfig {
-        database_url: format!("sqlite://{}", archive.display()),
-    })
-    .await
-    .unwrap();
-    let uploads = provider.recent_uploads(10).await.unwrap();
-    assert_eq!(uploads.len(), 1);
-    assert_eq!(uploads[0].filename.as_deref(), Some("salaries.csv"));
-    let upload = provider.upload(uploads[0].id).await.unwrap().unwrap();
-    assert_eq!(upload.bytes, CSV);
-    let rows = provider.source_rows(uploads[0].id).await.unwrap();
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].interpreted.raw.name(), "Josh Allen");
-
-    let nfl = NflData::connect(cfg).await.unwrap();
-    nfl.receive_salary_upload(CSV, Some("salaries.csv"))
-        .await
-        .unwrap();
-    let uploads = provider.recent_uploads(10).await.unwrap();
-    assert_eq!(uploads.len(), 2);
-    assert_ne!(uploads[0].id, uploads[1].id);
-}
-
-#[tokio::test]
-async fn in_memory_facades_keep_fanduel_receipts_independent() {
-    let first = NflData::in_memory().await.unwrap();
-    let second = NflData::in_memory().await.unwrap();
-    first.receive_salary_upload(CSV, None).await.unwrap();
-    let second_outcome = second.receive_salary_upload(CSV, None).await.unwrap();
-    assert_eq!(
-        second_outcome,
-        SalaryUploadOutcome::Parsed(vec![nfl_data::SalaryRow {
-            fd_player_id: "62239".into(),
-            name: "Josh Allen".into(),
-            team: TeamAbbr::BUF,
-            original_position: "QB".into(),
-            position: Some(DfsPosition::Qb),
-            matchup: Some(SalaryMatchup {
-                away: TeamAbbr::BUF,
-                home: TeamAbbr::NYJ,
-            }),
-            original_salary: "8200".into(),
-            salary: Some(8200),
-            diagnostics: vec![],
-        }])
-    );
-}
-
-#[tokio::test]
-async fn facade_preserves_empty_and_malformed_csv_outcomes() {
-    let nfl = NflData::in_memory().await.unwrap();
-    assert_eq!(
-        nfl.receive_salary_upload(b"", None).await.unwrap(),
-        SalaryUploadOutcome::Empty
-    );
-    assert!(matches!(
-        nfl.receive_salary_upload(INVALID_CSV, None).await.unwrap(),
-        SalaryUploadOutcome::InvalidCsv(_)
-    ));
-}
-
-#[tokio::test]
-async fn facade_row_diagnostics_cover_unparseable_salary() {
-    let nfl = NflData::in_memory().await.unwrap();
-    let bytes = b"Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,Injury Indicator,Injury Details\n123506-62239,QB,Josh,,Allen,22,0,not-a-salary,BUF@NYJ,BUF,NYJ,,\n";
-    let SalaryUploadOutcome::Parsed(rows) = nfl.receive_salary_upload(bytes, None).await.unwrap()
-    else {
-        panic!("expected parsed outcome");
-    };
-    assert_eq!(rows[0].original_salary, "not-a-salary");
-    assert_eq!(rows[0].salary, None);
-    assert_eq!(rows[0].diagnostics.len(), 1);
-    assert_eq!(rows[0].diagnostics[0].field, "Salary");
-    assert_eq!(rows[0].diagnostics[0].row_number, 1);
-}
-
-#[tokio::test]
-async fn facade_row_diagnostics_preserve_source_name_and_original_values() {
-    let nfl = NflData::in_memory().await.unwrap();
-    let SalaryUploadOutcome::Parsed(rows) = nfl
-        .receive_salary_upload(ROW_DIAGNOSTICS_CSV, None)
-        .await
-        .unwrap()
-    else {
-        panic!("expected row diagnostics in parsed outcome");
-    };
-    assert_eq!(rows[0].diagnostics.len(), 2);
-    assert!(rows[0].diagnostics[0].message.contains("Josh Allen"));
-    assert!(rows[0].diagnostics[0].message.contains("CPT"));
-    assert!(rows[0].diagnostics[1].message.contains("Josh Allen"));
-    assert!(rows[0].diagnostics[1].message.contains("BUF-NYJ"));
-}
-
-#[tokio::test]
-async fn fanduel_startup_failure_is_identified_and_nflverse_reads_stay_separate() {
-    let dir = tempfile::tempdir().unwrap();
-    let error = NflData::connect(config(
+    let nfl = NflData::connect(config(
         &dir.path().join("cache.db"),
-        &dir.path().join("missing/fanduel.db"),
+        &dir.path().join("fanduel.db"),
     ))
     .await
-    .err()
-    .expect("invalid FanDuel path should fail startup");
-    assert!(error.to_string().contains("FanDuel"));
+    .unwrap();
+    let week = SeasonWeek::reg(1);
 
-    let cache = dir.path().join("cache.db");
-    let source = dir.path().join("fanduel.db");
-    let cfg = config(&cache, &source);
-    let nfl = NflData::connect(cfg.clone()).await.unwrap();
-    nfl.receive_salary_upload(CSV, None).await.unwrap();
-    drop(nfl);
-    std::fs::remove_file(&cache).unwrap();
-    let nfl = NflData::connect(cfg).await.unwrap();
-    assert!(nfl.games(nfl_data::Season(2025)).await.unwrap().is_empty());
+    let imported = nfl.import_fanduel_csv(week.clone(), CSV).await.unwrap();
+    assert_eq!(imported.len(), 4);
+    assert_eq!(imported[0].player.as_ref().unwrap().id, 62239);
+    assert_eq!(imported[0].position, DfsPosition::Qb);
+    assert!(imported.iter().any(|salary| {
+        salary.player.is_none()
+            && salary.position == DfsPosition::Dst
+            && salary.team == TeamAbbr::NYG
+    }));
+    let readback = nfl.salaried_players_for(week.clone()).await.unwrap();
+    assert_eq!(readback.len(), imported.len());
+    assert!(imported.iter().all(|salary| readback.contains(salary)));
+    assert!(
+        nfl.salaried_players_for(SeasonWeek::reg(2))
+            .await
+            .unwrap()
+            .is_empty()
+    );
     assert_eq!(
-        FanduelData::connect(FanduelDataConfig {
-            database_url: format!("sqlite://{}", source.display()),
-        })
-        .await
+        nfl.salary_counts_by_week().await.unwrap(),
+        vec![(week.clone(), 4)]
+    );
+
+    let updated_csv = std::str::from_utf8(CSV)
         .unwrap()
-        .recent_uploads(10)
+        .replacen(",17,8200,", ",17,8400,", 1);
+    let updated = nfl
+        .import_fanduel_csv(week.clone(), updated_csv.as_bytes())
         .await
+        .unwrap();
+    assert_eq!(updated.len(), 4);
+    assert_eq!(updated[0].salary, 8400);
+    let readback = nfl.salaried_players_for(week.clone()).await.unwrap();
+    assert_eq!(readback.len(), updated.len());
+    assert!(updated.iter().all(|salary| readback.contains(salary)));
+    assert_eq!(nfl.salary_counts_by_week().await.unwrap(), vec![(week, 4)]);
+}
+
+#[tokio::test]
+async fn facade_returns_parser_errors() {
+    let nfl = NflData::in_memory().await.unwrap();
+    let malformed = std::str::from_utf8(CSV)
         .unwrap()
-        .len(),
-        1
+        .replacen(",QB,", ",CPT,", 1);
+    assert!(
+        nfl.import_fanduel_csv(SeasonWeek::reg(1), malformed.as_bytes())
+            .await
+            .is_err()
     );
 }

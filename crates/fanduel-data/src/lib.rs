@@ -36,6 +36,10 @@ impl FanduelData {
         Ok(salaries)
     }
 
+    pub async fn salary_counts_by_week(&self) -> Result<Vec<(SeasonWeek, i64)>, FanduelDataError> {
+        self.store.salary_counts_by_week().await
+    }
+
     pub async fn save_salaried_players(
         &self,
         salaries: &[SalariedPlayer],

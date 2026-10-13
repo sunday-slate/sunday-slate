@@ -1,7 +1,6 @@
 mod config;
 mod data_revision;
 mod identity;
-mod salaries;
 #[cfg(test)]
 mod test;
 mod web;
@@ -12,6 +11,7 @@ use nflverse_data::NflverseData;
 
 pub use config::NflDataConfig;
 pub use data_revision::DataRevision;
+pub use fanduel_data::{FanduelDataError, SalariedPlayer};
 pub use identity::PlayerIdentity;
 pub use live::{
     EspnPlayerId, InjuryDesignation, InjuryEntry, InjuryProvider, InjuryReport, LiveGame,
@@ -21,16 +21,12 @@ pub use live::{
 };
 pub use nfl_model::live;
 pub use nfl_model::{
-    DfsPosition, Game, Player, PlayerWeekStats, Season, SeasonType, TeamAbbr, TeamWeekStats, Week,
-    WeeklyRosterEntry, eastern_offset, to_eastern,
+    DfsPosition, Game, Player, PlayerWeekStats, Season, SeasonType, SeasonWeek, TeamAbbr,
+    TeamWeekStats, Week, WeeklyRosterEntry, eastern_offset, to_eastern,
 };
 pub use nflverse_data::{
     Dataset, DatasetFreshness, DatasetReport, DatasetStatus, NflverseDataError as NflDataError,
     RefreshStatus, SyncReport,
-};
-pub use salaries::{
-    SalaryCsvDiagnostic, SalaryMatchup, SalaryRow, SalaryRowDiagnostic, SalaryUploadError,
-    SalaryUploadOutcome,
 };
 pub use web::router as admin_router;
 
@@ -72,14 +68,26 @@ impl NflData {
         ))
     }
 
-    /// Archives and interprets a FanDuel salary upload without exposing archive identities.
-    pub async fn receive_salary_upload(
+    /// Parse and persist FanDuel salaries for an explicit contest week.
+    pub async fn import_fanduel_csv(
         &self,
-        bytes: &[u8],
-        filename: Option<&str>,
-    ) -> Result<SalaryUploadOutcome, SalaryUploadError> {
-        let received = self.fanduel.receive(bytes, filename).await?;
-        Ok(received.interpretation.into())
+        season_week: SeasonWeek,
+        csv_data: &[u8],
+    ) -> Result<Vec<SalariedPlayer>, FanduelDataError> {
+        self.fanduel.import_csv(season_week, csv_data).await
+    }
+
+    /// Read stored FanDuel salary source rows for an exact contest week.
+    pub async fn salaried_players_for(
+        &self,
+        season_week: SeasonWeek,
+    ) -> Result<Vec<SalariedPlayer>, FanduelDataError> {
+        self.fanduel.salaried_players_for(season_week).await
+    }
+
+    /// Count stored player and DST salary source rows, grouped by complete week.
+    pub async fn salary_counts_by_week(&self) -> Result<Vec<(SeasonWeek, i64)>, FanduelDataError> {
+        self.fanduel.salary_counts_by_week().await
     }
 
     /// Opens both provider databases and runs their migrations.
@@ -90,11 +98,9 @@ impl NflData {
         let provider = NflverseData::connect(config.clone().into())
             .await
             .map_err(NflDataConnectError::Nflverse)?;
-        let fanduel = fanduel_data::FanduelData::connect(fanduel_data::FanduelDataConfig {
-            database_url: config.fanduel_database_url,
-        })
-        .await
-        .map_err(NflDataConnectError::Fanduel)?;
+        let fanduel = fanduel_data::FanduelData::connect(&config.fanduel_database_url)
+            .await
+            .map_err(NflDataConnectError::Fanduel)?;
         Ok(Self {
             provider,
             fanduel,

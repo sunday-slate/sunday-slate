@@ -92,6 +92,32 @@ impl Store {
             .collect()
     }
 
+    pub(crate) async fn salary_counts_by_week(
+        &self,
+    ) -> Result<Vec<(SeasonWeek, i64)>, FanduelDataError> {
+        let rows = sqlx::query_as::<_, (i64, i64)>(
+            "SELECT season_week, COUNT(*) FROM salaries JOIN games ON games.id = salaries.game_id GROUP BY season_week ORDER BY season_week",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter()
+            .map(|(encoded_week, count)| {
+                let encoded_week = u32::try_from(encoded_week).map_err(|_| {
+                    FanduelDataError::InvalidRow(format!(
+                        "invalid encoded season week {encoded_week}"
+                    ))
+                })?;
+                let season_week = SeasonWeek::decode(encoded_week).ok_or_else(|| {
+                    FanduelDataError::InvalidRow(format!(
+                        "invalid encoded season week {encoded_week}"
+                    ))
+                })?;
+                Ok((season_week, count))
+            })
+            .collect()
+    }
+
     pub(crate) async fn save_salaried_players(
         &self,
         salaries: &[SalariedPlayer],
@@ -191,6 +217,35 @@ mod tests {
             position,
             team,
         }
+    }
+
+    #[tokio::test]
+    async fn salary_counts_by_week_groups_complete_season_weeks() {
+        let store = Store::in_memory().await.unwrap();
+        let regular = salary(
+            DfsPosition::Qb,
+            Some(Player {
+                id: 62239,
+                first_name: "Josh".into(),
+                last_name: "Allen".into(),
+            }),
+            TeamAbbr::BUF,
+            8200,
+        );
+        let mut regular_dst = salary(DfsPosition::Dst, None, TeamAbbr::NYJ, 3500);
+        let mut postseason = regular.clone();
+        postseason.game.season_week = SeasonWeek::post(1);
+        postseason.salary = 7800;
+        regular_dst.game.season_week = SeasonWeek::reg(1);
+        store
+            .save_salaried_players(&[regular, regular_dst, postseason])
+            .await
+            .unwrap();
+
+        assert_eq!(
+            store.salary_counts_by_week().await.unwrap(),
+            vec![(SeasonWeek::reg(1), 2), (SeasonWeek::post(1), 1)]
+        );
     }
 
     #[tokio::test]
