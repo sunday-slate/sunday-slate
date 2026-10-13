@@ -209,9 +209,11 @@ pub(crate) fn parse(asset: &str, bytes: &[u8]) -> Result<Vec<TeamWeekStats>, Nfl
             let a = &g.teams[team];
             let opp = &g.teams[opponent];
             out.push(TeamWeekStats {
-                season: Season(g.season),
-                week: Week(g.week),
-                season_type: g.season_type,
+                season_week: crate::model::SeasonWeek {
+                    season: Season(g.season),
+                    week: Week(g.week),
+                    season_type: g.season_type,
+                },
                 team: team.parse().expect("validated team abbreviation"),
                 opponent: opponent.parse().expect("validated team abbreviation"),
                 gsis_game_id: game_id.clone(),

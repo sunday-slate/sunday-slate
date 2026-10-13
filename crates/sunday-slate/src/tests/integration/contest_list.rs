@@ -55,9 +55,11 @@ async fn contests_tab_shows_with_no_slate_set(pool: SqlitePool) {
 
 fn rb(gsis: &str, week: u8, rush_yards: i32) -> NflPlayerWeekStats {
     NflPlayerWeekStats {
-        season: Season(2025),
-        week: Week(week),
-        season_type: SeasonType::Reg,
+        season_week: nfl_data::SeasonWeek {
+            season: Season(2025),
+            week: Week(week),
+            season_type: SeasonType::Reg,
+        },
         gsis_id: gsis.into(),
         team: TeamAbbr::KC,
         opponent: Some(TeamAbbr::BUF),

@@ -1,12 +1,43 @@
+use std::{
+    cmp::Ordering,
+    hash::{Hash, Hasher},
+};
+
 use sqlx::{Database, Decode, Encode, Type, encode::IsNull, error::BoxDynError};
 
 use crate::{Season, SeasonType, Week};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy)]
 pub struct SeasonWeek {
     pub season: Season,
     pub season_type: SeasonType,
     pub week: Week,
+}
+
+impl PartialEq for SeasonWeek {
+    fn eq(&self, other: &Self) -> bool {
+        self.encode() == other.encode()
+    }
+}
+
+impl Eq for SeasonWeek {}
+
+impl Hash for SeasonWeek {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.encode().hash(state);
+    }
+}
+
+impl PartialOrd for SeasonWeek {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for SeasonWeek {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.encode().cmp(&other.encode())
+    }
 }
 
 impl SeasonWeek {
@@ -89,5 +120,35 @@ where
                 format!("invalid encoded SeasonWeek: {encoded}"),
             )) as BoxDynError
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::hash_map::DefaultHasher;
+
+    use super::*;
+
+    #[test]
+    fn equality_hashing_and_ordering_use_the_encoded_value() {
+        let regular = SeasonWeek {
+            season: Season(2025),
+            season_type: SeasonType::Reg,
+            week: Week(1),
+        };
+        let postseason = SeasonWeek {
+            season: Season(2025),
+            season_type: SeasonType::Post,
+            week: Week(1),
+        };
+
+        assert!(regular < postseason);
+        assert_ne!(regular, postseason);
+
+        let mut regular_hash = DefaultHasher::new();
+        regular.hash(&mut regular_hash);
+        let mut equal_hash = DefaultHasher::new();
+        regular.clone().hash(&mut equal_hash);
+        assert_eq!(regular_hash.finish(), equal_hash.finish());
     }
 }

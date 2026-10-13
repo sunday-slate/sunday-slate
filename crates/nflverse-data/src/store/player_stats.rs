@@ -1,7 +1,7 @@
 use sqlx::SqlitePool;
 
 use crate::error::NflDataError;
-use crate::model::{PlayerWeekStats, Season, SeasonType, TeamAbbr, Week};
+use crate::model::{PlayerWeekStats, Season, SeasonType, SeasonWeek, TeamAbbr, Week};
 use crate::store::Store;
 use crate::store::sync_state::{self, SyncedAsset};
 
@@ -13,7 +13,7 @@ pub(crate) async fn replace(
 ) -> Result<u64, NflDataError> {
     for s in stats {
         debug_assert_eq!(
-            s.season, season,
+            s.season_week.season, season,
             "player week stats entry season must match the replace() season param"
         );
     }
@@ -35,9 +35,9 @@ pub(crate) async fn replace(
                         fumble_recovery_tds)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                                ?, ?, ?, ?, ?)"#,
-                    s.season,
-                    s.week,
-                    s.season_type,
+                    s.season_week.season,
+                    s.season_week.week,
+                    s.season_week.season_type,
                     s.gsis_id,
                     s.team,
                     s.opponent,
@@ -72,8 +72,7 @@ pub(crate) async fn for_week(
     season: Season,
     week: Week,
 ) -> Result<Vec<PlayerWeekStats>, NflDataError> {
-    Ok(sqlx::query_as!(
-        PlayerWeekStats,
+    let rows = sqlx::query!(
         r#"SELECT
                season AS "season: Season",
                week AS "week: Week",
@@ -104,7 +103,37 @@ pub(crate) async fn for_week(
         week
     )
     .fetch_all(pool)
-    .await?)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| PlayerWeekStats {
+            season_week: SeasonWeek {
+                season: row.season,
+                week: row.week,
+                season_type: row.season_type,
+            },
+            gsis_id: row.gsis_id,
+            team: row.team,
+            opponent: row.opponent,
+            completions: row.completions,
+            attempts: row.attempts,
+            passing_yards: row.passing_yards,
+            passing_tds: row.passing_tds,
+            passing_interceptions: row.passing_interceptions,
+            rushing_attempts: row.rushing_attempts,
+            rushing_yards: row.rushing_yards,
+            rushing_tds: row.rushing_tds,
+            targets: row.targets,
+            receptions: row.receptions,
+            receiving_yards: row.receiving_yards,
+            receiving_tds: row.receiving_tds,
+            fumbles_lost: row.fumbles_lost,
+            two_point_conversions: row.two_point_conversions,
+            special_teams_tds: row.special_teams_tds,
+            fumble_recovery_tds: row.fumble_recovery_tds,
+        })
+        .collect())
 }
 
 #[cfg(test)]
@@ -117,9 +146,11 @@ mod tests {
     /// flip two field values and fail the roundtrip assertion.
     fn stat_a() -> PlayerWeekStats {
         PlayerWeekStats {
-            season: Season(2025),
-            week: Week(1),
-            season_type: SeasonType::Reg,
+            season_week: crate::model::SeasonWeek {
+                season: Season(2025),
+                week: Week(1),
+                season_type: SeasonType::Reg,
+            },
             gsis_id: "00-1111111".into(),
             team: TeamAbbr::GB,
             opponent: Some(TeamAbbr::CHI),
@@ -144,9 +175,11 @@ mod tests {
 
     fn stat_b() -> PlayerWeekStats {
         PlayerWeekStats {
-            season: Season(2025),
-            week: Week(1),
-            season_type: SeasonType::Reg,
+            season_week: crate::model::SeasonWeek {
+                season: Season(2025),
+                week: Week(1),
+                season_type: SeasonType::Reg,
+            },
             gsis_id: "00-2222222".into(),
             team: TeamAbbr::DAL,
             opponent: Some(TeamAbbr::NYG),

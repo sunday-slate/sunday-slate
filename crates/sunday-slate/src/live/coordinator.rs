@@ -2,21 +2,20 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use ::time::{Date, OffsetDateTime};
-use nfl_data::{
-    Game, InjuryEntry, InjuryProvider, LiveGame, LiveScoreProvider, LiveSlate, ProviderOutcome,
-    Season, SeasonType, TeamAbbr, Week,
-};
-use tank01_data::{PollEvent, SlatePoller};
-use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
-use tokio::time::{self, MissedTickBehavior};
-
 use crate::contests::{ContestId, store};
 use crate::live::LiveContestHub;
 use crate::live::identity::LiveIdentityIndex;
 use crate::live::snapshot::live_game;
 use crate::{AppError, AppState};
+use ::time::{Date, OffsetDateTime};
+use nfl_data::{
+    Game, InjuryEntry, InjuryProvider, LiveGame, LiveScoreProvider, LiveSlate, ProviderOutcome,
+    Season, SeasonWeek, TeamAbbr,
+};
+use tank01_data::{PollEvent, SlatePoller};
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
+use tokio::time::{self, MissedTickBehavior};
 
 const RECONCILE_INTERVAL: Duration = Duration::from_secs(20);
 const STARTUP_RECOVERY: ::time::Duration = ::time::Duration::hours(12);
@@ -189,7 +188,7 @@ struct CoordinatorState {
     feeds: HashMap<FeedKey, FeedRunner>,
     replays: HashMap<FeedKey, FeedReplay>,
     started: HashSet<ContestId>,
-    identity: HashMap<(Season, Week, SeasonType, Vec<String>), Arc<LiveIdentityIndex>>,
+    identity: HashMap<(SeasonWeek, Vec<String>), Arc<LiveIdentityIndex>>,
     revision: Option<nfl_data::DataRevision>,
 }
 
@@ -267,7 +266,7 @@ where
     let mut discovered = BTreeMap::<FeedKey, (LiveSlate, BTreeSet<ContestId>)>::new();
     let mut contest_updates =
         BTreeMap::<ContestId, (Vec<Game>, Arc<LiveIdentityIndex>, Vec<FeedKey>)>::new();
-    let mut targets = HashMap::<crate::injuries::SlateKey, InjuryTarget>::new();
+    let mut targets = HashMap::<SeasonWeek, InjuryTarget>::new();
 
     for contest in contests {
         let Some(ids) = materialized.get(&contest.id) else {
@@ -289,11 +288,8 @@ where
                     .contains(&contest.id)
             });
 
-        let tuple = (games[0].season, games[0].week, games[0].season_type);
-        if !games
-            .iter()
-            .all(|game| (game.season, game.week, game.season_type) == tuple)
-        {
+        let tuple = games[0].season_week;
+        if !games.iter().all(|game| game.season_week == tuple) {
             continue;
         }
 
@@ -327,9 +323,7 @@ where
         capture_injury_target(&mut targets, &games, &tuple, &teams, contest.id);
 
         let identity_key = (
-            tuple.0,
-            tuple.1,
-            tuple.2,
+            tuple,
             teams
                 .iter()
                 .map(|team| team.as_str().to_owned())
@@ -338,8 +332,9 @@ where
         let identity = if let Some(index) = coordinator.identity.get(&identity_key) {
             index.clone()
         } else {
-            let index =
-                Arc::new(LiveIdentityIndex::build(&state.nfl, tuple.0, tuple.1, &teams).await?);
+            let index = Arc::new(
+                LiveIdentityIndex::build(&state.nfl, tuple.season, tuple.week, &teams).await?,
+            );
             coordinator.identity.insert(identity_key, index.clone());
             index
         };
@@ -524,9 +519,9 @@ fn injury_ttl(now: OffsetDateTime, window: Option<&InjuryWindow>) -> ::time::Dur
 }
 
 fn capture_injury_target(
-    targets: &mut HashMap<crate::injuries::SlateKey, InjuryTarget>,
+    targets: &mut HashMap<SeasonWeek, InjuryTarget>,
     games: &[Game],
-    tuple: &crate::injuries::SlateKey,
+    tuple: &SeasonWeek,
     teams: &[TeamAbbr],
     contest: ContestId,
 ) {
@@ -552,13 +547,13 @@ async fn refresh_injuries<P>(
     state: &AppState,
     provider: &P,
     coordinator: &mut CoordinatorState,
-    targets: &HashMap<crate::injuries::SlateKey, InjuryTarget>,
+    targets: &HashMap<SeasonWeek, InjuryTarget>,
     now: OffsetDateTime,
 ) -> Result<(), AppError>
 where
     P: InjuryProvider,
 {
-    let stale: Vec<(&crate::injuries::SlateKey, &InjuryTarget)> = targets
+    let stale: Vec<(&SeasonWeek, &InjuryTarget)> = targets
         .iter()
         .filter(|(key, target)| {
             state
@@ -584,9 +579,7 @@ where
         ProviderOutcome::Value(report) => {
             for (key, target) in stale {
                 let identity_key = (
-                    key.0,
-                    key.1,
-                    key.2,
+                    *key,
                     target
                         .teams
                         .iter()
@@ -597,8 +590,13 @@ where
                     Some(index) => index.clone(),
                     None => {
                         let index = Arc::new(
-                            LiveIdentityIndex::build(&state.nfl, key.0, key.1, &target.teams)
-                                .await?,
+                            LiveIdentityIndex::build(
+                                &state.nfl,
+                                key.season,
+                                key.week,
+                                &target.teams,
+                            )
+                            .await?,
                         );
                         coordinator.identity.insert(identity_key, index.clone());
                         index
@@ -631,8 +629,8 @@ where
                     },
                 );
                 tracing::info!(
-                    season = %key.0.0,
-                    week = %key.1.0,
+                    season = %key.season.0,
+                    week = %key.week.0,
                     report_date = ?report.report_date,
                     entries = report.entries.len(),
                     matched,
@@ -644,8 +642,8 @@ where
         ProviderOutcome::Pregame { message } => {
             for (key, target) in stale {
                 tracing::info!(
-                    season = %key.0.0,
-                    week = %key.1.0,
+                    season = %key.season.0,
+                    week = %key.week.0,
                     message = %message,
                     "injury refresh: provider had no report"
                 );
@@ -1254,7 +1252,11 @@ mod tests {
         assert_eq!(
             app.state
                 .injuries
-                .report(&(Season(2025), Week(1), SeasonType::Reg))
+                .report(&nfl_data::SeasonWeek {
+                    season: Season(2025),
+                    week: Week(1),
+                    season_type: SeasonType::Reg
+                })
                 .expect("pre-kickoff slate keeps its injury target")
                 .by_gsis
                 .get(&crate::entries::NflPlayerId("00-A".into()))
@@ -1297,7 +1299,11 @@ mod tests {
         assert!(
             app.state
                 .injuries
-                .report(&(Season(2025), Week(1), SeasonType::Reg))
+                .report(&nfl_data::SeasonWeek {
+                    season: Season(2025),
+                    week: Week(1),
+                    season_type: SeasonType::Reg
+                })
                 .is_none(),
             "fully expired slates never carry an injury target"
         );
@@ -1740,7 +1746,11 @@ mod tests {
             .await
             .unwrap();
         let injuries = &app.state.injuries;
-        let key = &(Season(2025), Week(1), SeasonType::Reg);
+        let key = &nfl_data::SeasonWeek {
+            season: Season(2025),
+            week: Week(1),
+            season_type: SeasonType::Reg,
+        };
         let published = injuries.report(key).expect("injury report published");
 
         assert_eq!(

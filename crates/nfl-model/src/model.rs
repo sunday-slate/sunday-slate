@@ -1,3 +1,4 @@
+use crate::SeasonWeek;
 use std::fmt::{Display, Formatter};
 use time::OffsetDateTime;
 
@@ -193,10 +194,7 @@ impl TryFrom<u8> for SeasonType {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Game {
     pub gsis_game_id: String,
-    pub season: Season,
-    pub week: Week,
-    pub season_type: SeasonType,
-    /// UTC. None when upstream omits the kickoff time (some historical games).
+    pub season_week: SeasonWeek,
     pub kickoff: Option<OffsetDateTime>,
     pub home_team: TeamAbbr,
     pub away_team: TeamAbbr,
@@ -205,9 +203,6 @@ pub struct Game {
 }
 
 impl Game {
-    /// Kickoff in US Eastern local wall-clock time, or `None` when the kickoff
-    /// is unknown. The stored kickoff is an instant, so DST is resolved from
-    /// the transition instants for its year.
     pub fn kickoff_eastern(&self) -> Option<OffsetDateTime> {
         self.kickoff.map(crate::eastern::to_eastern)
     }
@@ -258,9 +253,7 @@ pub struct WeeklyRosterEntry {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlayerWeekStats {
-    pub season: Season,
-    pub week: Week,
-    pub season_type: SeasonType,
+    pub season_week: SeasonWeek,
     pub gsis_id: String,
     pub team: TeamAbbr,
     pub opponent: Option<TeamAbbr>,
@@ -292,9 +285,7 @@ pub struct PlayerWeekStats {
 /// offensive points (FanDuel's points-allowed), not the scoreboard total.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TeamWeekStats {
-    pub season: Season,
-    pub week: Week,
-    pub season_type: SeasonType,
+    pub season_week: SeasonWeek,
     pub team: TeamAbbr,
     pub opponent: TeamAbbr,
     pub gsis_game_id: String,
@@ -318,12 +309,10 @@ mod kickoff_eastern_tests {
     use time::Weekday;
     use time::macros::datetime;
 
-    fn game(kickoff: Option<time::OffsetDateTime>) -> Game {
+    fn game(kickoff: Option<OffsetDateTime>) -> Game {
         Game {
             gsis_game_id: "x".into(),
-            season: Season(2025),
-            week: Week(1),
-            season_type: SeasonType::Reg,
+            season_week: SeasonWeek::reg(1),
             kickoff,
             home_team: TeamAbbr::LA,
             away_team: TeamAbbr::SF,

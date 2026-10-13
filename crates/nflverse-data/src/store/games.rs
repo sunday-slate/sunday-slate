@@ -15,9 +15,9 @@ pub(crate) async fn seed(conn: &mut SqliteConnection, games: &[Game]) -> Result<
                 home_team, away_team, home_score, away_score)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
             g.gsis_game_id,
-            g.season,
-            g.week,
-            g.season_type,
+            g.season_week.season,
+            g.season_week.week,
+            g.season_week.season_type,
             g.kickoff,
             g.home_team,
             g.away_team,
@@ -47,9 +47,9 @@ pub(crate) async fn replace(
                         home_team, away_team, home_score, away_score)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
                     g.gsis_game_id,
-                    g.season,
-                    g.week,
-                    g.season_type,
+                    g.season_week.season,
+                    g.season_week.week,
+                    g.season_week.season_type,
                     g.kickoff,
                     g.home_team,
                     g.away_team,
@@ -93,9 +93,11 @@ pub(crate) async fn for_season(
     .try_map(|row| {
         Ok(Game {
             gsis_game_id: row.try_get("gsis_game_id")?,
-            season: row.try_get("season")?,
-            week: row.try_get("week")?,
-            season_type: row.try_get("season_type")?,
+            season_week: crate::model::SeasonWeek {
+                season: row.try_get("season")?,
+                week: row.try_get("week")?,
+                season_type: row.try_get("season_type")?,
+            },
             kickoff: row.try_get("kickoff")?,
             home_team: row.try_get("home_team")?,
             away_team: row.try_get("away_team")?,
@@ -117,9 +119,11 @@ mod tests {
     fn game(id: &str, week: u8) -> Game {
         Game {
             gsis_game_id: id.to_string(),
-            season: Season(2025),
-            week: Week(week),
-            season_type: SeasonType::Reg,
+            season_week: crate::model::SeasonWeek {
+                season: Season(2025),
+                week: Week(week),
+                season_type: SeasonType::Reg,
+            },
             kickoff: Some(datetime!(2025-10-03 00:15 UTC)),
             home_team: TeamAbbr::LA,
             away_team: TeamAbbr::SF,
@@ -195,7 +199,11 @@ mod tests {
                 let integer_encoded = [
                     game("2025_19_INT_REG", 19),
                     Game {
-                        season_type: SeasonType::Post,
+                        season_week: crate::model::SeasonWeek {
+                            season: Season(2025),
+                            week: Week(18),
+                            season_type: SeasonType::Post,
+                        },
                         ..game("2025_18_INT_POST", 18)
                     },
                 ];
@@ -208,7 +216,7 @@ mod tests {
         let games = for_season(store.reader(), Season(2025)).await.unwrap();
         let season_types: std::collections::HashMap<_, _> = games
             .into_iter()
-            .map(|game| (game.gsis_game_id, game.season_type))
+            .map(|game| (game.gsis_game_id, game.season_week.season_type))
             .collect();
         assert_eq!(season_types["2025_20_REG"], SeasonType::Reg);
         assert_eq!(season_types["2025_21_POST"], SeasonType::Post);

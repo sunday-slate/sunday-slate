@@ -63,7 +63,7 @@ pub fn parse_csv(
                 })?;
             let game = Game {
                 matchup: row.game.parse::<Matchup>()?,
-                season_week: season_week.clone(),
+                season_week,
             };
             let team = row
                 .team

@@ -1,7 +1,7 @@
 use sqlx::SqlitePool;
 
 use crate::error::NflDataError;
-use crate::model::{Season, SeasonType, TeamAbbr, TeamWeekStats, Week};
+use crate::model::{Season, SeasonType, SeasonWeek, TeamAbbr, TeamWeekStats, Week};
 use crate::store::Store;
 use crate::store::sync_state::{self, SyncedAsset};
 
@@ -13,7 +13,7 @@ pub(crate) async fn replace(
 ) -> Result<u64, NflDataError> {
     for s in stats {
         debug_assert_eq!(
-            s.season, season,
+            s.season_week.season, season,
             "team week stats entry season must match the replace() season param"
         );
     }
@@ -30,9 +30,9 @@ pub(crate) async fn replace(
                         sacks, interceptions, fumble_recoveries, safeties,
                         touchdowns, blocked_kicks, conversion_returns, points_allowed)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
-                    s.season,
-                    s.week,
-                    s.season_type,
+                    s.season_week.season,
+                    s.season_week.week,
+                    s.season_week.season_type,
                     s.team,
                     s.opponent,
                     s.gsis_game_id,
@@ -61,8 +61,7 @@ pub(crate) async fn for_week(
     season: Season,
     week: Week,
 ) -> Result<Vec<TeamWeekStats>, NflDataError> {
-    Ok(sqlx::query_as!(
-        TeamWeekStats,
+    let rows = sqlx::query!(
         r#"SELECT
                season AS "season: Season",
                week AS "week: Week",
@@ -85,7 +84,29 @@ pub(crate) async fn for_week(
         week
     )
     .fetch_all(pool)
-    .await?)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| TeamWeekStats {
+            season_week: SeasonWeek {
+                season: row.season,
+                week: row.week,
+                season_type: row.season_type,
+            },
+            team: row.team,
+            opponent: row.opponent,
+            gsis_game_id: row.gsis_game_id,
+            sacks: row.sacks,
+            interceptions: row.interceptions,
+            fumble_recoveries: row.fumble_recoveries,
+            safeties: row.safeties,
+            touchdowns: row.touchdowns,
+            blocked_kicks: row.blocked_kicks,
+            conversion_returns: row.conversion_returns,
+            points_allowed: row.points_allowed,
+        })
+        .collect())
 }
 
 #[cfg(test)]
@@ -96,9 +117,11 @@ mod tests {
     fn row(team: &str, opp: &str) -> TeamWeekStats {
         // Distinct primes so a positional INSERT swap fails the roundtrip.
         TeamWeekStats {
-            season: Season(2025),
-            week: Week(1),
-            season_type: SeasonType::Reg,
+            season_week: crate::model::SeasonWeek {
+                season: Season(2025),
+                week: Week(1),
+                season_type: SeasonType::Reg,
+            },
             team: team.parse().unwrap(),
             opponent: opp.parse().unwrap(),
             gsis_game_id: "2025_01_AAA_BBB".into(),

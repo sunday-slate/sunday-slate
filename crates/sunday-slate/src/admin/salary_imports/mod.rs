@@ -44,12 +44,12 @@ pub async fn import_salary_csv(
     season_week: SeasonWeek,
     csv_data: &[u8],
 ) -> Result<SalaryWeekOverview, SalaryImportError> {
-    let source = nfl_data::parse_fanduel_csv(season_week.clone(), csv_data)?;
+    let source = nfl_data::parse_fanduel_csv(season_week, csv_data)?;
     let games = nfl.games(season_week.season).await?;
     resolve_slate_games(&games, &season_week, &salary_matchups(&source))
         .map_err(|_| SalaryImportError::Schedule)?;
     nfl.save_fanduel_salaries(&source).await?;
-    project_salary_week(db, nfl, season_week.clone(), None).await?;
+    project_salary_week(db, nfl, season_week, None).await?;
     salary_week_overview(db, nfl, season_week).await
 }
 
@@ -58,7 +58,7 @@ pub async fn salary_week_overview(
     nfl: &NflData,
     season_week: SeasonWeek,
 ) -> Result<SalaryWeekOverview, SalaryImportError> {
-    let salaries = nfl.salaried_players_for(season_week.clone()).await?;
+    let salaries = nfl.salaried_players_for(season_week).await?;
     let mut unmatched = Vec::new();
     for salary in &salaries {
         let Some(player) = &salary.player else {
@@ -83,7 +83,7 @@ pub async fn resolve_salary_player(
     fd_player_id: &str,
     gsis_player_id: &str,
 ) -> Result<SalaryWeekOverview, SalaryImportError> {
-    let source = nfl.salaried_players_for(season_week.clone()).await?;
+    let source = nfl.salaried_players_for(season_week).await?;
     if !source.iter().any(|salary| {
         salary
             .player
@@ -92,13 +92,7 @@ pub async fn resolve_salary_player(
     }) {
         return Err(SalaryImportError::Schedule);
     }
-    project_salary_week(
-        db,
-        nfl,
-        season_week.clone(),
-        Some((fd_player_id, gsis_player_id)),
-    )
-    .await?;
+    project_salary_week(db, nfl, season_week, Some((fd_player_id, gsis_player_id))).await?;
     salary_week_overview(db, nfl, season_week).await
 }
 
@@ -120,7 +114,7 @@ async fn project_salary_week(
     season_week: SeasonWeek,
     resolved_player: Option<(&str, &str)>,
 ) -> Result<(), SalaryImportError> {
-    let source = nfl.salaried_players_for(season_week.clone()).await?;
+    let source = nfl.salaried_players_for(season_week).await?;
     let matchups = salary_matchups(&source);
     let games = nfl.games(season_week.season).await?;
     let slate_games = resolve_slate_games(&games, &season_week, &matchups)
@@ -232,7 +226,7 @@ pub fn default_season_week(
     let mut weeks = games
         .iter()
         .filter(|g| {
-            g.season == configured_season
+            g.season_week.season == configured_season
                 && g.kickoff.is_some_and(|kickoff| {
                     kickoff > now
                         && crate::contests::service::nfl_week_monday(
@@ -245,9 +239,9 @@ pub fn default_season_week(
     weeks
         .first()
         .map(|g| SeasonWeek {
-            season: g.season,
-            season_type: g.season_type,
-            week: g.week,
+            season: g.season_week.season,
+            season_type: g.season_week.season_type,
+            week: g.season_week.week,
         })
         .unwrap_or(SeasonWeek {
             season: configured_season,
@@ -264,9 +258,11 @@ mod default_week_tests {
     fn game(id: &str, week: u8, kickoff: time::OffsetDateTime) -> Game {
         Game {
             gsis_game_id: id.into(),
-            season: Season(2025),
-            week: Week(week),
-            season_type: SeasonType::Reg,
+            season_week: nfl_data::SeasonWeek {
+                season: Season(2025),
+                week: Week(week),
+                season_type: SeasonType::Reg,
+            },
             kickoff: Some(kickoff),
             home_team: "KC".parse().unwrap(),
             away_team: "BUF".parse().unwrap(),
@@ -322,9 +318,11 @@ mod tests {
     fn game(id: &str, week: u8, away: &str, home: &str) -> Game {
         Game {
             gsis_game_id: id.into(),
-            season: Season(2025),
-            week: Week(week),
-            season_type: SeasonType::Reg,
+            season_week: nfl_data::SeasonWeek {
+                season: Season(2025),
+                week: Week(week),
+                season_type: SeasonType::Reg,
+            },
             kickoff: None,
             home_team: home.parse().unwrap(),
             away_team: away.parse().unwrap(),
@@ -387,7 +385,7 @@ mod tests {
             "2025_01_JAX_HOU",
             "2025_01_LA_SEA",
         ];
-        let first = import_salary_csv(&db, &nfl, week.clone(), REPRESENTATIVE_CSV.as_bytes())
+        let first = import_salary_csv(&db, &nfl, week, REPRESENTATIVE_CSV.as_bytes())
             .await
             .expect("import and project");
         assert_eq!(first.salary_count, 4);
@@ -450,15 +448,10 @@ mod tests {
         let incorrect_csv = REPRESENTATIVE_CSV.replacen("BUF@NYJ,BUF,NYJ", "BUF@MIA,BUF,MIA", 1);
 
         assert!(matches!(
-            import_salary_csv(&db, &nfl, week.clone(), incorrect_csv.as_bytes()).await,
+            import_salary_csv(&db, &nfl, week, incorrect_csv.as_bytes()).await,
             Err(SalaryImportError::Schedule)
         ));
-        assert!(
-            nfl.salaried_players_for(week.clone())
-                .await
-                .unwrap()
-                .is_empty()
-        );
+        assert!(nfl.salaried_players_for(week).await.unwrap().is_empty());
         assert!(nfl.salary_counts_by_week().await.unwrap().is_empty());
         let game_ids = [
             "2025_01_BUF_NYJ",
@@ -474,15 +467,12 @@ mod tests {
                 .is_empty()
         );
 
-        let corrected = import_salary_csv(&db, &nfl, week.clone(), REPRESENTATIVE_CSV.as_bytes())
+        let corrected = import_salary_csv(&db, &nfl, week, REPRESENTATIVE_CSV.as_bytes())
             .await
             .expect("corrected upload for the rejected week");
         assert_eq!(corrected.salary_count, 4);
         assert_eq!(corrected.unmatched.len(), 1);
-        assert_eq!(
-            nfl.salaried_players_for(week.clone()).await.unwrap().len(),
-            4
-        );
+        assert_eq!(nfl.salaried_players_for(week).await.unwrap().len(), 4);
         assert_eq!(
             salary_store::for_games(db.reader(), &game_ids)
                 .await
@@ -517,7 +507,7 @@ mod tests {
             .await
             .unwrap();
         let week = regular_week_2025(1);
-        import_salary_csv(&db, &nfl, week.clone(), REPRESENTATIVE_CSV.as_bytes())
+        import_salary_csv(&db, &nfl, week, REPRESENTATIVE_CSV.as_bytes())
             .await
             .expect("initial import");
 
@@ -554,7 +544,7 @@ mod tests {
         nfl.seed_for_test(&[], &representative_games())
             .await
             .unwrap();
-        import_salary_csv(&db, &nfl, week.clone(), REPRESENTATIVE_CSV.as_bytes())
+        import_salary_csv(&db, &nfl, week, REPRESENTATIVE_CSV.as_bytes())
             .await
             .expect("initial import");
         sqlx::query("CREATE TRIGGER reject_salary BEFORE INSERT ON nfl_player_salaries BEGIN SELECT RAISE(FAIL, 'projection rejected'); END")

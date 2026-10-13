@@ -11,9 +11,11 @@ use sqlx::SqlitePool;
 pub fn game(id: &str, week: u8) -> Game {
     Game {
         gsis_game_id: id.into(),
-        season: Season(2025),
-        week: Week(week),
-        season_type: SeasonType::Reg,
+        season_week: nfl_data::SeasonWeek {
+            season: Season(2025),
+            week: Week(week),
+            season_type: SeasonType::Reg,
+        },
         kickoff: None,
         home_team: TeamAbbr::KC,
         away_team: TeamAbbr::BUF,
@@ -34,9 +36,11 @@ pub fn game_at(id: &str, week: u8, kickoff: time::OffsetDateTime) -> Game {
 /// through struct update syntax.
 pub fn player_stats(gsis: &str, week: u8) -> NflPlayerWeekStats {
     NflPlayerWeekStats {
-        season: Season(2025),
-        week: Week(week),
-        season_type: SeasonType::Reg,
+        season_week: nfl_data::SeasonWeek {
+            season: Season(2025),
+            week: Week(week),
+            season_type: SeasonType::Reg,
+        },
         gsis_id: gsis.into(),
         team: TeamAbbr::KC,
         opponent: None,
@@ -69,9 +73,11 @@ pub fn rb_stats(gsis: &str, week: u8, rush_yards: i32) -> NflPlayerWeekStats {
 /// A team defense with every stat at zero, including points allowed.
 pub fn defense_stats(team: &str, opponent: &str, week: u8) -> NflTeamWeekStats {
     NflTeamWeekStats {
-        season: Season(2025),
-        week: Week(week),
-        season_type: SeasonType::Reg,
+        season_week: nfl_data::SeasonWeek {
+            season: Season(2025),
+            week: Week(week),
+            season_type: SeasonType::Reg,
+        },
         team: team.parse().unwrap(),
         opponent: opponent.parse().unwrap(),
         gsis_game_id: format!("2025_{week:02}_{opponent}_{team}"),

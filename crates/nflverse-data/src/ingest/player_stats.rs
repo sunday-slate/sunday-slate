@@ -2,7 +2,7 @@ use serde::Deserialize;
 
 use crate::error::NflDataError;
 use crate::ingest::{count, parse_csv, parse_season_type, yards};
-use crate::model::{PlayerWeekStats, Season, TeamAbbr, Week};
+use crate::model::{PlayerWeekStats, Season, SeasonWeek, TeamAbbr, Week};
 
 /// nflverse stats_player_week_{season}.csv columns (subset we map). Counting
 /// stats are Option<f64>: upstream writes NA as an empty cell, meaning 0.
@@ -40,9 +40,11 @@ pub(crate) fn parse(asset: &str, bytes: &[u8]) -> Result<Vec<PlayerWeekStats>, N
     parse_csv(asset, bytes, |raw: RawPlayerWeek| {
         let season_type = parse_season_type(&raw.season_type)?;
         Ok(Some(PlayerWeekStats {
-            season: Season(raw.season),
-            week: Week(raw.week),
-            season_type,
+            season_week: SeasonWeek {
+                season: Season(raw.season),
+                week: Week(raw.week),
+                season_type,
+            },
             gsis_id: raw.player_id,
             team: raw
                 .team
@@ -95,9 +97,9 @@ mod tests {
         let stats = parse("stats_player_week_2025.csv", STATS_CSV.as_bytes()).unwrap();
         let rodgers = stats.iter().find(|s| s.gsis_id == "00-0023459").unwrap();
 
-        assert_eq!(rodgers.season, Season(2025));
-        assert_eq!(rodgers.week, Week(1));
-        assert_eq!(rodgers.season_type, SeasonType::Reg);
+        assert_eq!(rodgers.season_week.season, Season(2025));
+        assert_eq!(rodgers.season_week.week, Week(1));
+        assert_eq!(rodgers.season_week.season_type, SeasonType::Reg);
         assert_eq!(rodgers.team, TeamAbbr::PIT);
         assert_eq!(rodgers.opponent, Some(TeamAbbr::NYJ));
         assert_eq!(rodgers.completions, 22);
