@@ -110,7 +110,7 @@ where
     .bind(&draft.wr3)
     .bind(&draft.te)
     .bind(&draft.flex)
-    .bind(&draft.def)
+    .bind(draft.def)
     .fetch_one(ex)
     .await?;
 

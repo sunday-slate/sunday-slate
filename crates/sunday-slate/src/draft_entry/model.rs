@@ -39,7 +39,7 @@ impl DraftEntry {
             RosterSlot::Wr3 => p(&self.wr3),
             RosterSlot::Te => p(&self.te),
             RosterSlot::Flex => p(&self.flex),
-            RosterSlot::Def => self.def.clone().map(SlotValue::Defense),
+            RosterSlot::Def => self.def.map(SlotValue::Defense),
         }
     }
 

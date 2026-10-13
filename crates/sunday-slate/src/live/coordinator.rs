@@ -299,7 +299,7 @@ where
 
         let mut teams = games
             .iter()
-            .flat_map(|game| [game.home_team.clone(), game.away_team.clone()])
+            .flat_map(|game| [game.home_team, game.away_team])
             .collect::<Vec<_>>();
         teams.sort_by(|a, b| a.as_str().cmp(b.as_str()));
         teams.dedup_by(|a, b| a == b);
@@ -857,8 +857,8 @@ mod tests {
                     phase: LiveGamePhase::InProgress,
                     period: Some("2".into()),
                     clock: Some("08:00".into()),
-                    home_team: self.game.home_team.clone(),
-                    away_team: self.game.away_team.clone(),
+                    home_team: self.game.home_team,
+                    away_team: self.game.away_team,
                     home_score: Some(7),
                     away_score: Some(3),
                 }],

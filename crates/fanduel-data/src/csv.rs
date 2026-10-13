@@ -42,7 +42,8 @@ fn parse_rows(data: &[u8]) -> Result<Vec<SalaryRow>, FanduelDataError> {
         .map_err(FanduelDataError::Csv)
 }
 
-pub(crate) fn parse_csv(
+/// Parse typed source rows without persisting them, allowing validation before import.
+pub fn parse_csv(
     season_week: SeasonWeek,
     data: &[u8],
 ) -> Result<Vec<SalariedPlayer>, FanduelDataError> {

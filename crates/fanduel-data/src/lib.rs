@@ -3,6 +3,7 @@ mod error;
 mod models;
 mod store;
 
+pub use csv::parse_csv;
 pub use error::FanduelDataError;
 pub use models::{Game, Matchup, Player, SalariedPlayer};
 

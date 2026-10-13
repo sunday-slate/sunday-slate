@@ -37,15 +37,18 @@ pub enum SalaryImportError {
     Database(#[from] sqlx::Error),
 }
 
-/// Persist the typed CSV, immediately project every mapped salary, and return unresolved IDs.
+/// Validate the typed CSV's schedule, persist it, and project every mapped salary.
 pub async fn import_salary_csv(
     db: &Db,
     nfl: &NflData,
     season_week: SeasonWeek,
     csv_data: &[u8],
 ) -> Result<SalaryWeekOverview, SalaryImportError> {
-    nfl.import_fanduel_csv(season_week.clone(), csv_data)
-        .await?;
+    let source = nfl_data::parse_fanduel_csv(season_week.clone(), csv_data)?;
+    let games = nfl.games(season_week.season).await?;
+    resolve_slate_games(&games, &season_week, &salary_matchups(&source))
+        .map_err(|_| SalaryImportError::Schedule)?;
+    nfl.save_fanduel_salaries(&source).await?;
     project_salary_week(db, nfl, season_week.clone(), None).await?;
     salary_week_overview(db, nfl, season_week).await
 }
@@ -99,14 +102,8 @@ pub async fn resolve_salary_player(
     salary_week_overview(db, nfl, season_week).await
 }
 
-async fn project_salary_week(
-    db: &Db,
-    nfl: &NflData,
-    season_week: SeasonWeek,
-    resolved_player: Option<(&str, &str)>,
-) -> Result<(), SalaryImportError> {
-    let source = nfl.salaried_players_for(season_week.clone()).await?;
-    let matchups = source
+fn salary_matchups(source: &[SalariedPlayer]) -> BTreeSet<(String, String)> {
+    source
         .iter()
         .map(|salary| {
             (
@@ -114,7 +111,17 @@ async fn project_salary_week(
                 salary.game.matchup.home.as_str().to_owned(),
             )
         })
-        .collect::<BTreeSet<_>>();
+        .collect()
+}
+
+async fn project_salary_week(
+    db: &Db,
+    nfl: &NflData,
+    season_week: SeasonWeek,
+    resolved_player: Option<(&str, &str)>,
+) -> Result<(), SalaryImportError> {
+    let source = nfl.salaried_players_for(season_week.clone()).await?;
+    let matchups = salary_matchups(&source);
     let games = nfl.games(season_week.season).await?;
     let slate_games = resolve_slate_games(&games, &season_week, &matchups)
         .map_err(|_| SalaryImportError::Schedule)?;
@@ -176,7 +183,7 @@ async fn project_salary_week(
             }
         };
         let Some(gsis_player_id) =
-            gsis_player_id.or_else(|| (salary.position == DfsPosition::Dst).then(|| String::new()))
+            gsis_player_id.or_else(|| (salary.position == DfsPosition::Dst).then(String::new))
         else {
             continue;
         };
@@ -414,6 +421,85 @@ mod tests {
             .await
             .expect("re-import");
         assert_eq!(second.unmatched.len(), 1);
+        assert_eq!(
+            salary_store::for_games(db.reader(), &game_ids)
+                .await
+                .unwrap()
+                .len(),
+            3
+        );
+    }
+
+    #[tokio::test]
+    async fn import_salary_csv_rejects_unscheduled_matchup_without_poisoning_corrected_upload() {
+        let db = crate::Db::test(crate::tests::utils::in_memory_pool().await);
+        let nfl = nfl_data::NflData::in_memory().await.unwrap();
+        // The matchup exists, but only in another week of the same season.
+        let mut games = representative_games();
+        games.push(game("2025_02_BUF_MIA", 2, "BUF", "MIA"));
+        nfl.seed_for_test(
+            &[
+                player("00-1", "Josh Allen", "BUF"),
+                player("00-2", "Travis Etienne Jr.", "JAX"),
+            ],
+            &games,
+        )
+        .await
+        .unwrap();
+        let week = regular_week_2025(1);
+        let incorrect_csv = REPRESENTATIVE_CSV.replacen("BUF@NYJ,BUF,NYJ", "BUF@MIA,BUF,MIA", 1);
+
+        assert!(matches!(
+            import_salary_csv(&db, &nfl, week.clone(), incorrect_csv.as_bytes()).await,
+            Err(SalaryImportError::Schedule)
+        ));
+        assert!(
+            nfl.salaried_players_for(week.clone())
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(nfl.salary_counts_by_week().await.unwrap().is_empty());
+        let game_ids = [
+            "2025_01_BUF_NYJ",
+            "2025_01_NYG_WAS",
+            "2025_01_JAX_HOU",
+            "2025_01_LA_SEA",
+            "2025_02_BUF_MIA",
+        ];
+        assert!(
+            salary_store::for_games(db.reader(), &game_ids)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+
+        let corrected = import_salary_csv(&db, &nfl, week.clone(), REPRESENTATIVE_CSV.as_bytes())
+            .await
+            .expect("corrected upload for the rejected week");
+        assert_eq!(corrected.salary_count, 4);
+        assert_eq!(corrected.unmatched.len(), 1);
+        assert_eq!(
+            nfl.salaried_players_for(week.clone()).await.unwrap().len(),
+            4
+        );
+        assert_eq!(
+            salary_store::for_games(db.reader(), &game_ids)
+                .await
+                .unwrap()
+                .len(),
+            3
+        );
+        assert!(
+            salary_store::for_games(db.reader(), &["2025_02_BUF_MIA"])
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        let repeated = import_salary_csv(&db, &nfl, week, REPRESENTATIVE_CSV.as_bytes())
+            .await
+            .expect("corrected upload remains idempotent");
+        assert_eq!(repeated, corrected);
         assert_eq!(
             salary_store::for_games(db.reader(), &game_ids)
                 .await

@@ -249,8 +249,8 @@ impl PickInfo {
             avatar: Avatar::TeamLogo(
                 logo.map_or_else(|| SILHOUETTE.to_string(), |media| media.url()),
             ),
-            game: scoreless_game_line(slate, &team.as_str()),
-            kickoff: team_kickoff(slate, &team.as_str()),
+            game: scoreless_game_line(slate, team.as_str()),
+            kickoff: team_kickoff(slate, team.as_str()),
             team: Some(team.as_str().to_owned()),
             salary,
             fppg: None,
@@ -937,7 +937,7 @@ pub fn compute_ownership<'a>(lineups: impl IntoIterator<Item = &'a Lineup>) -> O
         for id in lineup.player_ids() {
             *player_counts.entry(id.clone()).or_insert(0) += 1;
         }
-        *def_counts.entry(lineup.def.clone()).or_insert(0) += 1;
+        *def_counts.entry(lineup.def).or_insert(0) += 1;
     }
     let frac = |c: u32| c as f64 / total;
     Ownership {

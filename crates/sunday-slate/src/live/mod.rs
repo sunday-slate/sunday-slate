@@ -456,8 +456,7 @@ pub async fn load_contest_scores(
             defense.gsis_game_id.clone(),
             defense.team.as_str().to_owned(),
         );
-        if !defense_keys.insert(key.clone())
-            || defense_map.insert(defense.team.clone(), defense).is_some()
+        if !defense_keys.insert(key.clone()) || defense_map.insert(defense.team, defense).is_some()
         {
             return Ok(ContestScores::Unavailable);
         }

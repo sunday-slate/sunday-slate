@@ -198,9 +198,9 @@ fn scaled_player(
     LivePlayerStats {
         espn_id: identity.espn_id.clone(),
         name: identity.name.clone(),
-        team: identity.team.clone(),
+        team: identity.team,
         position: identity.position.clone(),
-        opponent: identity.opponent.clone(),
+        opponent: identity.opponent,
         completions: scaled_u32(finals.completions, tick),
         attempts: scaled_u32(finals.attempts, tick),
         passing_tds: scaled_u32(finals.passing_tds, tick),
@@ -222,8 +222,8 @@ fn scaled_player(
 
 fn scaled_defense(defense: &LiveTeamStats, tick: u64) -> LiveTeamStats {
     LiveTeamStats {
-        team: defense.team.clone(),
-        opponent: defense.opponent.clone(),
+        team: defense.team,
+        opponent: defense.opponent,
         sacks: scaled_u32(defense.sacks, tick),
         interceptions: scaled_u32(defense.interceptions, tick),
         fumble_recoveries: scaled_u32(defense.fumble_recoveries, tick),
@@ -241,9 +241,9 @@ fn identity_of(finals: &LivePlayerStats) -> LivePlayerStats {
     LivePlayerStats {
         espn_id: finals.espn_id.clone(),
         name: finals.name.clone(),
-        team: finals.team.clone(),
+        team: finals.team,
         position: finals.position.clone(),
-        opponent: finals.opponent.clone(),
+        opponent: finals.opponent,
         completions: 0,
         attempts: 0,
         passing_tds: 0,
@@ -348,7 +348,7 @@ async fn run_inner(state: &AppState) -> Result<(), AppError> {
         let (season, week, _) = super::slate_tuple(games).expect("uniform slate");
         let mut teams = games
             .iter()
-            .flat_map(|game| [game.home_team.clone(), game.away_team.clone()])
+            .flat_map(|game| [game.home_team, game.away_team])
             .collect::<Vec<_>>();
         teams.sort_by(|a, b| a.as_str().cmp(b.as_str()));
         teams.dedup_by(|a, b| a == b);
@@ -419,8 +419,8 @@ async fn plan_ramp(state: &AppState, game: &Game) -> Result<Option<Ramp>, AppErr
     };
     let season = game.season;
     let week = game.week;
-    let home = game.home_team.clone();
-    let away = game.away_team.clone();
+    let home = game.home_team;
+    let away = game.away_team;
 
     let mut rosters = HashMap::new();
     for team in [&home, &away] {
@@ -447,9 +447,9 @@ async fn plan_ramp(state: &AppState, game: &Game) -> Result<Option<Ramp>, AppErr
                 .and_then(|entry| entry.espn_id.clone())
                 .map(EspnPlayerId),
             name: roster.map(|entry| entry.full_name.clone()),
-            team: Some(row.team.clone()),
+            team: Some(row.team),
             position: roster.and_then(|entry| entry.position.clone()),
-            opponent: row.opponent.clone(),
+            opponent: row.opponent,
             completions: row.completions,
             attempts: row.attempts,
             passing_tds: row.passing_tds,
@@ -479,8 +479,8 @@ async fn plan_ramp(state: &AppState, game: &Game) -> Result<Option<Ramp>, AppErr
             continue;
         }
         defenses.push(LiveTeamStats {
-            team: row.team.clone(),
-            opponent: row.opponent.clone(),
+            team: row.team,
+            opponent: row.opponent,
             sacks: row.sacks,
             interceptions: row.interceptions,
             fumble_recoveries: row.fumble_recoveries,

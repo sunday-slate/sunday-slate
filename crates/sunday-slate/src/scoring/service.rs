@@ -74,7 +74,7 @@ pub async fn week_stats(
             .team_week_stats(season, week)
             .await?
             .into_iter()
-            .map(|t| (t.team.clone(), t))
+            .map(|t| (t.team, t))
             .collect();
         if players.is_empty() || defenses.is_empty() {
             continue;

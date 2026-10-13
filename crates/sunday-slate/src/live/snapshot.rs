@@ -177,7 +177,7 @@ impl SnapshotReducer {
             state.last_error = error;
             state.player_stale = true;
             for team in [&state.game.home_team, &state.game.away_team] {
-                state.defense_stale.insert(team.clone(), true);
+                state.defense_stale.insert(*team, true);
             }
         }
     }
@@ -247,7 +247,7 @@ impl SnapshotReducer {
                     state.last_error = error;
                     state.player_stale = true;
                     for team in [&state.game.home_team, &state.game.away_team] {
-                        state.defense_stale.insert(team.clone(), true);
+                        state.defense_stale.insert(*team, true);
                     }
                 }
             }
@@ -298,7 +298,7 @@ impl SnapshotReducer {
                         .filter(|defense| defense.dst_present && defense.team_stats_present)
                         .map(|defense| {
                             let team = canonical_team(&defense.team);
-                            (team.clone(), adapt_defense(snapshot, defense, team))
+                            (team, adapt_defense(snapshot, defense, team))
                         })
                         .collect::<HashMap<_, _>>()
                 });
@@ -323,10 +323,8 @@ impl SnapshotReducer {
                 }
                 if let Some(defenses) = adapted_defenses {
                     for (team, defense) in defenses {
-                        state.defenses.insert(team.clone(), defense);
-                        state
-                            .defense_observed_at
-                            .insert(team.clone(), snapshot.observed_at);
+                        state.defenses.insert(team, defense);
+                        state.defense_observed_at.insert(team, snapshot.observed_at);
                         state.defense_stale.insert(team, false);
                     }
                 }
@@ -341,7 +339,7 @@ impl SnapshotReducer {
                 state.last_error = error;
                 state.player_stale = true;
                 for team in [&state.game.home_team, &state.game.away_team] {
-                    state.defense_stale.insert(team.clone(), true);
+                    state.defense_stale.insert(*team, true);
                 }
             }
         }
@@ -451,8 +449,8 @@ pub fn live_game(game: &Game) -> Option<LiveGame> {
         week: game.week,
         season_type: game.season_type,
         kickoff: game.kickoff,
-        home_team: game.home_team.clone(),
-        away_team: game.away_team.clone(),
+        home_team: game.home_team,
+        away_team: game.away_team,
     })
 }
 
@@ -995,16 +993,11 @@ mod tests {
         state.last_error = Some(LiveError::Provider);
         state.player_stale = true;
         state.player_observed_at = Some(datetime!(2025 - 09 - 07 18:00 UTC));
-        state.defense_observed_at.insert(
-            state.game.home_team.clone(),
-            datetime!(2025 - 09 - 07 18:00 UTC),
-        );
         state
-            .defense_stale
-            .insert(state.game.home_team.clone(), true);
-        state
-            .defense_stale
-            .insert(state.game.away_team.clone(), true);
+            .defense_observed_at
+            .insert(state.game.home_team, datetime!(2025 - 09 - 07 18:00 UTC));
+        state.defense_stale.insert(state.game.home_team, true);
+        state.defense_stale.insert(state.game.away_team, true);
 
         assert!(!snapshot.is_delayed(datetime!(2025 - 09 - 07 18:05 UTC)));
     }

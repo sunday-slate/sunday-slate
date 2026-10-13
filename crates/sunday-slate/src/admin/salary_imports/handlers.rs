@@ -572,7 +572,7 @@ mod tests {
         let root = app.get("/admin/salary-imports").await;
         root.assert_status_ok();
         for encoded in [2025001, 2025121, 2026001] {
-            root.assert_text_contains(&format!("/admin/salary-imports/{encoded}"));
+            root.assert_text_contains(format!("/admin/salary-imports/{encoded}"));
         }
         assert_eq!(root.text().matches("3 salaries").count(), 3);
         assert_eq!(root.text().matches("2 unresolved").count(), 3);

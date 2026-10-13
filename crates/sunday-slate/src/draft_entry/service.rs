@@ -154,7 +154,7 @@ impl SlotChoice {
     pub fn value_key(&self) -> &str {
         match &self.key {
             SlotValue::Player(id) => id.as_ref(),
-            SlotValue::Defense(team) => &team.as_str(),
+            SlotValue::Defense(team) => team.as_str(),
         }
     }
 
@@ -988,7 +988,7 @@ mod tests {
         for (slot, id) in lineup.player_slots() {
             draft.set(slot, SlotValue::Player(id.clone()));
         }
-        draft.set(RosterSlot::Def, SlotValue::Defense(lineup.def.clone()));
+        draft.set(RosterSlot::Def, SlotValue::Defense(lineup.def));
         draft_store::save(pool, &draft).await.unwrap();
     }
 

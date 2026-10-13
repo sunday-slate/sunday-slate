@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT roster_slot    AS \"roster_slot!: RosterSlot\",\n                  gsis_player_id AS \"gsis_player_id?: NflPlayerId\",\n                  team_abbr      AS \"team_abbr?: TeamAbbr\"\n           FROM entry_slots WHERE entry_id = ?1",
+  "describe": {
+    "columns": [
+      {
+        "name": "roster_slot!: RosterSlot",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "entry_slots",
+            "name": "roster_slot"
+          }
+        }
+      },
+      {
+        "name": "gsis_player_id?: NflPlayerId",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "entry_slots",
+            "name": "gsis_player_id"
+          }
+        }
+      },
+      {
+        "name": "team_abbr?: TeamAbbr",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "entry_slots",
+            "name": "team_abbr"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "6b80a3eae547606071b23747c97c97395e661b2f932ac73dcb61ae47ceae61ef"
+}

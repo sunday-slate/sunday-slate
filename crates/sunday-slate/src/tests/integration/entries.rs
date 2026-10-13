@@ -234,18 +234,18 @@ async fn setup(pool: &SqlitePool, app: &TestApp) -> (GeneratedTeam, GeneratedTea
     let buf = TeamAbbr::BUF;
     let kc = TeamAbbr::KC;
     let rb = NflPlayerWeekStats {
-        opponent: Some(buf.clone()),
+        opponent: Some(buf),
         ..factories::rb_stats("00-A", 1, 100)
     };
     let qb = NflPlayerWeekStats {
         passing_yards: 200,
-        opponent: Some(buf.clone()),
+        opponent: Some(buf),
         ..factories::player_stats("00-F1", 1)
     };
     let buf_player = NflPlayerWeekStats {
         gsis_id: "00-BUF".into(),
-        team: buf.clone(),
-        opponent: Some(kc.clone()),
+        team: buf,
+        opponent: Some(kc),
         ..factories::player_stats("00-BUF", 1)
     };
     let buf_defense = NflTeamWeekStats {
@@ -1652,13 +1652,13 @@ async fn live_contest_official_streams_close_after_membership_loss(pool: SqliteP
     let buf = TeamAbbr::BUF;
     let kc = TeamAbbr::KC;
     let rb = NflPlayerWeekStats {
-        opponent: Some(buf.clone()),
+        opponent: Some(buf),
         ..factories::rb_stats("00-A", 1, 100)
     };
     let buf_player = NflPlayerWeekStats {
         gsis_id: "00-BUF".into(),
-        team: buf.clone(),
-        opponent: Some(kc.clone()),
+        team: buf,
+        opponent: Some(kc),
         ..factories::player_stats("00-BUF", 1)
     };
     app.nfl

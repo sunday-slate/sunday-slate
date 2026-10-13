@@ -148,7 +148,7 @@ impl Lineup {
             .collect();
         slots.push(EntrySlot {
             slot: RosterSlot::Def,
-            value: SlotValue::Defense(self.def.clone()),
+            value: SlotValue::Defense(self.def),
         });
         slots
     }

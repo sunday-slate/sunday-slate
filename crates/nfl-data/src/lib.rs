@@ -11,7 +11,7 @@ use nflverse_data::NflverseData;
 
 pub use config::NflDataConfig;
 pub use data_revision::DataRevision;
-pub use fanduel_data::{FanduelDataError, SalariedPlayer};
+pub use fanduel_data::{FanduelDataError, SalariedPlayer, parse_csv as parse_fanduel_csv};
 pub use identity::PlayerIdentity;
 pub use live::{
     EspnPlayerId, InjuryDesignation, InjuryEntry, InjuryProvider, InjuryReport, LiveGame,
@@ -75,6 +75,14 @@ impl NflData {
         csv_data: &[u8],
     ) -> Result<Vec<SalariedPlayer>, FanduelDataError> {
         self.fanduel.import_csv(season_week, csv_data).await
+    }
+
+    /// Persist typed FanDuel source rows after caller-specific validation.
+    pub async fn save_fanduel_salaries(
+        &self,
+        salaries: &[SalariedPlayer],
+    ) -> Result<(), FanduelDataError> {
+        self.fanduel.save_salaried_players(salaries).await
     }
 
     /// Read stored FanDuel salary source rows for an exact contest week.
