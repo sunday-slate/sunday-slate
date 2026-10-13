@@ -128,14 +128,13 @@ impl Store {
                 ));
             }
             let game = &salary.game;
-            let season_week = game.season_week.encode();
-            let game_key = (season_week, game.matchup.away, game.matchup.home);
+            let game_key = (game.season_week.encode(), game.matchup.away, game.matchup.home);
             let game_id = match game_ids.get(&game_key) {
                 Some(id) => *id,
                 None => {
                     let id = sqlx::query_scalar!(
                         "INSERT INTO games (season_week, away_team, home_team) VALUES (?, ?, ?) ON CONFLICT (season_week, away_team, home_team) DO UPDATE SET id = games.id RETURNING id",
-                        season_week,
+                        game.season_week,
                         game.matchup.away.as_str(),
                         game.matchup.home.as_str(),
                     )

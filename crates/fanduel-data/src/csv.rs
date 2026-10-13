@@ -122,8 +122,8 @@ mod tests {
         assert_eq!(salaries[0].team, TeamAbbr::BUF);
         assert_eq!(salaries[0].game.matchup.away, TeamAbbr::BUF);
         assert_eq!(
-            salaries[0].game.season_week.encode(),
-            SeasonWeek::reg(1).encode()
+            salaries[0].game.season_week,
+            SeasonWeek::reg(1)
         );
 
         let defense = &salaries[1];
