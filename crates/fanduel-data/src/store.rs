@@ -46,7 +46,6 @@ impl Store {
                    p.id AS "player_id?",
                    p.first_name AS "first_name?",
                    p.last_name AS "last_name?",
-                   g.season_week,
                    g.away_team AS "away_team: TeamAbbr",
                    g.home_team AS "home_team: TeamAbbr",
                    s.salary,
@@ -57,7 +56,7 @@ impl Store {
                LEFT JOIN players p ON p.id = s.player_id
                WHERE g.season_week = ?
                ORDER BY g.away_team, g.home_team, s.position, s.team, p.id"#,
-            i64::from(season_week.encode()),
+            season_week,
         )
         .fetch_all(&self.pool)
         .await?;
@@ -95,27 +94,24 @@ impl Store {
     pub(crate) async fn salary_counts_by_week(
         &self,
     ) -> Result<Vec<(SeasonWeek, i64)>, FanduelDataError> {
-        let rows = sqlx::query_as::<_, (i64, i64)>(
-            "SELECT season_week, COUNT(*) FROM salaries JOIN games ON games.id = salaries.game_id GROUP BY season_week ORDER BY season_week",
+        let rows = sqlx::query!(
+            r#"
+           SELECT
+               games.season_week AS "season_week: SeasonWeek",
+               COUNT(*) AS salary_count
+           FROM salaries
+           JOIN games ON games.id = salaries.game_id
+           GROUP BY games.season_week
+           ORDER BY games.season_week DESC
+           "#
         )
         .fetch_all(&self.pool)
         .await?;
 
-        rows.into_iter()
-            .map(|(encoded_week, count)| {
-                let encoded_week = u32::try_from(encoded_week).map_err(|_| {
-                    FanduelDataError::InvalidRow(format!(
-                        "invalid encoded season week {encoded_week}"
-                    ))
-                })?;
-                let season_week = SeasonWeek::decode(encoded_week).ok_or_else(|| {
-                    FanduelDataError::InvalidRow(format!(
-                        "invalid encoded season week {encoded_week}"
-                    ))
-                })?;
-                Ok((season_week, count))
-            })
-            .collect()
+        Ok(rows
+            .into_iter()
+            .map(|row| (row.season_week, row.salary_count))
+            .collect())
     }
 
     pub(crate) async fn save_salaried_players(
@@ -139,7 +135,7 @@ impl Store {
                 None => {
                     let id = sqlx::query_scalar!(
                         "INSERT INTO games (season_week, away_team, home_team) VALUES (?, ?, ?) ON CONFLICT (season_week, away_team, home_team) DO UPDATE SET id = games.id RETURNING id",
-                        i64::from(season_week),
+                        season_week,
                         game.matchup.away.as_str(),
                         game.matchup.home.as_str(),
                     )
@@ -244,7 +240,7 @@ mod tests {
 
         assert_eq!(
             store.salary_counts_by_week().await.unwrap(),
-            vec![(SeasonWeek::reg(1), 2), (SeasonWeek::post(1), 1)]
+            vec![(SeasonWeek::post(1), 1), (SeasonWeek::reg(1), 2)]
         );
     }
 

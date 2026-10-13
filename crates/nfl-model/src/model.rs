@@ -191,51 +191,6 @@ impl TryFrom<u8> for SeasonType {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct SeasonWeek {
-    pub season: Season,
-    pub season_type: SeasonType,
-    pub week: Week,
-}
-
-impl SeasonWeek {
-    pub fn reg(week_num: u8) -> Self {
-        Self {
-            season: Season::default(),
-            season_type: SeasonType::Reg,
-            week: Week(week_num),
-        }
-    }
-
-    pub fn post(week_num: u8) -> Self {
-        Self {
-            season: Season::default(),
-            season_type: SeasonType::Post,
-            week: Week(week_num),
-        }
-    }
-
-    pub fn encode(&self) -> u32 {
-        u32::from(self.season.0) * 1_000
-            + u32::from(self.season_type) * 100
-            + u32::from(self.week.0)
-    }
-
-    pub fn decode(value: u32) -> Option<Self> {
-        let year = (value / 1_000) as u16;
-        let choice = ((value / 100) % 10) as u8;
-        let week = (value % 100) as u8;
-
-        let season_type = SeasonType::try_from(choice).ok()?;
-
-        Some(Self {
-            season: Season(year),
-            season_type,
-            week: Week(week),
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub struct Game {
     pub gsis_game_id: String,
     pub season: Season,
