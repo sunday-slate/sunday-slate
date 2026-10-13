@@ -10,7 +10,7 @@ pub use handlers::router;
 
 use std::collections::{BTreeSet, HashMap};
 
-use nfl_data::{NflData, Season, TeamAbbr as NflTeamAbbr};
+use nfl_data::{NflData, SalariedPlayer, Season, SeasonWeek, TeamAbbr as NflTeamAbbr};
 
 use crate::Db;
 use crate::admin::salary_imports::matcher::{PlayerIndex, RosterIndex};
@@ -19,6 +19,193 @@ use crate::admin::salary_imports::schedule::resolve_slate_games;
 use crate::nfl_players::store as player_store;
 use crate::player_salaries::model::{DfsPosition, NflPlayerSalary};
 use crate::player_salaries::store as salary_store;
+
+/// One stored contest week and the source player IDs still needing a crosswalk.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SalaryWeekOverview {
+    pub season_week: SeasonWeek,
+    pub salary_count: usize,
+    pub unmatched: Vec<SalariedPlayer>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum SalaryImportError {
+    #[error("FanDuel salary import failed: {0}")]
+    Fanduel(#[from] nfl_data::FanduelDataError),
+    #[error("NFL schedule lookup failed: {0}")]
+    Nfl(#[from] nfl_data::NflDataError),
+    #[error("salary matchup does not exist in the requested season week")]
+    Schedule,
+    #[error("Sunday Slate database operation failed: {0}")]
+    Database(#[from] sqlx::Error),
+}
+
+/// Persist the typed CSV, immediately project every mapped salary, and return unresolved IDs.
+pub async fn import_salary_csv(
+    db: &Db,
+    nfl: &NflData,
+    season_week: SeasonWeek,
+    csv_data: &[u8],
+) -> Result<SalaryWeekOverview, SalaryImportError> {
+    nfl.import_fanduel_csv(season_week.clone(), csv_data)
+        .await?;
+    project_salary_week(db, nfl, season_week.clone()).await?;
+    salary_week_overview(db, nfl, season_week).await
+}
+
+pub async fn salary_week_overview(
+    db: &Db,
+    nfl: &NflData,
+    season_week: SeasonWeek,
+) -> Result<SalaryWeekOverview, SalaryImportError> {
+    let salaries = nfl.salaried_players_for(season_week.clone()).await?;
+    let mut unmatched = Vec::new();
+    for salary in &salaries {
+        let Some(player) = &salary.player else {
+            continue;
+        };
+        let fd_id = player.id.to_string();
+        if player_store::by_fd_id(db.reader(), &fd_id).await?.is_none() {
+            unmatched.push(salary.clone());
+        }
+    }
+    Ok(SalaryWeekOverview {
+        season_week,
+        salary_count: salaries.len(),
+        unmatched,
+    })
+}
+
+pub async fn resolve_salary_player(
+    db: &Db,
+    nfl: &NflData,
+    season_week: SeasonWeek,
+    fd_player_id: &str,
+    gsis_player_id: &str,
+) -> Result<SalaryWeekOverview, SalaryImportError> {
+    let source = nfl.salaried_players_for(season_week.clone()).await?;
+    if !source.iter().any(|salary| {
+        salary
+            .player
+            .as_ref()
+            .is_some_and(|player| player.id.to_string() == fd_player_id)
+    }) {
+        return Err(SalaryImportError::Schedule);
+    }
+    db.write_tx::<_, (), sqlx::Error>(async |conn| {
+        player_store::upsert(&mut *conn, gsis_player_id, fd_player_id).await?;
+        Ok(())
+    })
+    .await?;
+    project_salary_week(db, nfl, season_week.clone()).await?;
+    salary_week_overview(db, nfl, season_week).await
+}
+
+async fn project_salary_week(
+    db: &Db,
+    nfl: &NflData,
+    season_week: SeasonWeek,
+) -> Result<(), SalaryImportError> {
+    let source = nfl.salaried_players_for(season_week.clone()).await?;
+    let matchups = source
+        .iter()
+        .map(|salary| {
+            (
+                salary.game.matchup.away.as_str().to_owned(),
+                salary.game.matchup.home.as_str().to_owned(),
+            )
+        })
+        .collect::<BTreeSet<_>>();
+    let games = nfl.games(season_week.season).await?;
+    let slate_games = resolve_slate_games(&games, &season_week, &matchups)
+        .map_err(|_| SalaryImportError::Schedule)?;
+    let game_of: HashMap<(String, String), String> = slate_games
+        .iter()
+        .map(|game| {
+            (
+                (
+                    game.away_team.as_str().to_owned(),
+                    game.home_team.as_str().to_owned(),
+                ),
+                game.gsis_game_id.clone(),
+            )
+        })
+        .collect();
+    let players = nfl.players().await?;
+    let player_index = PlayerIndex::build(&players);
+    let mut roster_entries = Vec::new();
+    let mut teams = BTreeSet::new();
+    for game in &slate_games {
+        teams.insert(game.home_team);
+        teams.insert(game.away_team);
+    }
+    for team in teams {
+        roster_entries.extend(
+            nfl.weekly_roster(season_week.season, season_week.week, &team)
+                .await?,
+        );
+    }
+    let roster_index = RosterIndex::build(&roster_entries);
+    let mut mapped = Vec::new();
+    for salary in source {
+        let matchup = &salary.game.matchup;
+        let game_id = game_of
+            .get(&(
+                matchup.away.as_str().to_owned(),
+                matchup.home.as_str().to_owned(),
+            ))
+            .ok_or(SalaryImportError::Schedule)?
+            .clone();
+        let gsis_player_id = if salary.position == DfsPosition::Dst {
+            None
+        } else {
+            let player = salary.player.as_ref().ok_or(SalaryImportError::Schedule)?;
+            let fd_id = player.id.to_string();
+            if let Some(crosswalk) = player_store::by_fd_id(db.reader(), &fd_id).await? {
+                Some(crosswalk.gsis_player_id)
+            } else {
+                let name = format!("{} {}", player.first_name, player.last_name);
+                player_index
+                    .match_one(&name, salary.team.as_str())
+                    .or_else(|| {
+                        roster_index.match_one(&name, salary.team.as_str(), salary.position.label())
+                    })
+            }
+        };
+        let Some(gsis_player_id) =
+            gsis_player_id.or_else(|| (salary.position == DfsPosition::Dst).then(|| String::new()))
+        else {
+            continue;
+        };
+        mapped.push((salary, game_id, gsis_player_id));
+    }
+    db.write_tx::<_, (), sqlx::Error>(async |conn| {
+        for (salary, game_id, gsis) in &mapped {
+            let player_id = salary.player.as_ref().map(|player| player.id.to_string());
+            let gsis_player_id = if salary.position == DfsPosition::Dst {
+                None
+            } else {
+                player_store::upsert(&mut *conn, gsis, player_id.as_deref().unwrap()).await?;
+                Some(gsis.clone())
+            };
+            salary_store::upsert(
+                &mut *conn,
+                &NflPlayerSalary {
+                    id: 0,
+                    gsis_game_id: game_id.clone(),
+                    gsis_player_id,
+                    team_abbr: salary.team.as_str().to_owned(),
+                    dfs_position: salary.position,
+                    salary: i64::from(salary.salary),
+                },
+            )
+            .await?;
+        }
+        Ok(())
+    })
+    .await?;
+    Ok(())
+}
 
 /// One classified salary row, ready to stage or write. `gsis_player_id` is set
 /// for `Matched`; `None` for `Dst` and `Unmatched`.
@@ -133,8 +320,17 @@ async fn plan_rows(
         .games(Season(season))
         .await
         .map_err(|error| PlanError::Data(error.to_string()))?;
-    let slate_games =
-        resolve_slate_games(&games, &matchups).map_err(|_| PlanError::UnresolvableSlate)?;
+    let season_week = games
+        .iter()
+        .map(|game| SeasonWeek {
+            season: game.season,
+            season_type: game.season_type,
+            week: game.week,
+        })
+        .find(|season_week| resolve_slate_games(&games, season_week, &matchups).is_ok())
+        .ok_or(PlanError::UnresolvableSlate)?;
+    let slate_games = resolve_slate_games(&games, &season_week, &matchups)
+        .map_err(|_| PlanError::UnresolvableSlate)?;
 
     let mut game_of: HashMap<String, String> = HashMap::new();
     for game in &slate_games {
@@ -155,14 +351,14 @@ async fn plan_rows(
     let index = PlayerIndex::build(&players);
     let mut roster_entries = Vec::new();
     if let Some(week) = slate_games.first().map(|game| game.week) {
-        let mut teams: BTreeSet<&String> = BTreeSet::new();
+        let mut teams: BTreeSet<NflTeamAbbr> = BTreeSet::new();
         for game in &slate_games {
-            teams.insert(&game.home_team.as_str());
-            teams.insert(&game.away_team.as_str());
+            teams.insert(game.home_team);
+            teams.insert(game.away_team);
         }
         for team in teams {
             let entries = nfl
-                .weekly_roster(Season(season), week, &team.parse().unwrap())
+                .weekly_roster(Season(season), week, &team)
                 .await
                 .map_err(|error| PlanError::Data(error.to_string()))?;
             roster_entries.extend(entries);
@@ -374,7 +570,6 @@ pub async fn commit_staged(db: &Db, import_id: i64) -> anyhow::Result<ImportRepo
 mod tests {
     use super::*;
     use crate::admin::salary_imports::model::RowState;
-    use crate::player_identity::normalize_team;
     use nfl_data::{
         Game, Player, Season, SeasonType, TeamAbbr as NflTeamAbbr, Week, WeeklyRosterEntry,
     };
@@ -408,11 +603,98 @@ mod tests {
 
     const HEADER: &str = "\"Id\",\"Position\",\"First Name\",\"Nickname\",\"Last Name\",\"FPPG\",\"Played\",\"Salary\",\"Game\",\"Team\",\"Opponent\",\"Injury Indicator\",\"Injury Details\"";
 
+    const TYPED_CSV: &str = "Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,Injury Indicator,Injury Details\n\
+        1-100,QB,Josh,Josh Allen,Allen,0,0,8000,BUF@NYJ,BUF,NYJ,,,\n\
+        1-200,WR,Unmatched,Unmatched Player,Player,0,0,5000,BUF@NYJ,BUF,NYJ,,,\n\
+        1-300,D,New York,New York Jets,Jets,0,0,4000,BUF@NYJ,NYJ,BUF,,,\n";
+
+    #[tokio::test]
+    async fn import_salary_csv_projects_valid_rows_while_returning_unmatched_ids() {
+        let db = crate::Db::test(crate::tests::utils::in_memory_pool().await);
+        let nfl = nfl_data::NflData::in_memory().await.unwrap();
+        nfl.seed_for_test(
+            &[player("00-1", "Josh Allen", "BUF")],
+            &[game("2025_01_BUF_NYJ", 1, "BUF", "NYJ")],
+        )
+        .await
+        .unwrap();
+
+        let week = nfl_data::SeasonWeek::reg(1);
+        let first = import_salary_csv(&db, &nfl, week.clone(), TYPED_CSV.as_bytes())
+            .await
+            .expect("import and project");
+        assert_eq!(first.salary_count, 3);
+        assert_eq!(first.unmatched.len(), 1);
+        assert_eq!(first.unmatched[0].player.as_ref().unwrap().id, 200);
+
+        let salaries = salary_store::for_games(db.reader(), &["2025_01_BUF_NYJ"])
+            .await
+            .unwrap();
+        assert_eq!(salaries.len(), 2, "matched player and DST projected");
+        assert!(
+            salaries
+                .iter()
+                .any(|salary| salary.gsis_player_id.as_deref() == Some("00-1"))
+        );
+        assert!(
+            salaries
+                .iter()
+                .any(|salary| salary.dfs_position == DfsPosition::Dst)
+        );
+        assert!(!salaries.iter().any(
+            |salary| salary.gsis_player_id.is_none() && salary.dfs_position != DfsPosition::Dst
+        ));
+
+        let second = import_salary_csv(&db, &nfl, week, TYPED_CSV.as_bytes())
+            .await
+            .expect("re-import");
+        assert_eq!(second.unmatched.len(), 1);
+        assert_eq!(
+            salary_store::for_games(db.reader(), &["2025_01_BUF_NYJ"])
+                .await
+                .unwrap()
+                .len(),
+            2,
+            "re-import updates rather than duplicates runtime rows"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_salary_player_writes_crosswalk_and_projects_salary() {
+        let db = crate::Db::test(crate::tests::utils::in_memory_pool().await);
+        let nfl = nfl_data::NflData::in_memory().await.unwrap();
+        nfl.seed_for_test(&[], &[game("2025_01_BUF_NYJ", 1, "BUF", "NYJ")])
+            .await
+            .unwrap();
+        let week = nfl_data::SeasonWeek::reg(1);
+        import_salary_csv(&db, &nfl, week.clone(), TYPED_CSV.as_bytes())
+            .await
+            .expect("initial import");
+
+        let overview = resolve_salary_player(&db, &nfl, week, "200", "00-2")
+            .await
+            .expect("resolve and project");
+        assert!(overview.unmatched.is_empty());
+        let crosswalk = player_store::by_fd_id(db.reader(), "200")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(crosswalk.gsis_player_id, "00-2");
+        let salaries = salary_store::for_games(db.reader(), &["2025_01_BUF_NYJ"])
+            .await
+            .unwrap();
+        assert!(
+            salaries
+                .iter()
+                .any(|salary| salary.gsis_player_id.as_deref() == Some("00-2"))
+        );
+    }
+
     #[test]
-    fn normalize_team_maps_fanduel_codes() {
-        assert_eq!(normalize_team("JAC"), "JAX");
-        assert_eq!(normalize_team("LAR"), "LA");
-        assert_eq!(normalize_team("BUF"), "BUF");
+    fn fanduel_team_aliases_use_canonical_typed_abbreviations() {
+        assert_eq!("JAC".parse::<NflTeamAbbr>().unwrap().as_str(), "JAX");
+        assert_eq!("LAR".parse::<NflTeamAbbr>().unwrap().as_str(), "LA");
+        assert_eq!("BUF".parse::<NflTeamAbbr>().unwrap().as_str(), "BUF");
     }
 
     #[tokio::test]
