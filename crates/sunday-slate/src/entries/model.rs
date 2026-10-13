@@ -1,10 +1,10 @@
 use crate::contests::{Contest, ContestId};
 use crate::fantasy_teams::FantasyTeamId;
 use crate::media::Media;
-use nfl_data::TeamAbbr as NflTeamAbbr;
+use nfl_data::TeamAbbr;
 
 /// A typed NFL-player reference. Wraps nfl-data's `String` gsis ids at the
-/// boundary; its eventual home is nfl-data next to `NflTeamAbbr`.
+/// boundary; its eventual home is nfl-data next to `TeamAbbr`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, sqlx::Type)]
 #[sqlx(transparent)]
 pub struct NflPlayerId(pub String);
@@ -79,7 +79,7 @@ impl RosterSlot {
 #[derive(Debug, Clone, PartialEq)]
 pub enum SlotValue {
     Player(NflPlayerId),
-    Defense(NflTeamAbbr),
+    Defense(TeamAbbr),
 }
 
 /// One `entry_slots` row, typed: which slot and what it holds.
@@ -109,7 +109,7 @@ pub struct Lineup {
     pub wr3: NflPlayerId,
     pub te: NflPlayerId,
     pub flex: NflPlayerId,
-    pub def: NflTeamAbbr,
+    pub def: TeamAbbr,
 }
 
 impl Lineup {
@@ -171,7 +171,7 @@ impl Lineup {
             wr3: Option<NflPlayerId>,
             te: Option<NflPlayerId>,
             flex: Option<NflPlayerId>,
-            def: Option<NflTeamAbbr>,
+            def: Option<TeamAbbr>,
         }
 
         let mut b = Builder::default();

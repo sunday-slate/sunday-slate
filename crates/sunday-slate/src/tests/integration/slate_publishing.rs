@@ -1,7 +1,7 @@
 //! Slate publishing: the admin editor at `/admin/contests/{id}/slate`.
 
 use http::StatusCode;
-use nfl_data::{Game, Season, SeasonType, TeamAbbr as NflTeamAbbr, Week};
+use nfl_data::{Game, Season, SeasonType, TeamAbbr, Week};
 use sqlx::SqlitePool;
 use time::OffsetDateTime;
 use time::macros::datetime;

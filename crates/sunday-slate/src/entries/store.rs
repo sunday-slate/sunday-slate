@@ -10,7 +10,7 @@ use crate::entries::model::{
 use crate::fantasy_teams::FantasyTeamId;
 use crate::media::MediaId;
 use crate::media::store::{LogoColumns, build_logo};
-use nfl_data::TeamAbbr as NflTeamAbbr;
+use nfl_data::TeamAbbr;
 use sqlx::{Sqlite, SqliteConnection};
 use time::PrimitiveDateTime;
 
@@ -63,7 +63,7 @@ where
                   e.contest_id      AS "contest_id!: ContestId",
                   s.roster_slot     AS "roster_slot!: RosterSlot",
                   s.gsis_player_id  AS "gsis_player_id?: NflPlayerId",
-                  s.team_abbr       AS "team_abbr?: NflTeamAbbr"
+                  s.team_abbr       AS "team_abbr?: TeamAbbr"
            FROM entry_slots s
            JOIN entries e ON e.id = s.entry_id
            JOIN fantasy_teams ft ON ft.id = e.fantasy_team_id
@@ -150,7 +150,7 @@ where
         r#"SELECT e.contest_id     AS "contest_id!: ContestId",
                   s.roster_slot    AS "roster_slot!: RosterSlot",
                   s.gsis_player_id AS "gsis_player_id?: NflPlayerId",
-                  s.team_abbr      AS "team_abbr?: NflTeamAbbr"
+                  s.team_abbr      AS "team_abbr?: TeamAbbr"
            FROM entry_slots s
            JOIN entries e ON e.id = s.entry_id
            WHERE e.fantasy_team_id = ?1
@@ -250,7 +250,7 @@ where
         r#"SELECT e.fantasy_team_id AS "fantasy_team_id!: FantasyTeamId",
                   s.roster_slot     AS "roster_slot!: RosterSlot",
                   s.gsis_player_id  AS "gsis_player_id?: NflPlayerId",
-                  s.team_abbr       AS "team_abbr?: NflTeamAbbr"
+                  s.team_abbr       AS "team_abbr?: TeamAbbr"
            FROM entry_slots s
            JOIN entries e ON e.id = s.entry_id
            JOIN fantasy_teams ft ON ft.id = e.fantasy_team_id
@@ -306,7 +306,7 @@ where
 /// Type one slot row's payload. The expects encode `entry_slots`' CHECK
 /// constraint (DEF carries exactly a team abbr, player slots exactly a
 /// gsis id), which the schema enforces on write.
-fn entry_slot(slot: RosterSlot, gsis: Option<NflPlayerId>, team: Option<NflTeamAbbr>) -> EntrySlot {
+fn entry_slot(slot: RosterSlot, gsis: Option<NflPlayerId>, team: Option<TeamAbbr>) -> EntrySlot {
     let value = match slot {
         RosterSlot::Def => {
             SlotValue::Defense(team.expect("entry_slots CHECK: DEF carries a team_abbr"))
@@ -357,7 +357,7 @@ where
     let slots = sqlx::query!(
         r#"SELECT roster_slot    AS "roster_slot!: RosterSlot",
                   gsis_player_id AS "gsis_player_id?: NflPlayerId",
-                  team_abbr      AS "team_abbr?: NflTeamAbbr"
+                  team_abbr      AS "team_abbr?: TeamAbbr"
            FROM entry_slots WHERE entry_id = ?1"#,
         id,
     )
@@ -423,7 +423,7 @@ where
 #[derive(Default)]
 pub struct SlateSalaries {
     pub players: HashMap<NflPlayerId, i64>,
-    pub defenses: HashMap<NflTeamAbbr, i64>,
+    pub defenses: HashMap<TeamAbbr, i64>,
 }
 
 impl SlateSalaries {
@@ -433,7 +433,7 @@ impl SlateSalaries {
         &mut self,
         is_defense: bool,
         gsis: Option<NflPlayerId>,
-        team: NflTeamAbbr,
+        team: TeamAbbr,
         salary: i64,
     ) {
         if is_defense {
@@ -455,7 +455,7 @@ where
 {
     let rows = sqlx::query!(
         r#"SELECT s.gsis_player_id AS "gsis_player_id?: NflPlayerId",
-                  s.team_abbr      AS "team_abbr!: NflTeamAbbr",
+                  s.team_abbr      AS "team_abbr!: TeamAbbr",
                   s.dfs_position   AS "dfs_position!: String",
                   s.salary         AS "salary!: i64"
            FROM nfl_player_salaries s
@@ -549,7 +549,7 @@ where
         r#"SELECT e.id             AS "entry_id!: EntryId",
                   s.roster_slot    AS "roster_slot!: RosterSlot",
                   s.gsis_player_id AS "gsis_player_id?: NflPlayerId",
-                  s.team_abbr      AS "team_abbr?: NflTeamAbbr"
+                  s.team_abbr      AS "team_abbr?: TeamAbbr"
            FROM entry_slots s
            JOIN entries e ON e.id = s.entry_id
            WHERE e.contest_id = ?1 AND e.fantasy_team_id = ?2"#,

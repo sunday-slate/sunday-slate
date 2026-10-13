@@ -2,8 +2,7 @@ pub mod service;
 
 use crate::entries::{Lineup, NflPlayerId};
 use nfl_data::{
-    PlayerWeekStats as NflPlayerWeekStats, TeamAbbr as NflTeamAbbr,
-    TeamWeekStats as NflTeamWeekStats,
+    PlayerWeekStats as NflPlayerWeekStats, TeamAbbr, TeamWeekStats as NflTeamWeekStats,
 };
 use std::collections::HashMap;
 
@@ -140,7 +139,7 @@ pub fn score_defense(t: &NflTeamWeekStats) -> Score {
 #[derive(Default, Clone, Debug)]
 pub struct WeekStats {
     pub players: HashMap<NflPlayerId, NflPlayerWeekStats>,
-    pub defenses: HashMap<NflTeamAbbr, NflTeamWeekStats>,
+    pub defenses: HashMap<TeamAbbr, NflTeamWeekStats>,
 }
 
 /// Total FanDuel points for a lineup against one week's stats. A slot whose
@@ -219,7 +218,7 @@ fn group_digits(digits: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nfl_data::{Season, SeasonType, TeamAbbr as NflTeamAbbr, Week};
+    use nfl_data::{Season, SeasonType, TeamAbbr, Week};
 
     #[test]
     fn winning_score_is_the_maximum_above_zero() {

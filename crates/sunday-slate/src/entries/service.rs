@@ -4,8 +4,7 @@
 use std::collections::HashMap;
 
 use nfl_data::{
-    Game, LiveGamePhase, PlayerIdentity, PlayerWeekStats as NflPlayerWeekStats, Season,
-    TeamAbbr as NflTeamAbbr,
+    Game, LiveGamePhase, PlayerIdentity, PlayerWeekStats as NflPlayerWeekStats, Season, TeamAbbr,
 };
 
 use crate::contests::ContestId;
@@ -240,7 +239,7 @@ impl PickInfo {
 
     /// A D/ST pick, named `"KC D/ST"` and shown with the team logo.
     pub(crate) fn defense(
-        team: &NflTeamAbbr,
+        team: &TeamAbbr,
         logo: Option<&Media>,
         slate: &[Game],
         salary: Option<i64>,
@@ -621,7 +620,7 @@ pub fn build_picks(
             let stat = stats.players.get(id);
             let team = stat
                 .map(|s| s.team.as_str().to_owned())
-                .or_else(|| known.and_then(|k| k.team.as_ref().map(|t| t.0.clone())));
+                .or_else(|| known.and_then(|k| k.team.as_ref().map(|t| t.as_str().to_owned())));
             let avatar = match headshots.get(id.as_ref()) {
                 Some(media) => Avatar::Headshot(media.url()),
                 None => Avatar::Silhouette,
@@ -633,7 +632,7 @@ pub fn build_picks(
                 avatar,
                 team: team.clone(),
                 kickoff: team.as_deref().and_then(|team| team_kickoff(slate, team)),
-                opponent: stat.and_then(|s| s.opponent.as_ref().map(|o| o.0.clone())),
+                opponent: stat.and_then(|s| s.opponent.as_ref().map(|o| o.as_str().to_owned())),
                 game: team.as_deref().and_then(|t| game_line(slate, t)),
                 top_stats: stat.map_or_else(String::new, |s| {
                     top_stats_line(slot, known.and_then(|k| k.position.as_deref()), s)
@@ -655,7 +654,7 @@ pub fn build_picks(
         .collect();
 
     let defense = stats.defenses.get(&lineup.def);
-    let def_team = lineup.def.0.clone();
+    let def_team = lineup.def.as_str().to_owned();
     let def_score = defense.map(scoring::score_defense).unwrap_or_default();
     let def_points = def_score.total;
     rows.push(SlotRow {
@@ -836,7 +835,7 @@ pub fn build_preview(
                 info: PickInfo::player(
                     known.map_or_else(|| id.as_ref().to_string(), |k| k.name.clone()),
                     headshots.get(id.as_ref()),
-                    known.and_then(|k| k.team.as_ref().map(|t| t.0.clone())),
+                    known.and_then(|k| k.team.as_ref().map(|t| t.as_str().to_owned())),
                     slate,
                     salaries.players.get(id).copied(),
                     averages.get(id.as_ref()).copied(),
@@ -916,14 +915,14 @@ fn short_kickoff(et: OffsetDateTime) -> String {
 #[derive(Default)]
 pub struct Ownership {
     players: HashMap<NflPlayerId, f64>,
-    defenses: HashMap<NflTeamAbbr, f64>,
+    defenses: HashMap<TeamAbbr, f64>,
 }
 
 impl Ownership {
     pub fn player(&self, id: &NflPlayerId) -> Option<f64> {
         self.players.get(id).copied()
     }
-    pub fn defense(&self, team: &NflTeamAbbr) -> Option<f64> {
+    pub fn defense(&self, team: &TeamAbbr) -> Option<f64> {
         self.defenses.get(team).copied()
     }
 }
@@ -932,7 +931,7 @@ impl Ownership {
 pub fn compute_ownership<'a>(lineups: impl IntoIterator<Item = &'a Lineup>) -> Ownership {
     let mut total = 0.0;
     let mut player_counts: HashMap<NflPlayerId, u32> = HashMap::new();
-    let mut def_counts: HashMap<NflTeamAbbr, u32> = HashMap::new();
+    let mut def_counts: HashMap<TeamAbbr, u32> = HashMap::new();
     for lineup in lineups {
         total += 1.0;
         for id in lineup.player_ids() {
@@ -970,7 +969,7 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
         let player_ids: Vec<&str> = ids.iter().map(|id| id.as_ref()).collect();
         let names = state.nfl.identify(&ids).await?;
         let avatars =
-            crate::avatars::for_lineup(&state.db, &player_ids, &[entry.lineup.def.0.as_str()])
+            crate::avatars::for_lineup(&state.db, &player_ids, &[entry.lineup.def.as_str()])
                 .await?;
         let salaries = store::slate_salaries(reader, entry.contest.id).await?;
         let averages = scoring_service::season_averages(&state.nfl, season, &ids, week).await?;
@@ -981,7 +980,7 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
             &salaries,
             &averages,
             &avatars.players,
-            avatars.teams.get(entry.lineup.def.0.as_str()),
+            avatars.teams.get(entry.lineup.def.as_str()),
         );
         return Ok(EntryView::Preview(EntryPreview {
             team_name: entry.team.name,
@@ -1007,7 +1006,7 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
         };
         let names = state.nfl.identify(&ids).await?;
         let avatars =
-            crate::avatars::for_lineup(&state.db, &player_ids, &[entry.lineup.def.0.as_str()])
+            crate::avatars::for_lineup(&state.db, &player_ids, &[entry.lineup.def.as_str()])
                 .await?;
         let contest_entries = store::by_contest(reader, entry.contest.id, entry.league_id).await?;
         let salaries = store::slate_salaries(reader, entry.contest.id).await?;
@@ -1038,7 +1037,7 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
             &salaries,
             &ownership,
             &avatars.players,
-            avatars.teams.get(entry.lineup.def.0.as_str()),
+            avatars.teams.get(entry.lineup.def.as_str()),
             &live::slate_tuple(&slate)
                 .and_then(|key| state.injuries.report(&key))
                 .map(|report| report.by_gsis)
@@ -1089,8 +1088,7 @@ mod tests {
     use super::*;
     use crate::tests::factories;
     use nfl_data::{
-        Game, PlayerWeekStats as NflPlayerWeekStats, TeamAbbr as NflTeamAbbr,
-        TeamWeekStats as NflTeamWeekStats,
+        Game, PlayerWeekStats as NflPlayerWeekStats, TeamAbbr, TeamWeekStats as NflTeamWeekStats,
     };
 
     fn lineup() -> Lineup {

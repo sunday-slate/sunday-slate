@@ -9,7 +9,7 @@ use http_body_util::BodyExt;
 use nfl_data::{
     EspnPlayerId, Game, LiveGamePhase, LiveGameSnapshot, LivePlayerStats, LiveScoreboard,
     LiveScoreboardGame, LiveTeamStats, PlayerWeekStats as NflPlayerWeekStats, ProviderOutcome,
-    ProviderResponse, Season, TeamAbbr as NflTeamAbbr, TeamWeekStats as NflTeamWeekStats,
+    ProviderResponse, Season, TeamAbbr, TeamWeekStats as NflTeamWeekStats,
 };
 use sqlx::SqlitePool;
 use time::OffsetDateTime;

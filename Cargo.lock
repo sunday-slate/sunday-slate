@@ -3573,7 +3573,6 @@ dependencies = [
  "config",
  "csv",
  "fake",
- "fanduel-data",
  "futures-util",
  "garde",
  "http",

@@ -52,7 +52,9 @@ impl LiveIdentityIndex {
             facts.add_name(&roster.full_name);
             facts.add_espn(roster.espn_id.as_deref());
             facts.weekly = true;
-            facts.weekly_teams.insert(canonical_team(&roster.team).0);
+            facts
+                .weekly_teams
+                .insert(canonical_team(&roster.team).as_str().to_owned());
             if let Some(position) = roster.position.as_deref() {
                 facts.weekly_positions.insert(normalize_position(position));
             }
@@ -74,7 +76,7 @@ impl LiveIdentityIndex {
             let record = IdentityRecord {
                 gsis_id: gsis_id.clone(),
                 name: facts.names.values().next().cloned().unwrap_or_default(),
-                team: team.map(TeamAbbr),
+                team: team.and_then(|team| team.parse().ok()),
                 position,
             };
             index.by_gsis.insert(gsis_id.clone(), record);
@@ -214,7 +216,8 @@ impl IdentityFacts {
 
     fn add_global_team(&mut self, team: Option<&TeamAbbr>) {
         if let Some(team) = team {
-            self.global_teams.insert(canonical_team(team).0);
+            self.global_teams
+                .insert(canonical_team(team).as_str().to_owned());
         }
     }
 

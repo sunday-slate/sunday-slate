@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use nfl_data::{
-    NflData, NflDataConfig, PlayerWeekStats as NflPlayerWeekStats, Season,
+    NflData, NflDataConfig, PlayerWeekStats as NflPlayerWeekStats, Season, SeasonType, SeasonWeek,
     TeamWeekStats as NflTeamWeekStats, Week,
 };
 
@@ -68,8 +68,24 @@ async fn full_season_scores_match_fanduel() {
         .collect();
     paths.sort();
     for path in &paths {
-        let file = std::fs::File::open(path).unwrap();
-        import::import(&db, &nfl, file, SEASON)
+        let filename = path.file_stem().and_then(|s| s.to_str()).unwrap();
+        let season_week_num = if let Some(week) = filename.strip_prefix("week-") {
+            (SeasonType::Reg, week.parse::<u8>().unwrap())
+        } else {
+            match filename {
+                "wild-card" => (SeasonType::Post, 19),
+                "divisional-round" => (SeasonType::Post, 20),
+                "championship-round" => (SeasonType::Post, 21),
+                other => panic!("unknown salary fixture week: {other}"),
+            }
+        };
+        let season_week = SeasonWeek {
+            season: Season(SEASON),
+            season_type: season_week_num.0,
+            week: Week(season_week_num.1),
+        };
+        let bytes = std::fs::read(path).unwrap();
+        import::import_salary_csv(&db, &nfl, season_week, &bytes)
             .await
             .unwrap_or_else(|e| panic!("import {}: {e}", path.display()));
     }

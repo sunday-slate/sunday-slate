@@ -180,7 +180,7 @@ mod tests {
     use crate::entries::NflPlayerId;
     use crate::fantasy_teams::FantasyTeamId;
     use crate::tests::factories::{self, TeamOptions};
-    use nfl_data::TeamAbbr as NflTeamAbbr;
+    use nfl_data::TeamAbbr;
     use sqlx::SqlitePool;
 
     fn seed_lineup() -> Lineup {

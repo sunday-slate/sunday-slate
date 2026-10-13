@@ -164,7 +164,7 @@ mod tests {
         assert_eq!(Rule::from_name("nonsense"), None);
     }
 
-    use nfl_data::{Season, SeasonType, TeamAbbr as NflTeamAbbr, Week};
+    use nfl_data::{Season, SeasonType, Week};
     use time::OffsetDateTime;
     use time::macros::datetime;
 

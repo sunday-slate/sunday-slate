@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use nfl_data::{Game, PlayerIdentity, Season, TeamAbbr as NflTeamAbbr, Week};
+use nfl_data::{Game, PlayerIdentity, Season, Week};
 use strum::IntoEnumIterator;
 
 use crate::avatars::Avatars;
@@ -137,7 +137,7 @@ impl EditorSlotRow {
 
 /// One candidate for a slot's pick list, with its price and pace.
 pub struct SlotChoice {
-    /// What the pick form submits: the candidate's `NflPlayerId` or `NflTeamAbbr`.
+    /// What the pick form submits: the candidate's `NflPlayerId` or `TeamAbbr`.
     pub key: SlotValue,
     pub position: String,
     pub is_picked: bool,
@@ -679,7 +679,11 @@ fn build_slot_row(
             let team = slate_teams
                 .get(id.as_ref())
                 .map(|t| t.to_string())
-                .or_else(|| identity.and_then(|i| i.team.as_ref()).map(|t| t.0.clone()));
+                .or_else(|| {
+                    identity
+                        .and_then(|i| i.team.as_ref())
+                        .map(|t| t.as_str().to_owned())
+                });
             PickInfo::player(
                 identity
                     .map(|i| i.name.clone())
@@ -692,7 +696,7 @@ fn build_slot_row(
             )
         }
         Some(SlotValue::Defense(t)) => {
-            PickInfo::defense(t, avatars.teams.get(t.0.as_str()), slate, salary)
+            PickInfo::defense(t, avatars.teams.get(t.as_str()), slate, salary)
         }
         None => PickInfo::empty(),
     };
@@ -730,6 +734,7 @@ mod tests {
     use crate::draft_entry::model::DraftEntryId;
     use crate::tests::TestApp;
     use crate::tests::factories::{self, TeamOptions};
+    use nfl_data::TeamAbbr;
     use sqlx::SqlitePool;
 
     #[test]

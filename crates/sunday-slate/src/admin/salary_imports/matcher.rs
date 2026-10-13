@@ -31,7 +31,7 @@ impl<'a> PlayerIndex<'a> {
             many => {
                 let team_hits: Vec<&&Player> = many
                     .iter()
-                    .filter(|p| p.latest_team.as_ref().map(|t| t.0.as_str()) == Some(fd_team))
+                    .filter(|p| p.latest_team.as_ref().map(|t| t.as_str()) == Some(fd_team))
                     .collect();
                 match team_hits.as_slice() {
                     [p] => Some(p.gsis_id.clone()),
@@ -191,7 +191,6 @@ fn pick(hits: &[RosterHit], dfs_position: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nfl_data::TeamAbbr as NflTeamAbbr;
 
     fn player(gsis: &str, name: &str, team: &str) -> Player {
         Player {

@@ -519,7 +519,7 @@ pub(crate) fn slate_tuple(games: &[Game]) -> Option<(Season, Week, SeasonType)> 
 mod tests {
     use super::*;
     use crate::tests::factories;
-    use nfl_data::{PlayerWeekStats, TeamAbbr as NflTeamAbbr, TeamWeekStats};
+    use nfl_data::{PlayerWeekStats, TeamAbbr, TeamWeekStats};
 
     #[test]
     fn official_stats_require_every_slate_team_and_matching_game() {

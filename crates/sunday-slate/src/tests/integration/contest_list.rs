@@ -1,7 +1,7 @@
 //! Contest list: the Contests tab and the /contests page.
 
 use nfl_data::{
-    PlayerWeekStats as NflPlayerWeekStats, Season, SeasonType, TeamAbbr as NflTeamAbbr,
+    PlayerWeekStats as NflPlayerWeekStats, Season, SeasonType, TeamAbbr,
     TeamWeekStats as NflTeamWeekStats, Week,
 };
 use sqlx::SqlitePool;

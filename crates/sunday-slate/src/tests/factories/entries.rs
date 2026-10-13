@@ -2,7 +2,7 @@
 
 use nfl_data::{
     Game, Player, PlayerIdentity, PlayerWeekStats as NflPlayerWeekStats, Season, SeasonType,
-    TeamAbbr as NflTeamAbbr, TeamWeekStats as NflTeamWeekStats, Week, WeeklyRosterEntry,
+    TeamAbbr, TeamWeekStats as NflTeamWeekStats, Week, WeeklyRosterEntry,
 };
 use sqlx::SqlitePool;
 
@@ -126,7 +126,7 @@ pub fn weekly_roster_entry(gsis: &str, name: &str, week: u8) -> WeeklyRosterEntr
 pub fn identity(name: &str, team: Option<&str>) -> PlayerIdentity {
     PlayerIdentity {
         name: name.into(),
-        team: team.map(|t| NflTeamAbbr(t.into())),
+        team: team.map(|t| t.parse().unwrap()),
         position: None,
         headshot_url: None,
     }

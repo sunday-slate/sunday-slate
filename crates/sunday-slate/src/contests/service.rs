@@ -1085,8 +1085,7 @@ mod tests {
     use crate::tests::TestApp;
     use crate::tests::factories::{self, TeamOptions};
     use nfl_data::{
-        Game, LiveGamePhase, PlayerWeekStats, Season, SeasonType, TeamAbbr as NflTeamAbbr,
-        TeamWeekStats, Week,
+        Game, LiveGamePhase, PlayerWeekStats, Season, SeasonType, TeamAbbr, TeamWeekStats, Week,
     };
     use sqlx::SqlitePool;
     use time::OffsetDateTime;

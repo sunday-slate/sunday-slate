@@ -47,7 +47,7 @@ pub fn resolve_slate_games(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nfl_data::{Season, SeasonType, SeasonWeek, TeamAbbr as NflTeamAbbr, Week};
+    use nfl_data::{Season, SeasonType, SeasonWeek, Week};
     use time::OffsetDateTime;
     use time::macros::datetime;
 

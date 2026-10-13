@@ -9,7 +9,6 @@ use axum::extract::{Path, State};
 use axum::response::{Html, Response};
 use axum::routing::{get, post};
 use axum_htmx::HxRequest;
-use nfl_data::TeamAbbr as NflTeamAbbr;
 use serde::Deserialize;
 
 use crate::chrome::Chrome;
@@ -193,6 +192,7 @@ mod tests {
     use crate::entries::service::PickInfo;
     use crate::entries::{RosterSlot, SlotValue};
     use crate::injuries::InjuryDesignation;
+    use nfl_data::TeamAbbr;
     use strum::IntoEnumIterator;
 
     /// A named pick priced at `salary`, kicking off at 1:00pm.

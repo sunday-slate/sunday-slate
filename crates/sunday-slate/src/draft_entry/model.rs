@@ -1,4 +1,4 @@
-use nfl_data::TeamAbbr as NflTeamAbbr;
+use nfl_data::TeamAbbr;
 use strum::IntoEnumIterator;
 
 use crate::contests::ContestId;
@@ -23,7 +23,7 @@ pub struct DraftEntry {
     pub wr3: Option<NflPlayerId>,
     pub te: Option<NflPlayerId>,
     pub flex: Option<NflPlayerId>,
-    pub def: Option<NflTeamAbbr>,
+    pub def: Option<TeamAbbr>,
 }
 
 impl DraftEntry {

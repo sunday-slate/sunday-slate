@@ -50,7 +50,7 @@ pub fn resolve_games(ids: &[String], season_games: &[Game]) -> Vec<Game> {
 mod tests {
     use super::*;
     use crate::Db;
-    use nfl_data::{Game, Season, SeasonType, TeamAbbr as NflTeamAbbr, Week};
+    use nfl_data::{Game, Season, SeasonType, TeamAbbr, Week};
     use sqlx::SqlitePool;
     use time::OffsetDateTime;
     use time::macros::datetime;

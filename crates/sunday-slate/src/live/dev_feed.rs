@@ -350,8 +350,8 @@ async fn run_inner(state: &AppState) -> Result<(), AppError> {
             .iter()
             .flat_map(|game| [game.home_team.clone(), game.away_team.clone()])
             .collect::<Vec<_>>();
-        teams.sort_by(|a, b| a.0.cmp(&b.0));
-        teams.dedup_by(|a, b| a.0 == b.0);
+        teams.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+        teams.dedup_by(|a, b| a == b);
         let identity = Arc::new(LiveIdentityIndex::build(&state.nfl, season, week, &teams).await?);
         let key = super::slate_tuple(games).expect("uniform slate");
         state.injuries.publish(
