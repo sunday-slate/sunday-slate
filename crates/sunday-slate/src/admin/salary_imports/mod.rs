@@ -49,7 +49,7 @@ pub async fn import_salary_csv(
 ) -> Result<SalaryWeekOverview, SalaryImportError> {
     nfl.import_fanduel_csv(season_week.clone(), csv_data)
         .await?;
-    project_salary_week(db, nfl, season_week.clone()).await?;
+    project_salary_week(db, nfl, season_week.clone(), None).await?;
     salary_week_overview(db, nfl, season_week).await
 }
 
@@ -92,12 +92,13 @@ pub async fn resolve_salary_player(
     }) {
         return Err(SalaryImportError::Schedule);
     }
-    db.write_tx::<_, (), sqlx::Error>(async |conn| {
-        player_store::upsert(&mut *conn, gsis_player_id, fd_player_id).await?;
-        Ok(())
-    })
+    project_salary_week(
+        db,
+        nfl,
+        season_week.clone(),
+        Some((fd_player_id, gsis_player_id)),
+    )
     .await?;
-    project_salary_week(db, nfl, season_week.clone()).await?;
     salary_week_overview(db, nfl, season_week).await
 }
 
@@ -105,6 +106,7 @@ async fn project_salary_week(
     db: &Db,
     nfl: &NflData,
     season_week: SeasonWeek,
+    resolved_player: Option<(&str, &str)>,
 ) -> Result<(), SalaryImportError> {
     let source = nfl.salaried_players_for(season_week.clone()).await?;
     let matchups = source
@@ -161,7 +163,11 @@ async fn project_salary_week(
         } else {
             let player = salary.player.as_ref().ok_or(SalaryImportError::Schedule)?;
             let fd_id = player.id.to_string();
-            if let Some(crosswalk) = player_store::by_fd_id(db.reader(), &fd_id).await? {
+            if let Some((resolved_fd_id, resolved_gsis_id)) = resolved_player
+                && resolved_fd_id == fd_id
+            {
+                Some(resolved_gsis_id.to_owned())
+            } else if let Some(crosswalk) = player_store::by_fd_id(db.reader(), &fd_id).await? {
                 Some(crosswalk.gsis_player_id)
             } else {
                 let name = format!("{} {}", player.first_name, player.last_name);
@@ -180,6 +186,9 @@ async fn project_salary_week(
         mapped.push((salary, game_id, gsis_player_id));
     }
     db.write_tx::<_, (), sqlx::Error>(async |conn| {
+        if let Some((fd_player_id, gsis_player_id)) = resolved_player {
+            player_store::upsert(&mut *conn, gsis_player_id, fd_player_id).await?;
+        }
         for (salary, game_id, gsis) in &mapped {
             let player_id = salary.player.as_ref().map(|player| player.id.to_string());
             let gsis_player_id = if salary.position == DfsPosition::Dst {
@@ -602,39 +611,67 @@ mod tests {
     }
 
     const HEADER: &str = "\"Id\",\"Position\",\"First Name\",\"Nickname\",\"Last Name\",\"FPPG\",\"Played\",\"Salary\",\"Game\",\"Team\",\"Opponent\",\"Injury Indicator\",\"Injury Details\"";
+    const REPRESENTATIVE_CSV: &str =
+        include_str!("../../../../fanduel-data/tests/fixtures/fanduel-export.csv");
 
-    const TYPED_CSV: &str = "Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,Injury Indicator,Injury Details\n\
-        1-100,QB,Josh,Josh Allen,Allen,0,0,8000,BUF@NYJ,BUF,NYJ,,,\n\
-        1-200,WR,Unmatched,Unmatched Player,Player,0,0,5000,BUF@NYJ,BUF,NYJ,,,\n\
-        1-300,D,New York,New York Jets,Jets,0,0,4000,BUF@NYJ,NYJ,BUF,,,\n";
+    fn regular_week_2025(week: u8) -> SeasonWeek {
+        SeasonWeek {
+            season: Season(2025),
+            season_type: SeasonType::Reg,
+            week: Week(week),
+        }
+    }
+
+    fn representative_games() -> Vec<Game> {
+        vec![
+            game("2025_01_BUF_NYJ", 1, "BUF", "NYJ"),
+            game("2025_01_NYG_WAS", 1, "NYG", "WAS"),
+            game("2025_01_JAX_HOU", 1, "JAX", "HOU"),
+            game("2025_01_LA_SEA", 1, "LA", "SEA"),
+        ]
+    }
 
     #[tokio::test]
     async fn import_salary_csv_projects_valid_rows_while_returning_unmatched_ids() {
         let db = crate::Db::test(crate::tests::utils::in_memory_pool().await);
         let nfl = nfl_data::NflData::in_memory().await.unwrap();
         nfl.seed_for_test(
-            &[player("00-1", "Josh Allen", "BUF")],
-            &[game("2025_01_BUF_NYJ", 1, "BUF", "NYJ")],
+            &[
+                player("00-1", "Josh Allen", "BUF"),
+                player("00-2", "Travis Etienne Jr.", "JAX"),
+            ],
+            &representative_games(),
         )
         .await
         .unwrap();
 
-        let week = nfl_data::SeasonWeek::reg(1);
-        let first = import_salary_csv(&db, &nfl, week.clone(), TYPED_CSV.as_bytes())
+        let week = regular_week_2025(1);
+        let game_ids = [
+            "2025_01_BUF_NYJ",
+            "2025_01_NYG_WAS",
+            "2025_01_JAX_HOU",
+            "2025_01_LA_SEA",
+        ];
+        let first = import_salary_csv(&db, &nfl, week.clone(), REPRESENTATIVE_CSV.as_bytes())
             .await
             .expect("import and project");
-        assert_eq!(first.salary_count, 3);
+        assert_eq!(first.salary_count, 4);
         assert_eq!(first.unmatched.len(), 1);
-        assert_eq!(first.unmatched[0].player.as_ref().unwrap().id, 200);
+        assert_eq!(first.unmatched[0].player.as_ref().unwrap().id, 99999);
 
-        let salaries = salary_store::for_games(db.reader(), &["2025_01_BUF_NYJ"])
+        let salaries = salary_store::for_games(db.reader(), &game_ids)
             .await
             .unwrap();
-        assert_eq!(salaries.len(), 2, "matched player and DST projected");
+        assert_eq!(salaries.len(), 3, "two matched players and DST projected");
         assert!(
             salaries
                 .iter()
                 .any(|salary| salary.gsis_player_id.as_deref() == Some("00-1"))
+        );
+        assert!(
+            salaries
+                .iter()
+                .any(|salary| salary.gsis_player_id.as_deref() == Some("00-2"))
         );
         assert!(
             salaries
@@ -645,17 +682,16 @@ mod tests {
             |salary| salary.gsis_player_id.is_none() && salary.dfs_position != DfsPosition::Dst
         ));
 
-        let second = import_salary_csv(&db, &nfl, week, TYPED_CSV.as_bytes())
+        let second = import_salary_csv(&db, &nfl, week, REPRESENTATIVE_CSV.as_bytes())
             .await
             .expect("re-import");
         assert_eq!(second.unmatched.len(), 1);
         assert_eq!(
-            salary_store::for_games(db.reader(), &["2025_01_BUF_NYJ"])
+            salary_store::for_games(db.reader(), &game_ids)
                 .await
                 .unwrap()
                 .len(),
-            2,
-            "re-import updates rather than duplicates runtime rows"
+            3
         );
     }
 
@@ -663,30 +699,71 @@ mod tests {
     async fn resolve_salary_player_writes_crosswalk_and_projects_salary() {
         let db = crate::Db::test(crate::tests::utils::in_memory_pool().await);
         let nfl = nfl_data::NflData::in_memory().await.unwrap();
-        nfl.seed_for_test(&[], &[game("2025_01_BUF_NYJ", 1, "BUF", "NYJ")])
+        nfl.seed_for_test(&[], &representative_games())
             .await
             .unwrap();
-        let week = nfl_data::SeasonWeek::reg(1);
-        import_salary_csv(&db, &nfl, week.clone(), TYPED_CSV.as_bytes())
+        let week = regular_week_2025(1);
+        import_salary_csv(&db, &nfl, week.clone(), REPRESENTATIVE_CSV.as_bytes())
             .await
             .expect("initial import");
 
-        let overview = resolve_salary_player(&db, &nfl, week, "200", "00-2")
+        let overview = resolve_salary_player(&db, &nfl, week, "99999", "00-3")
             .await
             .expect("resolve and project");
-        assert!(overview.unmatched.is_empty());
-        let crosswalk = player_store::by_fd_id(db.reader(), "200")
+        assert_eq!(overview.unmatched.len(), 2);
+        assert!(
+            overview
+                .unmatched
+                .iter()
+                .any(|row| { row.player.as_ref().is_some_and(|player| player.id == 12543) })
+        );
+        assert!(
+            !overview
+                .unmatched
+                .iter()
+                .any(|row| { row.player.as_ref().is_some_and(|player| player.id == 99999) })
+        );
+        let crosswalk = player_store::by_fd_id(db.reader(), "99999")
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(crosswalk.gsis_player_id, "00-2");
-        let salaries = salary_store::for_games(db.reader(), &["2025_01_BUF_NYJ"])
+        assert_eq!(crosswalk.gsis_player_id, "00-3");
+        let salaries = salary_store::for_games(db.reader(), &["2025_01_LA_SEA"])
             .await
             .unwrap();
         assert!(
             salaries
                 .iter()
-                .any(|salary| salary.gsis_player_id.as_deref() == Some("00-2"))
+                .any(|salary| salary.gsis_player_id.as_deref() == Some("00-3"))
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_salary_player_rolls_back_crosswalk_when_salary_write_fails() {
+        let db = crate::Db::test(crate::tests::utils::in_memory_pool().await);
+        let nfl = nfl_data::NflData::in_memory().await.unwrap();
+        let week = regular_week_2025(1);
+        nfl.seed_for_test(&[], &representative_games())
+            .await
+            .unwrap();
+        import_salary_csv(&db, &nfl, week.clone(), REPRESENTATIVE_CSV.as_bytes())
+            .await
+            .expect("initial import");
+        sqlx::query("CREATE TRIGGER reject_salary BEFORE INSERT ON nfl_player_salaries BEGIN SELECT RAISE(FAIL, 'projection rejected'); END")
+            .execute(db.reader())
+            .await
+            .unwrap();
+
+        assert!(
+            resolve_salary_player(&db, &nfl, week, "99999", "00-3")
+                .await
+                .is_err()
+        );
+        assert!(
+            player_store::by_fd_id(db.reader(), "99999")
+                .await
+                .unwrap()
+                .is_none()
         );
     }
 
