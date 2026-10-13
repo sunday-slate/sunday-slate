@@ -28,6 +28,58 @@ const SEASON: u16 = 2025;
 // feed's fumble_recovery_tds. Nothing is quarantined.
 const UNCOVERED: [&str; 0] = [];
 
+fn salary_fixture_season_week(filename: &str) -> (SeasonType, u8) {
+    if let Some(week) = filename.strip_prefix("week-") {
+        (SeasonType::Reg, week.parse::<u8>().unwrap())
+    } else {
+        match filename {
+            "wild-card" => (SeasonType::Post, 19),
+            "divisional-round" => (SeasonType::Post, 20),
+            "championship-round" => (SeasonType::Post, 21),
+            "thanksgiving" => (SeasonType::Reg, 13),
+            "christmas-day" => (SeasonType::Reg, 17),
+            other => panic!("unknown salary fixture week: {other}"),
+        }
+    }
+}
+
+#[test]
+fn salary_fixture_filenames_map_to_complete_season_weeks() {
+    let expected = [
+        ("week-1", SeasonType::Reg, 1),
+        ("week-2", SeasonType::Reg, 2),
+        ("week-3", SeasonType::Reg, 3),
+        ("week-4", SeasonType::Reg, 4),
+        ("week-5", SeasonType::Reg, 5),
+        ("week-6", SeasonType::Reg, 6),
+        ("week-7", SeasonType::Reg, 7),
+        ("week-8", SeasonType::Reg, 8),
+        ("week-9", SeasonType::Reg, 9),
+        ("week-10", SeasonType::Reg, 10),
+        ("week-11", SeasonType::Reg, 11),
+        ("week-12", SeasonType::Reg, 12),
+        ("week-13", SeasonType::Reg, 13),
+        ("week-14", SeasonType::Reg, 14),
+        ("week-15", SeasonType::Reg, 15),
+        ("week-16", SeasonType::Reg, 16),
+        ("week-17", SeasonType::Reg, 17),
+        ("week-18", SeasonType::Reg, 18),
+        ("wild-card", SeasonType::Post, 19),
+        ("divisional-round", SeasonType::Post, 20),
+        ("championship-round", SeasonType::Post, 21),
+        ("thanksgiving", SeasonType::Reg, 13),
+        ("christmas-day", SeasonType::Reg, 17),
+    ];
+
+    for (filename, season_type, week) in expected {
+        assert_eq!(
+            salary_fixture_season_week(filename),
+            (season_type, week),
+            "{filename}"
+        );
+    }
+}
+
 fn touches_uncovered(stats: &str) -> bool {
     stats
         .split(';')
@@ -69,20 +121,11 @@ async fn full_season_scores_match_fanduel() {
     paths.sort();
     for path in &paths {
         let filename = path.file_stem().and_then(|s| s.to_str()).unwrap();
-        let season_week_num = if let Some(week) = filename.strip_prefix("week-") {
-            (SeasonType::Reg, week.parse::<u8>().unwrap())
-        } else {
-            match filename {
-                "wild-card" => (SeasonType::Post, 19),
-                "divisional-round" => (SeasonType::Post, 20),
-                "championship-round" => (SeasonType::Post, 21),
-                other => panic!("unknown salary fixture week: {other}"),
-            }
-        };
+        let (season_type, week) = salary_fixture_season_week(filename);
         let season_week = SeasonWeek {
             season: Season(SEASON),
-            season_type: season_week_num.0,
-            week: Week(season_week_num.1),
+            season_type,
+            week: Week(week),
         };
         let bytes = std::fs::read(path).unwrap();
         import::import_salary_csv(&db, &nfl, season_week, &bytes)
