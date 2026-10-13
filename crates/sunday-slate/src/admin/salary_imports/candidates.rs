@@ -1,4 +1,4 @@
-use nfl_data::{Player, Season, SeasonWeek, TeamAbbr, Week, WeeklyRosterEntry};
+use nfl_data::{Player, SalariedPlayer, Season, SeasonWeek, TeamAbbr, Week, WeeklyRosterEntry};
 
 use crate::{AppError, AppState};
 
@@ -89,6 +89,32 @@ async fn roster_candidates(
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
     Ok(entries.iter().filter_map(roster_candidate).collect())
+}
+
+/// A human-confirmed nickname/surname suggestion from the exact week's roster.
+pub async fn suggestion_for(
+    state: &AppState,
+    season_week: &SeasonWeek,
+    salary: &SalariedPlayer,
+) -> Result<Option<Candidate>, AppError> {
+    let Some(player) = &salary.player else {
+        return Ok(None);
+    };
+    let entries = state
+        .nfl
+        .weekly_roster(season_week.season, season_week.week, &salary.team)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    let index = super::matcher::RosterIndex::build(&entries);
+    let name = format!("{} {}", player.first_name, player.last_name);
+    let Some(gsis_id) = index.suggest_one(&name, salary.team.as_str(), salary.position.label())
+    else {
+        return Ok(None);
+    };
+    Ok(entries
+        .iter()
+        .find(|entry| entry.gsis_id.as_deref() == Some(gsis_id.as_str()))
+        .and_then(roster_candidate))
 }
 
 pub struct CandidateResults {

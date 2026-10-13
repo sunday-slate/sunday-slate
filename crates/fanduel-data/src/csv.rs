@@ -121,10 +121,7 @@ mod tests {
         assert_eq!(salaries[0].position, DfsPosition::Qb);
         assert_eq!(salaries[0].team, TeamAbbr::BUF);
         assert_eq!(salaries[0].game.matchup.away, TeamAbbr::BUF);
-        assert_eq!(
-            salaries[0].game.season_week,
-            SeasonWeek::reg(1)
-        );
+        assert_eq!(salaries[0].game.season_week, SeasonWeek::reg(1));
 
         let defense = &salaries[1];
         assert!(defense.player.is_none());

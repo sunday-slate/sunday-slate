@@ -128,7 +128,11 @@ impl Store {
                 ));
             }
             let game = &salary.game;
-            let game_key = (game.season_week.encode(), game.matchup.away, game.matchup.home);
+            let game_key = (
+                game.season_week.encode(),
+                game.matchup.away,
+                game.matchup.home,
+            );
             let game_id = match game_ids.get(&game_key) {
                 Some(id) => *id,
                 None => {

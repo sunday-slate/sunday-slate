@@ -75,7 +75,22 @@ impl WeekTemplate {
 pub struct ResolutionTemplate {
     pub week: u32,
     pub fd_player_id: String,
+    pub source_name: String,
+    pub team: String,
+    pub position: String,
+    pub salary: u32,
+    pub suggestion: Option<super::candidates::Candidate>,
     pub results: super::candidates::CandidateResults,
     pub query: String,
+    pub query_encoded: String,
     pub chrome: Chrome,
+}
+
+#[derive(Template)]
+#[template(path = "admin/salary_imports/_results.html")]
+pub struct CandidateResultsTemplate {
+    pub week: u32,
+    pub fd_player_id: String,
+    pub results: super::candidates::CandidateResults,
+    pub query_encoded: String,
 }

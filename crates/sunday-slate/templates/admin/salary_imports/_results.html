@@ -1,15 +1,15 @@
 <p class="mb-3 text-sm text-base-content/60">{{ results.total }} candidates {{ results.scope_label }}</p>
 {% if results.widened %}
-  <a class="link mb-3 inline-block" href="/admin/salary-imports/{{ week }}/players/{{ fd_player_id }}">Back to this team's week roster</a>
+  <a class="link mb-3 inline-block" href="/admin/salary-imports/{{ week }}/players/{{ fd_player_id }}?q={{ query_encoded }}">Back to this team's week roster</a>
 {% else %}
-  <a class="link mb-3 inline-block" href="/admin/salary-imports/{{ week }}/players/{{ fd_player_id }}?scope=all">Search all teams and weeks</a>
+  <a class="link mb-3 inline-block" href="/admin/salary-imports/{{ week }}/players/{{ fd_player_id }}?q={{ query_encoded }}&amp;scope=all">Search all teams and weeks</a>
 {% endif %}
 <ul class="flex flex-col gap-2">
   {% for player in results.candidates %}
   <li>
     <form method="post" action="/admin/salary-imports/{{ week }}/players/{{ fd_player_id }}/resolve">
       <input type="hidden" name="gsis_player_id" value="{{ player.gsis_id }}">
-      <button class="btn btn-outline w-full justify-start" type="submit">{{ player.label }} &middot; {{ player.gsis_id }}</button>
+      <button class="btn btn-outline w-full justify-start" type="submit">{{ player.label }}</button>
     </form>
   </li>
   {% endfor %}

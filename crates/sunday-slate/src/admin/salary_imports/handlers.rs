@@ -18,6 +18,7 @@ pub fn router() -> Router<AppState> {
         .route("/", get(index).post(upload))
         .route("/{week}", get(week))
         .route("/{week}/players/{fd_player_id}", get(players))
+        .route("/{week}/players/{fd_player_id}/search", get(player_search))
         .route("/{week}/players/{fd_player_id}/resolve", post(resolve))
 }
 
@@ -185,18 +186,65 @@ pub async fn players(
     axum::extract::Query(query): axum::extract::Query<PlayerSearch>,
 ) -> Result<impl IntoResponse, AppError> {
     let season_week = SeasonWeek::decode(encoded).ok_or(AppError::NotFound)?;
+    let row = unmatched_salary(&state, &season_week, &fd_player_id).await?;
+    let results = import::candidates::search(
+        &state,
+        &season_week,
+        &row.team,
+        &query.q,
+        query.scope.as_deref() == Some("all"),
+    )
+    .await?;
+    let player = row.player.as_ref().ok_or(AppError::NotFound)?;
+    let suggestion = import::candidates::suggestion_for(&state, &season_week, &row).await?;
+    Ok(Html(
+        crate::admin::salary_imports::view::ResolutionTemplate {
+            week: encoded,
+            fd_player_id,
+            source_name: format!("{} {}", player.first_name, player.last_name),
+            team: row.team.as_str().to_owned(),
+            position: row.position.label().to_owned(),
+            salary: row.salary,
+            suggestion,
+            results,
+            query_encoded: urlencoding::encode(&query.q).into_owned(),
+            query: query.q,
+            chrome: crate::chrome::Chrome::focused(
+                "Resolve salary player",
+                format!("/admin/salary-imports/{encoded}"),
+            ),
+        }
+        .render()?,
+    ))
+}
+
+async fn unmatched_salary(
+    state: &AppState,
+    season_week: &SeasonWeek,
+    fd_player_id: &str,
+) -> Result<nfl_data::SalariedPlayer, AppError> {
     let overview = import::salary_week_overview(&state.db, &state.nfl, season_week.clone())
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
-    let row = overview
+    overview
         .unmatched
-        .iter()
-        .find(|s| {
-            s.player
+        .into_iter()
+        .find(|salary| {
+            salary
+                .player
                 .as_ref()
-                .is_some_and(|p| p.id.to_string() == fd_player_id)
+                .is_some_and(|player| player.id.to_string() == fd_player_id)
         })
-        .ok_or(AppError::NotFound)?;
+        .ok_or(AppError::NotFound)
+}
+
+pub async fn player_search(
+    State(state): State<AppState>,
+    Path((encoded, fd_player_id)): Path<(u32, String)>,
+    axum::extract::Query(query): axum::extract::Query<PlayerSearch>,
+) -> Result<impl IntoResponse, AppError> {
+    let season_week = SeasonWeek::decode(encoded).ok_or(AppError::NotFound)?;
+    let row = unmatched_salary(&state, &season_week, &fd_player_id).await?;
     let results = import::candidates::search(
         &state,
         &season_week,
@@ -206,15 +254,11 @@ pub async fn players(
     )
     .await?;
     Ok(Html(
-        crate::admin::salary_imports::view::ResolutionTemplate {
+        crate::admin::salary_imports::view::CandidateResultsTemplate {
             week: encoded,
             fd_player_id,
             results,
-            query: query.q,
-            chrome: crate::chrome::Chrome::focused(
-                "Resolve salary player",
-                format!("/admin/salary-imports/{encoded}"),
-            ),
+            query_encoded: urlencoding::encode(&query.q).into_owned(),
         }
         .render()?,
     ))
@@ -601,6 +645,83 @@ mod tests {
         app.get("/admin/salary-imports/2025001/players/999?scope=all&q=J")
             .await
             .assert_text_contains("Type at least two characters");
+    }
+
+    #[tokio::test]
+    async fn resolution_page_shows_source_context_and_confirmable_weekly_suggestion() {
+        let app = dashboard_app().await;
+        app.server
+            .post("/admin/salary-imports")
+            .multipart(upload_form())
+            .await
+            .assert_status(StatusCode::SEE_OTHER);
+
+        let response = app.get("/admin/salary-imports/2025001/players/999").await;
+        response.assert_text_contains("Mystery Receiver");
+        response.assert_text_contains("BUF · WR · $5000");
+        response.assert_text_contains("Looks like");
+        response.assert_text_contains("Roster Receiver (WR)");
+        response.assert_text_contains("Confirm suggestion");
+        response.assert_text_contains("name=\"gsis_player_id\" value=\"00-roster-only\"");
+        assert!(
+            crate::nfl_players::store::by_fd_id(&app.pool, "999")
+                .await
+                .unwrap()
+                .is_none(),
+            "showing a suggestion must not create the crosswalk"
+        );
+    }
+
+    #[tokio::test]
+    async fn changing_candidate_scope_preserves_the_search_query() {
+        let app = dashboard_app().await;
+        app.server
+            .post("/admin/salary-imports")
+            .multipart(upload_form())
+            .await
+            .assert_status(StatusCode::SEE_OTHER);
+
+        let narrow = app
+            .get("/admin/salary-imports/2025001/players/999?q=Josh")
+            .await;
+        narrow.assert_text_contains("q=Josh&amp;scope=all");
+        let widened = app
+            .get("/admin/salary-imports/2025001/players/999?q=Josh&scope=all")
+            .await;
+        widened.assert_text_contains("Josh Allen (QB)");
+        widened.assert_text_contains("q=Josh");
+        widened.assert_text_contains("Back to this team's week roster");
+    }
+
+    #[tokio::test]
+    async fn resolution_typeahead_returns_a_fragment_without_displaying_ids() {
+        let app = dashboard_app().await;
+        app.server
+            .post("/admin/salary-imports")
+            .multipart(upload_form())
+            .await
+            .assert_status(StatusCode::SEE_OTHER);
+
+        let page = app.get("/admin/salary-imports/2025001/players/999").await;
+        page.assert_text_contains("hx-trigger=\"focus once, input changed delay:300ms\"");
+        page.assert_text_contains("hx-target=\"#candidate-results\"");
+        assert!(!page.text().contains("ID 999"));
+        assert!(
+            !page
+                .text()
+                .contains("Roster Receiver (WR) · 00-roster-only")
+        );
+
+        let results = app
+            .get("/admin/salary-imports/2025001/players/999/search?q=Roster")
+            .await;
+        results.assert_text_contains("Roster Receiver (WR)");
+        results.assert_text_contains("on BUF, week 1");
+        assert!(!results.text().contains("<html"));
+
+        app.get("/admin/salary-imports/2025001/players/999/search?q=Josh&scope=all")
+            .await
+            .assert_text_contains("Josh Allen (QB)");
     }
 
     #[tokio::test]
