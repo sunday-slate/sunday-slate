@@ -1,10 +1,8 @@
-use sqlx::{SqliteConnection, SqlitePool};
-use time::OffsetDateTime;
-
 use crate::error::NflDataError;
-use crate::model::{Game, Season, SeasonType, TeamAbbr, Week};
+use crate::model::{Game, Season};
 use crate::store::Store;
 use crate::store::sync_state::{self, SyncedAsset};
+use sqlx::{Row, SqliteConnection, SqlitePool};
 
 /// Insert games directly, bypassing the sync pipeline and `sync_state`
 /// bookkeeping. Runs inside a caller-supplied transaction. For tests and
@@ -71,29 +69,47 @@ pub(crate) async fn for_season(
     pool: &SqlitePool,
     season: Season,
 ) -> Result<Vec<Game>, NflDataError> {
-    Ok(sqlx::query_as!(
-        Game,
+    Ok(sqlx::query(
         r#"SELECT
                gsis_game_id,
-               season AS "season: Season",
-               week AS "week: Week",
-               season_type AS "season_type: SeasonType",
-               kickoff AS "kickoff: OffsetDateTime",
-               home_team AS "home_team: TeamAbbr",
-               away_team AS "away_team: TeamAbbr",
-               home_score AS "home_score: i32",
-               away_score AS "away_score: i32"
+               season,
+               week,
+               -- Normalize legacy labels while retaining numeric SQLx enum encodings.
+               CAST(CASE season_type
+                   WHEN 'REG' THEN 0
+                   WHEN 'POST' THEN 1
+                   ELSE season_type
+               END AS INTEGER) AS season_type,
+               kickoff,
+               home_team,
+               away_team,
+               home_score,
+               away_score
            FROM games
            WHERE season = ?
            ORDER BY week, gsis_game_id"#,
-        season
     )
+    .bind(season)
+    .try_map(|row| {
+        Ok(Game {
+            gsis_game_id: row.try_get("gsis_game_id")?,
+            season: row.try_get("season")?,
+            week: row.try_get("week")?,
+            season_type: row.try_get("season_type")?,
+            kickoff: row.try_get("kickoff")?,
+            home_team: row.try_get("home_team")?,
+            away_team: row.try_get("away_team")?,
+            home_score: row.try_get("home_score")?,
+            away_score: row.try_get("away_score")?,
+        })
+    })
     .fetch_all(pool)
     .await?)
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::model::{SeasonType, TeamAbbr, Week};
     use time::macros::datetime;
 
     use super::*;
@@ -152,6 +168,52 @@ mod tests {
         assert_eq!(games.len(), 1);
         assert_eq!(games[0].gsis_game_id, "2025_06_SF_LA");
         assert_eq!(games[0].kickoff, Some(datetime!(2025-10-03 00:15 UTC)));
+    }
+
+    #[tokio::test]
+    async fn for_season_decodes_text_and_integer_season_types() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&format!("sqlite://{}/t.db", dir.path().display()))
+            .await
+            .unwrap();
+
+        store
+            .write_tx(async |conn| {
+                for (id, week, season_type) in [
+                    ("2025_20_REG", 20, "REG"),
+                    ("2025_21_POST", 21, "POST"),
+                ] {
+                    sqlx::query(
+                        "INSERT INTO games (gsis_game_id, season, week, season_type, home_team, away_team) VALUES (?, 2025, ?, ?, 'LA', 'SF')",
+                    )
+                    .bind(id)
+                    .bind(week)
+                    .bind(season_type)
+                    .execute(&mut *conn)
+                    .await?;
+                }
+                let integer_encoded = [
+                    game("2025_19_INT_REG", 19),
+                    Game {
+                        season_type: SeasonType::Post,
+                        ..game("2025_18_INT_POST", 18)
+                    },
+                ];
+                seed(conn, &integer_encoded).await?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        let games = for_season(store.reader(), Season(2025)).await.unwrap();
+        let season_types: std::collections::HashMap<_, _> = games
+            .into_iter()
+            .map(|game| (game.gsis_game_id, game.season_type))
+            .collect();
+        assert_eq!(season_types["2025_20_REG"], SeasonType::Reg);
+        assert_eq!(season_types["2025_21_POST"], SeasonType::Post);
+        assert_eq!(season_types["2025_19_INT_REG"], SeasonType::Reg);
+        assert_eq!(season_types["2025_18_INT_POST"], SeasonType::Post);
     }
 
     #[tokio::test]
