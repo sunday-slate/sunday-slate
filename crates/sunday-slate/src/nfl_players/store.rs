@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use sqlx::Sqlite;
 
@@ -21,6 +21,20 @@ where
     )
     .fetch_optional(ex)
     .await
+}
+
+pub async fn mapped_gsis_ids<'e, E>(ex: E) -> Result<HashSet<String>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = Sqlite>,
+{
+    let ids = sqlx::query_scalar!(
+        r#"SELECT gsis_player_id AS "gsis_player_id!: String"
+           FROM nfl_players WHERE fd_player_id IS NOT NULL"#,
+    )
+    .fetch_all(ex)
+    .await?;
+
+    Ok(ids.into_iter().collect())
 }
 
 /// Lazily create the crosswalk row for a matched player. Idempotent on

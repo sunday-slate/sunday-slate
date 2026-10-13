@@ -91,6 +91,7 @@ pub struct ResolutionTemplate {
 pub struct CandidateResultsTemplate {
     pub week: u32,
     pub fd_player_id: String,
+    pub team: String,
     pub results: super::candidates::CandidateResults,
     pub query_encoded: String,
 }

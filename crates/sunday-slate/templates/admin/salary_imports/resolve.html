@@ -9,7 +9,7 @@
 
   {% if let Some(player) = suggestion %}
   <section class="mb-5 rounded-box border border-primary/30 bg-primary/5 p-4">
-    <p class="mb-2 text-sm">Looks like <span class="font-semibold">{{ player.label }}</span> on this week's roster.</p>
+    <p class="mb-2 text-sm">Looks like <span class="font-semibold">{{ player.label }}</span> for {{ team }}.</p>
     <form method="post" action="/admin/salary-imports/{{ week }}/players/{{ fd_player_id }}/resolve">
       <input type="hidden" name="gsis_player_id" value="{{ player.gsis_id }}">
       <button class="btn btn-primary btn-sm" type="submit">Confirm suggestion</button>
@@ -19,7 +19,7 @@
 
   <form method="get" action="/admin/salary-imports/{{ week }}/players/{{ fd_player_id }}" class="mb-4 flex gap-2">
     {% if results.widened %}<input type="hidden" name="scope" value="all">{% endif %}
-    <input class="input input-bordered flex-1" name="q" value="{{ query }}" placeholder="Filter this week's {{ team }} roster…"
+    <input class="input input-bordered flex-1" name="q" value="{{ query }}" placeholder="Filter {{ team }} players…"
            hx-get="/admin/salary-imports/{{ week }}/players/{{ fd_player_id }}/search"
            hx-trigger="focus once, input changed delay:300ms"
            hx-include="closest form"

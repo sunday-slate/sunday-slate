@@ -1,5 +1,6 @@
 use nfl_data::{Player, SalariedPlayer, Season, SeasonWeek, TeamAbbr, Week, WeeklyRosterEntry};
 
+use crate::nfl_players::store::mapped_gsis_ids;
 use crate::{AppError, AppState};
 
 pub struct Candidate {
@@ -36,7 +37,7 @@ pub fn candidate(p: &Player) -> Candidate {
 /// weekly roster's coarse buckets (DB/OL/DL) and the finer-grained `players`
 /// table (CB/OT/DE).
 const NON_SKILL_POSITIONS: &[&str] = &[
-    "DB", "DL", "LB", "OL", "P", "LS", "CB", "S", "SS", "FS", "SAF", "DE", "DT", "NT", "ILB",
+    "DB", "DL", "LB", "OL", "P", "K", "LS", "CB", "S", "SS", "FS", "SAF", "DE", "DT", "NT", "ILB",
     "MLB", "OLB", "OT", "T", "G", "OG", "C",
 ];
 
@@ -107,10 +108,16 @@ pub async fn suggestion_for(
         .map_err(|e| AppError::Internal(e.to_string()))?;
     let index = super::matcher::RosterIndex::build(&entries);
     let name = format!("{} {}", player.first_name, player.last_name);
+
     let Some(gsis_id) = index.suggest_one(&name, salary.team.as_str(), salary.position.label())
     else {
         return Ok(None);
     };
+
+    if mapped_gsis_ids(state.db.reader()).await?.contains(&gsis_id) {
+        return Ok(None);
+    }
+
     Ok(entries
         .iter()
         .find(|entry| entry.gsis_id.as_deref() == Some(gsis_id.as_str()))
@@ -122,7 +129,6 @@ pub struct CandidateResults {
     pub total: usize,
     pub scope_label: String,
     pub widened: bool,
-    pub too_short: bool,
 }
 
 /// Keep the week's team roster as the default; widening is always explicit.
@@ -134,23 +140,18 @@ pub async fn search(
     widened: bool,
 ) -> Result<CandidateResults, AppError> {
     let needle = query.trim().to_lowercase();
-    let too_short = widened && needle.len() < 2;
     let (mut candidates, scope_label) = if widened {
-        let hits = if too_short {
-            vec![]
-        } else {
-            state
-                .nfl
-                .players()
-                .await
-                .map_err(|e| AppError::Internal(e.to_string()))?
-                .iter()
-                .filter(|p| p.full_name.to_lowercase().contains(&needle))
-                .filter(|p| is_skill_position(p.position.as_deref()))
-                .map(candidate)
-                .collect()
-        };
-        (hits, "across all teams and weeks".to_owned())
+        let hits: Vec<Candidate> = state
+            .nfl
+            .players()
+            .await
+            .map_err(|e| AppError::Internal(e.to_string()))?
+            .iter()
+            .filter(|p| p.full_name.to_lowercase().contains(&needle))
+            .filter(|p| is_skill_position(p.position.as_deref()))
+            .map(candidate)
+            .collect();
+        (hits, "across all teams".to_owned())
     } else {
         let roster = roster_candidates(state, season_week.season, season_week.week, team).await?;
         let (base, label) = if roster.is_empty() {
@@ -161,18 +162,19 @@ pub async fn search(
                 .map_err(|e| AppError::Internal(e.to_string()))?;
             (
                 candidates_for(&players, team.as_str()),
-                format!("on {team}, no weekly roster synced"),
+                format!("on {team}"),
             )
         } else {
-            (roster, format!("on {team}, week {}", season_week.week.0))
+            (roster, format!("on {team}"))
         };
-        (
-            base.into_iter()
-                .filter(|c| c.label.to_lowercase().contains(&needle))
-                .collect(),
-            label,
-        )
+        let hits: Vec<Candidate> = base
+            .into_iter()
+            .filter(|c| c.label.to_lowercase().contains(&needle))
+            .collect();
+        (hits, label)
     };
+    let mapped = mapped_gsis_ids(state.db.reader()).await?;
+    candidates.retain(|candidate| !mapped.contains(&candidate.gsis_id));
     let total = candidates.len();
     candidates.sort_by(|a, b| a.sort_key.cmp(&b.sort_key));
     candidates.truncate(100);
@@ -181,6 +183,15 @@ pub async fn search(
         total,
         scope_label,
         widened,
-        too_short,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_skill_position;
+
+    #[test]
+    fn kicker_position_is_not_a_salary_player_candidate() {
+        assert!(!is_skill_position(Some("K")));
+    }
 }

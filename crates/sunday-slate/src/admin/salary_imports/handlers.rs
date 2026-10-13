@@ -257,6 +257,7 @@ pub async fn player_search(
         crate::admin::salary_imports::view::CandidateResultsTemplate {
             week: encoded,
             fd_player_id,
+            team: row.team.as_str().to_owned(),
             results,
             query_encoded: urlencoding::encode(&query.q).into_owned(),
         }
@@ -421,16 +422,28 @@ mod tests {
         app.login_admin().await;
         app.nfl
             .seed_for_test(
-                &[Player {
-                    gsis_id: "00-1".into(),
-                    espn_id: None,
-                    full_name: "Josh Allen".into(),
-                    first_name: Some("Josh".into()),
-                    last_name: Some("Allen".into()),
-                    position: Some("QB".into()),
-                    latest_team: Some("BUF".parse().unwrap()),
-                    headshot_url: None,
-                }],
+                &[
+                    Player {
+                        gsis_id: "00-1".into(),
+                        espn_id: None,
+                        full_name: "Josh Allen".into(),
+                        first_name: Some("Josh".into()),
+                        last_name: Some("Allen".into()),
+                        position: Some("QB".into()),
+                        latest_team: Some("BUF".parse().unwrap()),
+                        headshot_url: None,
+                    },
+                    Player {
+                        gsis_id: "00-avery".into(),
+                        espn_id: None,
+                        full_name: "Avery Smith".into(),
+                        first_name: Some("Avery".into()),
+                        last_name: Some("Smith".into()),
+                        position: Some("WR".into()),
+                        latest_team: Some("ATL".parse().unwrap()),
+                        headshot_url: None,
+                    },
+                ],
                 &[Game {
                     gsis_game_id: "2025_01_BUF_NYJ".into(),
                     season: Season(2025),
@@ -503,11 +516,17 @@ mod tests {
         detail.assert_text_contains("Mystery Receiver");
         detail.assert_text_contains("/admin/salary-imports/2025001/players/999");
         assert!(!detail.text().contains("Josh Allen"));
-        let candidates = app.get("/admin/salary-imports/2025001/players/999").await;
+        let resolution = app.get("/admin/salary-imports/2025001/players/999").await;
+        resolution.assert_status_ok();
+        resolution.assert_text_contains("Confirm suggestion");
+        let candidates = app
+            .get("/admin/salary-imports/2025001/players/999/search?q=Roster")
+            .await;
         candidates.assert_status_ok();
         candidates.assert_text_contains("Roster Receiver (WR)");
-        candidates.assert_text_contains("on BUF, week 1");
-        candidates.assert_text_contains("00-roster-only");
+        candidates.assert_text_contains("on BUF");
+        assert!(!candidates.text().contains("week 1"));
+        assert!(!candidates.text().contains(">00-roster-only<"));
         app.server
             .post("/admin/salary-imports/2025001/players/999/resolve")
             .form(&[("gsis_player_id", "00-roster-only")])
@@ -623,7 +642,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn candidate_search_keeps_week_scope_until_explicitly_widened() {
+    async fn candidate_search_keeps_team_scope_until_explicitly_widened() {
         let app = dashboard_app().await;
         app.server
             .post("/admin/salary-imports")
@@ -634,17 +653,49 @@ mod tests {
             .await
             .assert_text_contains("Roster Receiver");
         let narrow = app
-            .get("/admin/salary-imports/2025001/players/999?q=Josh")
+            .get("/admin/salary-imports/2025001/players/999/search?q=Josh")
             .await;
         narrow.assert_text_contains("No matching players found");
+        narrow.assert_text_contains("on BUF");
+        assert!(!narrow.text().contains("week 1"));
         let wide = app
-            .get("/admin/salary-imports/2025001/players/999?q=Josh&scope=all")
+            .get("/admin/salary-imports/2025001/players/999/search?q=Avery&scope=all")
             .await;
-        wide.assert_text_contains("Josh Allen (QB)");
-        wide.assert_text_contains("across all teams and weeks");
-        app.get("/admin/salary-imports/2025001/players/999?scope=all&q=J")
+        wide.assert_text_contains("Avery Smith (WR)");
+        wide.assert_text_contains("across all teams");
+        assert!(!wide.text().contains("weeks"));
+        let one_character = app
+            .get("/admin/salary-imports/2025001/players/999/search?scope=all&q=A")
+            .await;
+        one_character.assert_text_contains("Avery Smith (WR)");
+        assert!(
+            !one_character
+                .text()
+                .contains("Type at least two characters")
+        );
+    }
+
+    #[tokio::test]
+    async fn candidate_results_and_suggestions_exclude_already_mapped_gsis_ids() {
+        let app = dashboard_app().await;
+        app.server
+            .post("/admin/salary-imports")
+            .multipart(upload_form())
             .await
-            .assert_text_contains("Type at least two characters");
+            .assert_status(StatusCode::SEE_OTHER);
+        crate::nfl_players::store::upsert(&app.pool, "00-roster-only", "777")
+            .await
+            .unwrap();
+
+        let resolution = app.get("/admin/salary-imports/2025001/players/999").await;
+        assert!(!resolution.text().contains("Looks like Roster Receiver"));
+        assert!(!resolution.text().contains("Confirm suggestion"));
+
+        let candidates = app
+            .get("/admin/salary-imports/2025001/players/999/search?q=Roster")
+            .await;
+        assert!(!candidates.text().contains("Roster Receiver (WR)"));
+        candidates.assert_text_contains("No matching players found");
     }
 
     #[tokio::test]
@@ -686,11 +737,11 @@ mod tests {
             .await;
         narrow.assert_text_contains("q=Josh&amp;scope=all");
         let widened = app
-            .get("/admin/salary-imports/2025001/players/999?q=Josh&scope=all")
+            .get("/admin/salary-imports/2025001/players/999?q=Avery&scope=all")
             .await;
-        widened.assert_text_contains("Josh Allen (QB)");
-        widened.assert_text_contains("q=Josh");
-        widened.assert_text_contains("Back to this team's week roster");
+        widened.assert_text_contains("Avery Smith (WR)");
+        widened.assert_text_contains("q=Avery");
+        widened.assert_text_contains("Back to BUF players");
     }
 
     #[tokio::test]
@@ -705,23 +756,39 @@ mod tests {
         let page = app.get("/admin/salary-imports/2025001/players/999").await;
         page.assert_text_contains("hx-trigger=\"focus once, input changed delay:300ms\"");
         page.assert_text_contains("hx-target=\"#candidate-results\"");
+        assert_eq!(
+            page.text().matches("name=\"gsis_player_id\"").count(),
+            2,
+            "the initial view shows the suggestion and the current candidate list"
+        );
         assert!(!page.text().contains("ID 999"));
         assert!(
             !page
                 .text()
                 .contains("Roster Receiver (WR) · 00-roster-only")
         );
+        page.assert_text_contains("Roster Receiver (WR)");
+
+        let empty = app
+            .get("/admin/salary-imports/2025001/players/999/search")
+            .await;
+        empty.assert_text_contains("Roster Receiver (WR)");
+        assert!(!empty.text().contains("Type a name to filter"));
 
         let results = app
             .get("/admin/salary-imports/2025001/players/999/search?q=Roster")
             .await;
         results.assert_text_contains("Roster Receiver (WR)");
-        results.assert_text_contains("on BUF, week 1");
+        results.assert_text_contains("on BUF");
+        assert!(!results.text().contains("week 1"));
         assert!(!results.text().contains("<html"));
 
-        app.get("/admin/salary-imports/2025001/players/999/search?q=Josh&scope=all")
+        app.get("/admin/salary-imports/2025001/players/999/search?q=Avery&scope=all")
             .await
-            .assert_text_contains("Josh Allen (QB)");
+            .assert_text_contains("Avery Smith (WR)");
+        app.get("/admin/salary-imports/2025001/players/999/search?scope=all")
+            .await
+            .assert_text_contains("Avery Smith (WR)");
     }
 
     #[tokio::test]

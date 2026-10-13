@@ -83,6 +83,7 @@ const AMBIENT_ID_ROUTES: &[&str] = &[
     "/{id}/slate",
     "/{week}",
     "/{week}/players/{fd_player_id}",
+    "/{week}/players/{fd_player_id}/search",
     "/{week}/players/{fd_player_id}/resolve",
 ];
 
