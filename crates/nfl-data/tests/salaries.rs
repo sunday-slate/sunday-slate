@@ -21,7 +21,7 @@ async fn facade_imports_reads_and_counts_typed_salaries_for_exact_week() {
     .unwrap();
     let week = SeasonWeek::reg(1);
 
-    let imported = nfl.import_fanduel_csv(week.clone(), CSV).await.unwrap();
+    let imported = nfl.import_fanduel_csv(week, CSV).await.unwrap();
     assert_eq!(imported.len(), 4);
     assert_eq!(imported[0].player.as_ref().unwrap().id, 62239);
     assert_eq!(imported[0].position, DfsPosition::Qb);
@@ -30,7 +30,7 @@ async fn facade_imports_reads_and_counts_typed_salaries_for_exact_week() {
             && salary.position == DfsPosition::Dst
             && salary.team == TeamAbbr::NYG
     }));
-    let readback = nfl.salaried_players_for(week.clone()).await.unwrap();
+    let readback = nfl.salaried_players_for(week).await.unwrap();
     assert_eq!(readback.len(), imported.len());
     assert!(imported.iter().all(|salary| readback.contains(salary)));
     assert!(
@@ -39,21 +39,18 @@ async fn facade_imports_reads_and_counts_typed_salaries_for_exact_week() {
             .unwrap()
             .is_empty()
     );
-    assert_eq!(
-        nfl.salary_counts_by_week().await.unwrap(),
-        vec![(week.clone(), 4)]
-    );
+    assert_eq!(nfl.salary_counts_by_week().await.unwrap(), vec![(week, 4)]);
 
     let updated_csv = std::str::from_utf8(CSV)
         .unwrap()
         .replacen(",17,8200,", ",17,8400,", 1);
     let updated = nfl
-        .import_fanduel_csv(week.clone(), updated_csv.as_bytes())
+        .import_fanduel_csv(week, updated_csv.as_bytes())
         .await
         .unwrap();
     assert_eq!(updated.len(), 4);
     assert_eq!(updated[0].salary, 8400);
-    let readback = nfl.salaried_players_for(week.clone()).await.unwrap();
+    let readback = nfl.salaried_players_for(week).await.unwrap();
     assert_eq!(readback.len(), updated.len());
     assert!(updated.iter().all(|salary| readback.contains(salary)));
     assert_eq!(nfl.salary_counts_by_week().await.unwrap(), vec![(week, 4)]);

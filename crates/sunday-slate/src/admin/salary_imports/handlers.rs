@@ -37,7 +37,7 @@ pub async fn index(State(state): State<AppState>) -> Result<impl IntoResponse, A
         .map_err(|e| AppError::Internal(e.to_string()))?;
     let mut weeks = Vec::new();
     for (season_week, salary_count) in counts {
-        let overview = import::salary_week_overview(&state.db, &state.nfl, season_week.clone())
+        let overview = import::salary_week_overview(&state.db, &state.nfl, season_week)
             .await
             .map_err(|e| AppError::Internal(e.to_string()))?;
         let label = if season_week.season_type == SeasonType::Post {
@@ -152,7 +152,7 @@ pub async fn upload(
         season_type,
         week: Week(week),
     };
-    import::import_salary_csv(&state.db, &state.nfl, season_week.clone(), &csv)
+    import::import_salary_csv(&state.db, &state.nfl, season_week, &csv)
         .await
         .map_err(|e| AppError::BadRequest(e.to_string()))?;
     Ok(Redirect::to(&format!(
@@ -166,7 +166,7 @@ pub async fn week(
     Path(encoded): Path<u32>,
 ) -> Result<impl IntoResponse, AppError> {
     let season_week = SeasonWeek::decode(encoded).ok_or(AppError::NotFound)?;
-    let overview = import::salary_week_overview(&state.db, &state.nfl, season_week.clone())
+    let overview = import::salary_week_overview(&state.db, &state.nfl, season_week)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
     Ok(Html(WeekTemplate::new(overview).render()?))
@@ -223,7 +223,7 @@ async fn unmatched_salary(
     season_week: &SeasonWeek,
     fd_player_id: &str,
 ) -> Result<nfl_data::SalariedPlayer, AppError> {
-    let overview = import::salary_week_overview(&state.db, &state.nfl, season_week.clone())
+    let overview = import::salary_week_overview(&state.db, &state.nfl, *season_week)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
     overview
@@ -287,7 +287,7 @@ pub async fn resolve(
     import::resolve_salary_player(
         &state.db,
         &state.nfl,
-        season_week.clone(),
+        season_week,
         &fd_player_id,
         &form.gsis_player_id,
     )

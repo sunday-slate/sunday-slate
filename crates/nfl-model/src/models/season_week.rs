@@ -1,8 +1,13 @@
+use std::{
+    cmp::Ordering,
+    hash::{Hash, Hasher},
+};
+
 use sqlx::{Database, Decode, Encode, Type, encode::IsNull, error::BoxDynError};
 
 use crate::{Season, SeasonType, Week};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy)]
 pub struct SeasonWeek {
     pub season: Season,
     pub season_type: SeasonType,
@@ -44,6 +49,32 @@ impl SeasonWeek {
             season_type,
             week: Week(week),
         })
+    }
+}
+
+impl PartialEq for SeasonWeek {
+    fn eq(&self, other: &Self) -> bool {
+        self.encode() == other.encode()
+    }
+}
+
+impl Eq for SeasonWeek {}
+
+impl Hash for SeasonWeek {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.encode().hash(state);
+    }
+}
+
+impl PartialOrd for SeasonWeek {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for SeasonWeek {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.encode().cmp(&other.encode())
     }
 }
 

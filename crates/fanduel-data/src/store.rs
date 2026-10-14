@@ -77,7 +77,7 @@ impl Store {
                 Ok(SalariedPlayer {
                     player,
                     game: Game {
-                        season_week: season_week.clone(),
+                        season_week,
                         matchup: Matchup {
                             away: row.away_team,
                             home: row.home_team,
@@ -128,11 +128,7 @@ impl Store {
                 ));
             }
             let game = &salary.game;
-            let game_key = (
-                game.season_week.encode(),
-                game.matchup.away,
-                game.matchup.home,
-            );
+            let game_key = (game.season_week, game.matchup.away, game.matchup.home);
             let game_id = match game_ids.get(&game_key) {
                 Some(id) => *id,
                 None => {
