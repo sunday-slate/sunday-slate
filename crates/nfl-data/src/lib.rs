@@ -11,6 +11,7 @@ use nflverse_data::NflverseData;
 
 pub use config::NflDataConfig;
 pub use data_revision::DataRevision;
+use fanduel_data::WeeklySummary;
 pub use fanduel_data::{FanduelDataError, SalariedPlayer};
 pub use identity::PlayerIdentity;
 pub use live::{
@@ -97,6 +98,13 @@ impl NflData {
         &self,
     ) -> Result<BTreeMap<SeasonWeek, i64>, FanduelDataError> {
         self.fanduel.salary_counts_by_week().await
+    }
+
+    pub async fn fanduel_weekly_summaries(
+        &self,
+        matched_ids: &[u32],
+    ) -> Result<Vec<WeeklySummary>, FanduelDataError> {
+        self.fanduel.weekly_summaries(matched_ids).await
     }
 
     /// Opens both provider databases and runs their migrations.

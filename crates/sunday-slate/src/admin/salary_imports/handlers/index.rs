@@ -1,5 +1,6 @@
 use crate::admin::salary_imports::default_season_week;
 use crate::chrome::Chrome;
+use crate::nfl_players::store as nfl_players_store;
 use crate::{AppError, AppState};
 use askama::Template;
 use axum::extract::State;
@@ -21,7 +22,7 @@ pub(crate) struct SalaryCounts {
 }
 pub async fn index(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
     let cur_week = current_week(&state).await?;
-    let weeks = week_summaries(&state).await?;
+    let weeks = fd_week_summaries(&state).await?;
 
     Ok(Html(
         DashboardTemplate {
@@ -33,50 +34,32 @@ pub async fn index(State(state): State<AppState>) -> Result<impl IntoResponse, A
     ))
 }
 
-async fn week_summaries(state: &AppState) -> Result<BTreeMap<SeasonWeek, SalaryCounts>, AppError> {
-    let salary_counts = state
-        .nfl
-        .salary_counts_by_week()
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?;
-
-    let weeks: Vec<&SeasonWeek> = salary_counts.keys().collect();
-    let unmatched_counts = unmatched_counts(state, &weeks).await?;
-
-    let summaries = salary_counts
+async fn fd_week_summaries(
+    state: &AppState,
+) -> Result<BTreeMap<SeasonWeek, SalaryCounts>, AppError> {
+    let matched_ids: Vec<u32> = nfl_players_store::mapped_fd_ids(state.db.reader())
+        .await?
         .into_iter()
-        .map(|(week, salary_count)| {
-            let unmatched_count = unmatched_counts.get(&week).copied().unwrap_or(0);
+        .collect();
+
+    let summaries = state
+        .nfl
+        .fanduel_weekly_summaries(&matched_ids)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?
+        .iter()
+        .map(|summary| {
             (
-                week,
+                summary.season_week,
                 SalaryCounts {
-                    salary_count: salary_count as usize,
-                    unmatched_count,
+                    salary_count: summary.salary_count,
+                    unmatched_count: summary.unmatched_count,
                 },
             )
         })
         .collect();
 
     Ok(summaries)
-}
-
-async fn unmatched_counts(
-    state: &AppState,
-    weeks: &[&SeasonWeek],
-) -> Result<BTreeMap<SeasonWeek, usize>, AppError> {
-    let mut res = vec![];
-    for season_week in weeks {
-        let overview = crate::admin::salary_imports::salary_week_overview(
-            &state.db,
-            &state.nfl,
-            **season_week,
-        )
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?;
-        res.push((**season_week, overview.unmatched.len()))
-    }
-
-    Ok(res.into_iter().collect())
 }
 
 async fn current_week(state: &AppState) -> Result<SeasonWeek, AppError> {

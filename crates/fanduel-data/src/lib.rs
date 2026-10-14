@@ -4,7 +4,7 @@ mod models;
 mod store;
 
 pub use error::FanduelDataError;
-pub use models::{Game, Matchup, Player, SalariedPlayer};
+pub use models::{Game, Matchup, Player, SalariedPlayer, WeeklySummary};
 use std::collections::BTreeMap;
 
 use csv::parse_csv;
@@ -55,6 +55,13 @@ impl FanduelData {
         &self,
     ) -> Result<BTreeMap<SeasonWeek, i64>, FanduelDataError> {
         self.store.salary_counts_by_week().await
+    }
+
+    pub async fn weekly_summaries(
+        &self,
+        matched_ids: &[u32],
+    ) -> Result<Vec<WeeklySummary>, FanduelDataError> {
+        self.store.weekly_summaries(matched_ids).await
     }
 
     /// All salaried players for a given week
