@@ -341,7 +341,7 @@ mod tests {
     }
 
     const REPRESENTATIVE_CSV: &str =
-        include_str!("../../../../fanduel-data/tests/fixtures/fanduel-export.csv");
+        include_str!("../../../../fanduel-data/src/csv/fixtures/fanduel-export.csv");
 
     fn regular_week_2025(week: u8) -> SeasonWeek {
         SeasonWeek {

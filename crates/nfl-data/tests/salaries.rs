@@ -1,6 +1,6 @@
 use nfl_data::{DfsPosition, NflData, NflDataConfig, SeasonWeek, TeamAbbr};
 
-const CSV: &[u8] = include_bytes!("../../fanduel-data/tests/fixtures/fanduel-export.csv");
+const CSV: &[u8] = include_bytes!("../../fanduel-data/src/csv/fixtures/fanduel-export.csv");
 
 #[tokio::test]
 async fn facade_imports_reads_and_counts_typed_salaries_for_exact_week() {

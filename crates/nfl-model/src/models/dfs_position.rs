@@ -1,12 +1,5 @@
 #[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    sqlx::Type,
-    strum::IntoStaticStr,
-    strum::EnumString,
+    Debug, Clone, Copy, PartialEq, Eq, sqlx::Type, strum::IntoStaticStr, strum::EnumString,
 )]
 #[sqlx(rename_all = "UPPERCASE")]
 #[strum(serialize_all = "UPPERCASE", ascii_case_insensitive)]
@@ -15,7 +8,12 @@ pub enum DfsPosition {
     Rb,
     Wr,
     Te,
-    #[strum(to_string = "DST", serialize = "DST", serialize = "DEF", serialize = "D")]
+    #[strum(
+        to_string = "DST",
+        serialize = "DST",
+        serialize = "DEF",
+        serialize = "D"
+    )]
     Dst,
 }
 

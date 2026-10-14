@@ -1,25 +1,8 @@
-use serde::Deserialize;
+mod salary_row;
 
 use crate::{FanduelDataError, Game, Matchup, Player, SalariedPlayer};
 use nfl_model::{DfsPosition, SeasonWeek, TeamAbbr};
-
-#[derive(Debug, Deserialize)]
-struct SalaryRow {
-    #[serde(rename = "Id")]
-    pub id: String,
-    #[serde(rename = "Position")]
-    pub position: String,
-    #[serde(rename = "First Name")]
-    pub first_name: String,
-    #[serde(rename = "Last Name")]
-    pub last_name: String,
-    #[serde(rename = "Salary")]
-    pub salary: String,
-    #[serde(rename = "Game")]
-    pub game: String,
-    #[serde(rename = "Team")]
-    pub team: String,
-}
+use salary_row::parse_rows;
 
 // Parse typed source rows without persisting them, allowing validation before import.
 pub(crate) fn parse_csv(
@@ -81,14 +64,6 @@ pub(crate) fn parse_csv(
         .collect()
 }
 
-fn parse_rows(data: &[u8]) -> Result<Vec<SalaryRow>, FanduelDataError> {
-    let mut reader = csv::Reader::from_reader(data);
-    reader
-        .deserialize()
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(FanduelDataError::Csv)
-}
-
 #[cfg(test)]
 mod tests {
     use super::parse_csv;
@@ -98,7 +73,7 @@ mod tests {
     fn parses_fanduel_export_players_games_and_defense() {
         let salaries = parse_csv(
             SeasonWeek::reg(1),
-            include_bytes!("../tests/fixtures/fanduel-export.csv"),
+            include_bytes!("./fixtures/fanduel-export.csv"),
         )
         .unwrap();
 
@@ -129,7 +104,7 @@ mod tests {
 
     #[test]
     fn rejects_an_unrecognized_position_in_the_export() {
-        let csv = include_str!("../tests/fixtures/fanduel-export.csv").replacen(",QB,", ",CPT,", 1);
+        let csv = include_str!("./fixtures/fanduel-export.csv").replacen(",QB,", ",CPT,", 1);
         assert!(matches!(
             parse_csv(SeasonWeek::reg(1), csv.as_bytes()),
             Err(crate::FanduelDataError::InvalidRow(_))

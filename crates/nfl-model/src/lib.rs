@@ -17,4 +17,4 @@ pub use model::{
     WeeklyRosterEntry,
 };
 
-pub use models::{SeasonWeek, DfsPosition};
+pub use models::{DfsPosition, SeasonWeek};
