@@ -59,19 +59,19 @@ pub async fn salary_week_overview(
     season_week: SeasonWeek,
 ) -> Result<SalaryWeekOverview, SalaryImportError> {
     let salaries = nfl.salaried_players_for(season_week).await?;
-    let mut unmatched = Vec::new();
-    for salary in &salaries {
-        let Some(player) = &salary.player else {
-            continue;
-        };
-        let fd_id = player.id;
-        if player_store::by_fd_id(db.reader(), fd_id).await?.is_none() {
-            unmatched.push(salary.clone());
+    let salary_count = salaries.len();
+
+    let matched_ids = player_store::mapped_fd_ids(db.reader()).await?;
+    let unmatched = salaries.into_iter().filter(|salaried_player| {
+        match &salaried_player.player {
+            Some(player) => !matched_ids.contains(&player.id),
+            None => false
         }
-    }
+    }).collect();
+
     Ok(SalaryWeekOverview {
         season_week,
-        salary_count: salaries.len(),
+        salary_count,
         unmatched,
     })
 }
