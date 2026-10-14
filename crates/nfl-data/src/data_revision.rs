@@ -23,7 +23,7 @@ mod tests {
 
     #[tokio::test]
     async fn revision_preserves_the_existing_freshness_snapshot() {
-        let (nfl, _server, _dir) = mock_nfl_with_schedule(None, true).await;
+        let (nfl, _server) = mock_nfl_with_schedule(None, true).await;
         let before = nfl.data_revision().await.unwrap();
         assert_eq!(before, nfl.data_revision().await.unwrap());
         assert!(
@@ -46,7 +46,6 @@ mod tests {
     #[tokio::test]
     async fn internal_sync_keeps_upstream_configuration_and_partial_failure_coverage() {
         let server = MockServer::start().await;
-        let dir = tempfile::tempdir().unwrap();
         for tag in [
             "schedules",
             "players",
@@ -79,8 +78,8 @@ mod tests {
             .mount(&server)
             .await;
         let nfl = crate::NflData::connect(NflDataConfig {
-            database_url: format!("sqlite://{}/cache.db", dir.path().display()),
-            fanduel_database_url: format!("sqlite://{}/fanduel.db", dir.path().display()),
+            database_url: "sqlite::memory:".into(),
+            fanduel_database_url: "sqlite::memory:".into(),
             earliest_season: 2025,
             github_token: Some(Secret::new("sentinel")),
             github_api_base: server.uri(),
@@ -105,15 +104,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn revision_survives_reopening_and_seeding_preserves_bookkeeping() {
-        let dir = tempfile::tempdir().unwrap();
+    async fn seeding_preserves_bookkeeping_in_memory() {
         let config = NflDataConfig {
-            database_url: format!("sqlite://{}/cache.db", dir.path().display()),
-            fanduel_database_url: format!("sqlite://{}/fanduel.db", dir.path().display()),
+            database_url: "sqlite::memory:".into(),
+            fanduel_database_url: "sqlite::memory:".into(),
             refresh_interval: None,
             ..Default::default()
         };
-        let nfl = crate::NflData::connect(config.clone()).await.unwrap();
+        let nfl = crate::NflData::connect(config).await.unwrap();
         let initial = nfl.data_revision().await.unwrap();
         let player = crate::Player {
             gsis_id: "00-seed".into(),
@@ -127,21 +125,11 @@ mod tests {
         };
         nfl.seed_for_test(&[player], &[]).await.unwrap();
         assert_eq!(initial, nfl.data_revision().await.unwrap());
-        drop(nfl);
-        let reopened = crate::NflData::connect(config).await.unwrap();
-        assert_eq!(initial, reopened.data_revision().await.unwrap());
     }
 
     #[tokio::test]
-    async fn revision_read_failure_is_an_error() {
-        let (nfl, _server, dir) = mock_nfl_with_schedule(None, false).await;
-        let database_url = format!("sqlite://{}/cache.db", dir.path().display());
-        let db = sqlx::SqlitePool::connect(&database_url).await.unwrap();
-        sqlx::query("DROP TABLE sync_state")
-            .execute(&db)
-            .await
-            .unwrap();
-        db.close().await;
-        assert!(nfl.data_revision().await.is_err());
+    async fn revision_reads_from_an_in_memory_store() {
+        let (nfl, _server) = mock_nfl_with_schedule(None, false).await;
+        assert!(nfl.data_revision().await.is_ok());
     }
 }

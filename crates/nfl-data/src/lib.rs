@@ -11,7 +11,7 @@ use nflverse_data::NflverseData;
 
 pub use config::NflDataConfig;
 pub use data_revision::DataRevision;
-pub use fanduel_data::{FanduelDataError, SalariedPlayer, parse_csv as parse_fanduel_csv};
+pub use fanduel_data::{FanduelDataError, SalariedPlayer};
 pub use identity::PlayerIdentity;
 pub use live::{
     EspnPlayerId, InjuryDesignation, InjuryEntry, InjuryProvider, InjuryReport, LiveGame,
@@ -35,7 +35,7 @@ pub enum NflDataConnectError {
     #[error("nflverse provider startup failed: {0}")]
     Nflverse(#[source] NflDataError),
     #[error("FanDuel provider startup failed: {0}")]
-    Fanduel(#[source] fanduel_data::FanduelDataError),
+    Fanduel(#[source] FanduelDataError),
 }
 
 pub struct NflData {
@@ -68,13 +68,12 @@ impl NflData {
         ))
     }
 
-    /// Parse and persist FanDuel salaries for an explicit contest week.
-    pub async fn import_fanduel_csv(
+    pub fn parse_fanduel_csv(
         &self,
         season_week: SeasonWeek,
         csv_data: &[u8],
     ) -> Result<Vec<SalariedPlayer>, FanduelDataError> {
-        self.fanduel.import_csv(season_week, csv_data).await
+        self.fanduel.parse_fanduel_csv(season_week, csv_data)
     }
 
     /// Persist typed FanDuel source rows after caller-specific validation.
@@ -106,9 +105,12 @@ impl NflData {
         let provider = NflverseData::connect(config.clone().into())
             .await
             .map_err(NflDataConnectError::Nflverse)?;
-        let fanduel = fanduel_data::FanduelData::connect(&config.fanduel_database_url)
-            .await
-            .map_err(NflDataConnectError::Fanduel)?;
+        let fanduel = if config.fanduel_database_url == "sqlite::memory:" {
+            fanduel_data::FanduelData::in_memory().await
+        } else {
+            fanduel_data::FanduelData::connect(&config.fanduel_database_url).await
+        }
+        .map_err(NflDataConnectError::Fanduel)?;
         Ok(Self {
             provider,
             fanduel,

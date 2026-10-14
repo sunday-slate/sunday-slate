@@ -7,22 +7,18 @@ use wiremock::{
 
 use crate::{NflData, NflDataConfig};
 
-pub(crate) async fn mock_nfl(
-    refresh_interval: Option<Duration>,
-) -> (Arc<NflData>, MockServer, tempfile::TempDir) {
+pub(crate) async fn mock_nfl(refresh_interval: Option<Duration>) -> (Arc<NflData>, MockServer) {
     mock_nfl_setup(refresh_interval, false, Duration::ZERO).await
 }
 
 pub(crate) async fn mock_nfl_with_schedule(
     refresh_interval: Option<Duration>,
     schedule_succeeds: bool,
-) -> (Arc<NflData>, MockServer, tempfile::TempDir) {
+) -> (Arc<NflData>, MockServer) {
     mock_nfl_setup(refresh_interval, schedule_succeeds, Duration::ZERO).await
 }
 
-pub(crate) async fn mock_nfl_delayed(
-    delay: Duration,
-) -> (Arc<NflData>, MockServer, tempfile::TempDir) {
+pub(crate) async fn mock_nfl_delayed(delay: Duration) -> (Arc<NflData>, MockServer) {
     mock_nfl_setup(None, false, delay).await
 }
 
@@ -30,9 +26,8 @@ async fn mock_nfl_setup(
     refresh_interval: Option<Duration>,
     schedule_succeeds: bool,
     delay: Duration,
-) -> (Arc<NflData>, MockServer, tempfile::TempDir) {
+) -> (Arc<NflData>, MockServer) {
     let server = MockServer::start().await;
-    let dir = tempfile::tempdir().unwrap();
     for tag in [
         "schedules",
         "players",
@@ -66,13 +61,13 @@ async fn mock_nfl_setup(
             .await;
     }
     let nfl = NflData::connect(NflDataConfig {
-        database_url: format!("sqlite://{}/cache.db", dir.path().display()),
-        fanduel_database_url: format!("sqlite://{}/fanduel.db", dir.path().display()),
+        database_url: "sqlite::memory:".into(),
+        fanduel_database_url: "sqlite::memory:".into(),
         github_api_base: server.uri(),
         refresh_interval,
         ..Default::default()
     })
     .await
     .unwrap();
-    (Arc::new(nfl), server, dir)
+    (Arc::new(nfl), server)
 }

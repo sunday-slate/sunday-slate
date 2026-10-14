@@ -627,10 +627,11 @@ mod tests {
                 week: Week(1),
             },
         ] {
-            app.nfl
-                .import_fanduel_csv(season_week, DASHBOARD_CSV.as_bytes())
-                .await
+            let salaries = app
+                .nfl
+                .parse_fanduel_csv(season_week, DASHBOARD_CSV.as_bytes())
                 .unwrap();
+            app.nfl.save_fanduel_salaries(&salaries).await.unwrap();
         }
         let root = app.get("/admin/salary-imports").await;
         root.assert_status_ok();

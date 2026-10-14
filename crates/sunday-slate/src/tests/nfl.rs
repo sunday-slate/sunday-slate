@@ -6,9 +6,8 @@ use wiremock::{
     matchers::{method, path},
 };
 
-pub(crate) async fn mocked_nfl() -> (Arc<NflData>, MockServer, tempfile::TempDir) {
+pub(crate) async fn mocked_nfl() -> (Arc<NflData>, MockServer) {
     let server = MockServer::start().await;
-    let dir = tempfile::tempdir().unwrap();
     for tag in [
         "schedules",
         "players",
@@ -25,15 +24,15 @@ pub(crate) async fn mocked_nfl() -> (Arc<NflData>, MockServer, tempfile::TempDir
             .await;
     }
     let nfl = NflData::connect(NflDataConfig {
-        database_url: format!("sqlite://{}/cache.db", dir.path().display()),
-        fanduel_database_url: format!("sqlite://{}/fanduel.db", dir.path().display()),
+        database_url: "sqlite::memory:".into(),
+        fanduel_database_url: "sqlite::memory:".into(),
         github_api_base: server.uri(),
         refresh_interval: Some(Duration::ZERO),
         ..Default::default()
     })
     .await
     .unwrap();
-    (Arc::new(nfl), server, dir)
+    (Arc::new(nfl), server)
 }
 
 pub(crate) async fn mount_schedule_release(server: &MockServer, updated_at: &str, csv: &str) {

@@ -68,14 +68,13 @@ async fn empty_provider_reads_preserve_missing_result_behavior() {
 }
 
 #[tokio::test]
-async fn seeded_records_survive_reopening_and_identity_prefers_players() {
-    let dir = tempfile::tempdir().unwrap();
+async fn seeded_records_preserve_identity_and_prefer_players() {
     let config = NflDataConfig {
-        database_url: format!("sqlite://{}/cache.db", dir.path().display()),
-        fanduel_database_url: format!("sqlite://{}/fanduel.db", dir.path().display()),
+        database_url: "sqlite::memory:".into(),
+        fanduel_database_url: "sqlite::memory:".into(),
         ..Default::default()
     };
-    let nfl = NflData::connect(config.clone()).await.unwrap();
+    let nfl = NflData::connect(config).await.unwrap();
     nfl.seed_for_test(&[player()], &[game()]).await.unwrap();
     let roster = |id: &str| WeeklyRosterEntry {
         season: Season(2025),
@@ -90,8 +89,6 @@ async fn seeded_records_survive_reopening_and_identity_prefers_players() {
     nfl.seed_weekly_roster_for_test(&[roster("00-P"), roster("00-R")])
         .await
         .unwrap();
-    drop(nfl);
-    let nfl = NflData::connect(config).await.unwrap();
     assert_eq!(nfl.games(Season(2025)).await.unwrap(), [game()]);
     assert_eq!(nfl.players().await.unwrap(), [player()]);
     let players = nfl

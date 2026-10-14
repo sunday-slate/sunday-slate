@@ -953,10 +953,10 @@ mod tests {
         (app, ContestId(contest))
     }
 
-    async fn mocked_nfl_host() -> (TestApp, wiremock::MockServer, tempfile::TempDir) {
-        let (nfl, server, dir) = crate::tests::nfl::mocked_nfl().await;
+    async fn mocked_nfl_host() -> (TestApp, wiremock::MockServer) {
+        let (nfl, server) = crate::tests::nfl::mocked_nfl().await;
         let app = TestApp::new_with_nfl(nfl).await;
-        (app, server, dir)
+        (app, server)
     }
 
     async fn seed_alpha_runner(app: &TestApp) {
@@ -1009,7 +1009,7 @@ mod tests {
     async fn coordinator_reuses_identity_for_equal_revision_and_rebuilds_after_sync(
         _pool: SqlitePool,
     ) {
-        let (app, server, _dir) = mocked_nfl_host().await;
+        let (app, server) = mocked_nfl_host().await;
         crate::tests::nfl::mount_schedule_release(&server, "2026-01-01T00:00:00Z", REVISION_CSV)
             .await;
         app.login_admin().await;
@@ -1075,7 +1075,18 @@ mod tests {
 
     #[sqlx::test]
     async fn coordinator_revision_errors_follow_reconciliation_error_path(_pool: SqlitePool) {
-        let (app, _server, dir) = mocked_nfl_host().await;
+        let dir = tempfile::tempdir().unwrap();
+        let server = wiremock::MockServer::start().await;
+        let nfl = nfl_data::NflData::connect(nfl_data::NflDataConfig {
+            database_url: format!("sqlite://{}/cache.db", dir.path().display()),
+            fanduel_database_url: "sqlite::memory:".into(),
+            github_api_base: server.uri(),
+            refresh_interval: None,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let app = TestApp::new_with_nfl(Arc::new(nfl)).await;
         let mut game = factories::game_at("2025_01_BUF_KC", 1, KICKOFF);
         game.kickoff = None;
         let contest = factories::contest_with_games(

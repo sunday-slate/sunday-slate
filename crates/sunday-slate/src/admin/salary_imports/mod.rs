@@ -44,7 +44,7 @@ pub async fn import_salary_csv(
     season_week: SeasonWeek,
     csv_data: &[u8],
 ) -> Result<SalaryWeekOverview, SalaryImportError> {
-    let source = nfl_data::parse_fanduel_csv(season_week, csv_data)?;
+    let source = nfl.parse_fanduel_csv(season_week, csv_data)?;
     let games = nfl.games(season_week.season).await?;
     resolve_slate_games(&games, &season_week, &salary_matchups(&source))
         .map_err(|_| SalaryImportError::Schedule)?;
