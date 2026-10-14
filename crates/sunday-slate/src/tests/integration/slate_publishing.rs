@@ -13,11 +13,9 @@ use crate::tests::utils::form_body;
 pub(crate) fn game(id: &str, week: u8, kickoff: OffsetDateTime) -> Game {
     Game {
         gsis_game_id: id.into(),
-        season_week: nfl_data::SeasonWeek {
-            season: Season(2025),
-            week: Week(week),
-            season_type: SeasonType::Reg,
-        },
+        season: Season(2025),
+        week: Week(week),
+        season_type: SeasonType::Reg,
         kickoff: Some(kickoff),
         away_team: TeamAbbr::BUF,
         home_team: TeamAbbr::KC,

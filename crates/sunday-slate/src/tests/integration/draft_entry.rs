@@ -290,11 +290,11 @@ async fn editor_shows_injury_badge(pool: SqlitePool) {
 
     // The coordinator's designation map, published for the slate tuple.
     app.state.injuries.publish(
-        nfl_data::SeasonWeek {
-            season: nfl_data::Season(2025),
-            week: nfl_data::Week(1),
-            season_type: nfl_data::SeasonType::Reg,
-        },
+        (
+            nfl_data::Season(2025),
+            nfl_data::Week(1),
+            nfl_data::SeasonType::Reg,
+        ),
         crate::injuries::SlateInjuries {
             by_gsis: std::collections::HashMap::from([(
                 crate::entries::NflPlayerId("00-Q".into()),
@@ -347,11 +347,11 @@ async fn injury_badge_reached_from_rendered_links(pool: SqlitePool) {
     let (fixture, contest, _) = open_contest(&pool, &app).await;
     let entry_id = factories::full_entry(&pool, contest, fixture.team.id, "00-Q").await;
     app.state.injuries.publish(
-        nfl_data::SeasonWeek {
-            season: nfl_data::Season(2025),
-            week: nfl_data::Week(1),
-            season_type: nfl_data::SeasonType::Reg,
-        },
+        (
+            nfl_data::Season(2025),
+            nfl_data::Week(1),
+            nfl_data::SeasonType::Reg,
+        ),
         crate::injuries::SlateInjuries {
             by_gsis: std::collections::HashMap::from([(
                 crate::entries::NflPlayerId("00-Q".into()),
@@ -386,11 +386,11 @@ async fn picker_rows_show_the_report_designation(pool: SqlitePool) {
     let app = TestApp::from_pool_at(pool.clone(), BEFORE_KICKOFF).await;
     let (fixture, contest, _) = open_contest(&pool, &app).await;
     app.state.injuries.publish(
-        nfl_data::SeasonWeek {
-            season: nfl_data::Season(2025),
-            week: nfl_data::Week(1),
-            season_type: nfl_data::SeasonType::Reg,
-        },
+        (
+            nfl_data::Season(2025),
+            nfl_data::Week(1),
+            nfl_data::SeasonType::Reg,
+        ),
         crate::injuries::SlateInjuries {
             by_gsis: std::collections::HashMap::from([
                 (

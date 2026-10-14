@@ -7,11 +7,9 @@ use time::macros::datetime;
 fn game(id: &str, week: u8, kickoff: OffsetDateTime) -> Game {
     Game {
         gsis_game_id: id.into(),
-        season_week: nfl_data::SeasonWeek {
-            season: Season(2025),
-            week: Week(week),
-            season_type: SeasonType::Reg,
-        },
+        season: Season(2025),
+        week: Week(week),
+        season_type: SeasonType::Reg,
         kickoff: Some(kickoff),
         home_team: "SEA".parse().unwrap(),
         away_team: "SF".parse().unwrap(),

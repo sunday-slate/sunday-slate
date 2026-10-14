@@ -345,18 +345,15 @@ async fn run_inner(state: &AppState) -> Result<(), AppError> {
     }
 
     for (contest, games, _) in &targets {
-        let season_week = super::slate_tuple(games).expect("uniform slate");
+        let (season, week, _) = super::slate_tuple(games).expect("uniform slate");
         let mut teams = games
             .iter()
             .flat_map(|game| [game.home_team, game.away_team])
             .collect::<Vec<_>>();
         teams.sort_by(|a, b| a.as_str().cmp(b.as_str()));
         teams.dedup_by(|a, b| a == b);
-        let identity = Arc::new(
-            LiveIdentityIndex::build(&state.nfl, season_week.season, season_week.week, &teams)
-                .await?,
-        );
-        let key = season_week;
+        let identity = Arc::new(LiveIdentityIndex::build(&state.nfl, season, week, &teams).await?);
+        let key = super::slate_tuple(games).expect("uniform slate");
         state.injuries.publish(
             key,
             crate::injuries::SlateInjuries {
@@ -420,8 +417,8 @@ async fn plan_ramp(state: &AppState, game: &Game) -> Result<Option<Ramp>, AppErr
         tracing::warn!(game = %game.gsis_game_id, "live dev feed: game has no provider id");
         return Ok(None);
     };
-    let season = game.season_week.season;
-    let week = game.season_week.week;
+    let season = game.season;
+    let week = game.week;
     let home = game.home_team;
     let away = game.away_team;
 
@@ -436,7 +433,7 @@ async fn plan_ramp(state: &AppState, game: &Game) -> Result<Option<Ramp>, AppErr
 
     let mut players = Vec::new();
     for row in state.nfl.player_week_stats(season, week).await? {
-        if row.season_week.season_type != game.season_week.season_type {
+        if row.season_type != game.season_type {
             continue;
         }
         let matches_home = row.team == home && row.opponent.as_ref() == Some(&away);
@@ -478,9 +475,7 @@ async fn plan_ramp(state: &AppState, game: &Game) -> Result<Option<Ramp>, AppErr
 
     let mut defenses = Vec::new();
     for row in state.nfl.team_week_stats(season, week).await? {
-        if row.gsis_game_id != game.gsis_game_id
-            || row.season_week.season_type != game.season_week.season_type
-        {
+        if row.gsis_game_id != game.gsis_game_id || row.season_type != game.season_type {
             continue;
         }
         defenses.push(LiveTeamStats {

@@ -5,7 +5,7 @@ use time::OffsetDateTime;
 use crate::error::NflDataError;
 
 pub use nfl_model::{
-    Game, Player, PlayerWeekStats, Season, SeasonType, SeasonWeek, TeamAbbr, TeamWeekStats, Week,
+    Game, Player, PlayerWeekStats, Season, SeasonType, TeamAbbr, TeamWeekStats, Week,
     WeeklyRosterEntry,
 };
 

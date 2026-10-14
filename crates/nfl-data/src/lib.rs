@@ -356,11 +356,9 @@ mod seed_week_stats_tests {
     async fn seeds_player_and_team_week_stats() {
         let nfl = NflData::in_memory().await.unwrap();
         let mut p = crate::PlayerWeekStats {
-            season_week: crate::SeasonWeek {
-                season: Season(2025),
-                week: Week(1),
-                season_type: crate::SeasonType::Reg,
-            },
+            season: Season(2025),
+            week: Week(1),
+            season_type: crate::SeasonType::Reg,
             gsis_id: "00-RB".into(),
             team: crate::TeamAbbr::KC,
             opponent: None,
@@ -384,11 +382,9 @@ mod seed_week_stats_tests {
         p.rushing_yards = 42;
 
         let team = crate::TeamWeekStats {
-            season_week: crate::SeasonWeek {
-                season: Season(2025),
-                week: Week(1),
-                season_type: crate::SeasonType::Reg,
-            },
+            season: Season(2025),
+            week: Week(1),
+            season_type: crate::SeasonType::Reg,
             team: crate::TeamAbbr::KC,
             opponent: crate::TeamAbbr::BUF,
             gsis_game_id: "2025_01_BUF_KC".into(),

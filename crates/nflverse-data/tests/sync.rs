@@ -135,7 +135,7 @@ async fn fresh_sync_populates_every_dataset() {
         .iter()
         .find(|g| g.gsis_game_id == "2025_22_SEA_NE")
         .unwrap();
-    assert_eq!(sb.season_week.season_type, SeasonType::Post);
+    assert_eq!(sb.season_type, SeasonType::Post);
 
     // Players.
     let players = nfl.players().await.unwrap();

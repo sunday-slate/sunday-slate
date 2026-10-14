@@ -3,10 +3,12 @@ use std::sync::RwLock;
 
 pub use nfl_data::InjuryDesignation;
 
-use nfl_data::SeasonWeek;
+use nfl_data::{Season, SeasonType, Week};
 use time::{Date, OffsetDateTime};
 
 use crate::entries::NflPlayerId;
+
+pub type SlateKey = (Season, Week, SeasonType);
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SlateInjuries {
@@ -16,30 +18,25 @@ pub struct SlateInjuries {
 }
 
 #[derive(Debug, Default)]
-pub struct InjuryReports(RwLock<HashMap<SeasonWeek, SlateInjuries>>);
+pub struct InjuryReports(RwLock<HashMap<SlateKey, SlateInjuries>>);
 
 impl InjuryReports {
     pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn report(&self, key: &SeasonWeek) -> Option<SlateInjuries> {
+    pub fn report(&self, key: &SlateKey) -> Option<SlateInjuries> {
         self.0.read().ok()?.get(key).cloned()
     }
 
     /// Whole-swap: a publish replaces any prior report for the key outright.
-    pub fn publish(&self, key: SeasonWeek, report: SlateInjuries) {
+    pub fn publish(&self, key: SlateKey, report: SlateInjuries) {
         if let Ok(mut cache) = self.0.write() {
             cache.insert(key, report);
         }
     }
 
-    pub fn needs_refresh(
-        &self,
-        key: &SeasonWeek,
-        now: OffsetDateTime,
-        ttl: time::Duration,
-    ) -> bool {
+    pub fn needs_refresh(&self, key: &SlateKey, now: OffsetDateTime, ttl: time::Duration) -> bool {
         let attempt = self
             .0
             .read()
@@ -110,7 +107,6 @@ pub fn synthetic_dev<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    
 
     fn now() -> OffsetDateTime {
         time::macros::datetime!(2026-09-22 20:00 UTC)
@@ -127,7 +123,9 @@ mod tests {
     #[test]
     fn publish_overrides_the_whole_report_for_a_key() {
         let cache = InjuryReports::new();
-        let key = SeasonWeek::reg(1);
+        let week = Week(1);
+        let season = Season(2026);
+        let key: SlateKey = (season, week, SeasonType::Reg);
         cache.publish(
             key,
             report(&[(NflPlayerId("100".into()), InjuryDesignation::Out)]),
@@ -152,7 +150,7 @@ mod tests {
     #[test]
     fn needs_refresh_tracks_ttl_since_last_attempt() {
         let cache = InjuryReports::new();
-        let key = SeasonWeek::reg(2);
+        let key: SlateKey = (Season(2026), Week(2), SeasonType::Reg);
         let now = now();
         let ttl = time::Duration::minutes(30);
 
@@ -177,7 +175,7 @@ mod tests {
         assert!(cache.needs_refresh(&key, now, ttl));
 
         assert!(
-            cache.needs_refresh(&SeasonWeek::reg(3), now, ttl),
+            cache.needs_refresh(&(Season(2026), Week(3), SeasonType::Reg), now, ttl),
             "absent keys always need refresh"
         );
     }
@@ -194,8 +192,8 @@ mod tests {
             report_date: Some(time::macros::date!(2026 - 09 - 22)),
             attempted_at: Some(now),
         };
-        let thursday = SeasonWeek::reg(4);
-        let sunday = SeasonWeek::reg(5);
+        let thursday: SlateKey = (Season(2026), Week(4), SeasonType::Reg);
+        let sunday: SlateKey = (Season(2026), Week(5), SeasonType::Reg);
         cache.publish(thursday, shared.clone());
         cache.publish(sunday, shared.clone());
 

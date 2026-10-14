@@ -18,11 +18,9 @@ fn player() -> Player {
 fn game() -> Game {
     Game {
         gsis_game_id: "2025_01_BUF_KC".into(),
-        season_week: nfl_data::SeasonWeek {
-            season: Season(2025),
-            week: Week(1),
-            season_type: SeasonType::Reg,
-        },
+        season: Season(2025),
+        week: Week(1),
+        season_type: SeasonType::Reg,
         kickoff: None,
         home_team: TeamAbbr::KC,
         away_team: TeamAbbr::BUF,

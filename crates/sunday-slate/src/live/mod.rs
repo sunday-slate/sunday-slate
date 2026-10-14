@@ -6,7 +6,7 @@ mod snapshot;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-use nfl_data::{Game, LiveGamePhase, Season, SeasonWeek, TeamAbbr};
+use nfl_data::{Game, LiveGamePhase, Season, SeasonType, TeamAbbr, Week};
 use tokio::sync::watch;
 
 use crate::contests::ContestId;
@@ -330,7 +330,7 @@ pub enum ContestScores {
 }
 
 pub fn official_complete_for_slate(games: &[Game], stats: &WeekStats) -> bool {
-    let Some(season_week) = slate_tuple(games) else {
+    let Some((season, week, season_type)) = slate_tuple(games) else {
         return false;
     };
     let mut player_teams = HashSet::new();
@@ -342,7 +342,9 @@ pub fn official_complete_for_slate(games: &[Game], stats: &WeekStats) -> bool {
         ];
         for (team, opponent) in expected {
             let defense = stats.defenses.values().filter(|row| {
-                row.season_week == season_week
+                row.season == season
+                    && row.week == week
+                    && row.season_type == season_type
                     && row.gsis_game_id == game.gsis_game_id
                     && row.team == *team
                     && row.opponent == *opponent
@@ -353,7 +355,9 @@ pub fn official_complete_for_slate(games: &[Game], stats: &WeekStats) -> bool {
             defense_coverage.insert((game.gsis_game_id.as_str(), team.as_str()));
 
             let players = stats.players.values().filter(|row| {
-                row.season_week == season_week
+                row.season == season
+                    && row.week == week
+                    && row.season_type == season_type
                     && row.team == *team
                     && row.opponent.as_ref() == Some(opponent)
             });
@@ -396,17 +400,11 @@ pub async fn load_contest_scores(
         return Ok(ContestScores::Provisional(snapshot));
     }
 
-    let Some(season_week) = slate_tuple(&games) else {
+    let Some((season, week, season_type)) = slate_tuple(&games) else {
         return Ok(ContestScores::Unavailable);
     };
-    let players = state
-        .nfl
-        .player_week_stats(season_week.season, season_week.week)
-        .await?;
-    let defenses = state
-        .nfl
-        .team_week_stats(season_week.season, season_week.week)
-        .await?;
+    let players = state.nfl.player_week_stats(season, week).await?;
+    let defenses = state.nfl.team_week_stats(season, week).await?;
     let expected_games = games
         .iter()
         .map(|game| game.gsis_game_id.as_str())
@@ -418,7 +416,9 @@ pub async fn load_contest_scores(
 
     let mut player_map = HashMap::new();
     for player in players {
-        if player.season_week != season_week
+        if player.season != season
+            || player.week != week
+            || player.season_type != season_type
             || !expected_teams.contains(player.team.as_str())
             || player
                 .opponent
@@ -444,7 +444,9 @@ pub async fn load_contest_scores(
     let mut defense_map = HashMap::new();
     let mut defense_keys = HashSet::new();
     for defense in defenses {
-        if defense.season_week != season_week
+        if defense.season != season
+            || defense.week != week
+            || defense.season_type != season_type
             || !expected_games.contains(defense.gsis_game_id.as_str())
             || !expected_teams.contains(defense.team.as_str())
         {
@@ -503,13 +505,13 @@ pub(crate) async fn stream_eligible(
     Ok(state.live.registered_and_locked(contest))
 }
 
-pub(crate) fn slate_tuple(games: &[Game]) -> Option<SeasonWeek> {
+pub(crate) fn slate_tuple(games: &[Game]) -> Option<(Season, Week, SeasonType)> {
     let first = games.first()?;
-    let season_week = first.season_week;
+    let tuple = (first.season, first.week, first.season_type);
     games
         .iter()
-        .all(|game| game.season_week == season_week)
-        .then_some(season_week)
+        .all(|game| (game.season, game.week, game.season_type) == tuple)
+        .then_some(tuple)
 }
 
 #[cfg(test)]

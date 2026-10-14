@@ -1243,11 +1243,7 @@ async fn entry_sse_injury_badge(pool: SqlitePool) {
 
     // The coordinator's merged designation map, published for the slate tuple.
     app.state.injuries.publish(
-        nfl_data::SeasonWeek {
-            season: Season(2025),
-            week: nfl_data::Week(1),
-            season_type: nfl_data::SeasonType::Reg,
-        },
+        (Season(2025), nfl_data::Week(1), nfl_data::SeasonType::Reg),
         crate::injuries::SlateInjuries {
             by_gsis: std::collections::HashMap::from([(
                 crate::entries::NflPlayerId("00-A".into()),
@@ -1354,11 +1350,7 @@ async fn entry_sse_suppresses_injury_badge_when_row_is_final(pool: SqlitePool) {
         .register_contest(contest, vec![game.clone()], Arc::new(identity), KICKOFF);
 
     app.state.injuries.publish(
-        nfl_data::SeasonWeek {
-            season: Season(2025),
-            week: nfl_data::Week(1),
-            season_type: nfl_data::SeasonType::Reg,
-        },
+        (Season(2025), nfl_data::Week(1), nfl_data::SeasonType::Reg),
         crate::injuries::SlateInjuries {
             by_gsis: std::collections::HashMap::from([(
                 crate::entries::NflPlayerId("00-A".into()),

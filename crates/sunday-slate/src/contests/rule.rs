@@ -63,16 +63,16 @@ pub fn covers(rule: &Rule, season: u16, game: &Game) -> bool {
     };
     match rule {
         Rule::Main { week } => {
-            game.season_week.season_type == SeasonType::Reg
-                && game.season_week.week.0 == *week
+            game.season_type == SeasonType::Reg
+                && game.week.0 == *week
                 && et.weekday() == Weekday::Sunday
                 && et.time() >= noon
                 && et.time() <= six_pm
         }
         Rule::Holiday(h) => et.date() == holiday_date(*h, season),
         Rule::Playoff { week } => {
-            game.season_week.season_type == SeasonType::Post
-                && game.season_week.week.0 == *week
+            game.season_type == SeasonType::Post
+                && game.week.0 == *week
                 && matches!(et.weekday(), Weekday::Saturday | Weekday::Sunday)
         }
     }
@@ -99,7 +99,7 @@ fn candidate_week(rule: &Rule, season: u16, games: &[Game]) -> Option<(SeasonTyp
             games
                 .iter()
                 .find(|g| g.kickoff_eastern().is_some_and(|et| et.date() == date))
-                .map(|g| (g.season_week.season_type, g.season_week.week.0))
+                .map(|g| (g.season_type, g.week.0))
         }
     }
 }
@@ -113,7 +113,7 @@ pub fn candidates(rule: &Rule, season: u16, games: &[Game]) -> Vec<Game> {
     };
     let mut pool: Vec<Game> = games
         .iter()
-        .filter(|g| g.season_week.season_type == season_type && g.season_week.week.0 == week)
+        .filter(|g| g.season_type == season_type && g.week.0 == week)
         .cloned()
         .collect();
     pool.sort_by(|a, b| {
@@ -178,11 +178,9 @@ mod tests {
     ) -> Game {
         Game {
             gsis_game_id: id.into(),
-            season_week: nfl_data::SeasonWeek {
-                season: Season(2025),
-                week: Week(week),
-                season_type: st,
-            },
+            season: Season(2025),
+            week: Week(week),
+            season_type: st,
             kickoff: Some(kickoff),
             away_team: away.parse().unwrap(),
             home_team: home.parse().unwrap(),

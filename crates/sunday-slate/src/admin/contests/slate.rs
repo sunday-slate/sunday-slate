@@ -182,11 +182,9 @@ mod tests {
     fn g(id: &str, kickoff: Option<OffsetDateTime>) -> Game {
         Game {
             gsis_game_id: id.into(),
-            season_week: nfl_data::SeasonWeek {
-                season: Season(2025),
-                week: Week(5),
-                season_type: SeasonType::Reg,
-            },
+            season: Season(2025),
+            week: Week(5),
+            season_type: SeasonType::Reg,
             kickoff,
             away_team: TeamAbbr::BUF,
             home_team: TeamAbbr::KC,

@@ -23,7 +23,11 @@ pub fn resolve_slate_games(
 ) -> Result<Vec<Game>, ScheduleError> {
     let week: HashMap<(&str, &str), &Game> = season_games
         .iter()
-        .filter(|game| game.season_week == *season_week)
+        .filter(|game| {
+            game.season == season_week.season
+                && game.season_type == season_week.season_type
+                && game.week == season_week.week
+        })
         .map(|game| ((game.away_team.as_str(), game.home_team.as_str()), game))
         .collect();
 
@@ -50,11 +54,9 @@ mod tests {
     fn game(id: &str, week: u8, home: &str, away: &str, kickoff: OffsetDateTime) -> Game {
         Game {
             gsis_game_id: id.into(),
-            season_week: nfl_data::SeasonWeek {
-                season: Season(2025),
-                week: Week(week),
-                season_type: SeasonType::Reg,
-            },
+            season: Season(2025),
+            week: Week(week),
+            season_type: SeasonType::Reg,
             kickoff: Some(kickoff),
             home_team: home.parse().unwrap(),
             away_team: away.parse().unwrap(),
@@ -64,7 +66,7 @@ mod tests {
     }
 
     fn game_type(mut game: Game, season_type: SeasonType) -> Game {
-        game.season_week.season_type = season_type;
+        game.season_type = season_type;
         game
     }
 

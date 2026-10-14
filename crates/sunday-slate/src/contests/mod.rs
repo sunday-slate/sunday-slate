@@ -58,11 +58,9 @@ mod tests {
     fn game(id: &str, week: u8, kickoff: OffsetDateTime) -> Game {
         Game {
             gsis_game_id: id.into(),
-            season_week: nfl_data::SeasonWeek {
-                season: Season(2025),
-                week: Week(week),
-                season_type: SeasonType::Reg,
-            },
+            season: Season(2025),
+            week: Week(week),
+            season_type: SeasonType::Reg,
             kickoff: Some(kickoff),
             away_team: TeamAbbr::BUF,
             home_team: TeamAbbr::KC,
@@ -96,7 +94,7 @@ mod tests {
         let slate = published_slate(&pool, ContestId(1), &games).await.unwrap();
         assert_eq!(slate.len(), 1);
         assert_eq!(slate[0].home_team.as_str(), "KC");
-        assert_eq!(slate[0].season_week.week.0, 5);
+        assert_eq!(slate[0].week.0, 5);
     }
 
     #[sqlx::test]

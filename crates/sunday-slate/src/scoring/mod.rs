@@ -273,11 +273,9 @@ mod tests {
 
     fn zero_player() -> NflPlayerWeekStats {
         NflPlayerWeekStats {
-            season_week: nfl_data::SeasonWeek {
-                season: Season(2025),
-                week: Week(5),
-                season_type: SeasonType::Reg,
-            },
+            season: Season(2025),
+            week: Week(5),
+            season_type: SeasonType::Reg,
             gsis_id: "00-1".into(),
             team: TeamAbbr::SF,
             opponent: None,
@@ -345,11 +343,9 @@ mod tests {
 
     fn zero_defense() -> NflTeamWeekStats {
         NflTeamWeekStats {
-            season_week: nfl_data::SeasonWeek {
-                season: Season(2025),
-                week: Week(5),
-                season_type: SeasonType::Reg,
-            },
+            season: Season(2025),
+            week: Week(5),
+            season_type: SeasonType::Reg,
             team: TeamAbbr::SF,
             opponent: TeamAbbr::LA,
             gsis_game_id: "2025_05_SF_LA".into(),

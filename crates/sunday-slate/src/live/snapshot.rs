@@ -376,11 +376,9 @@ fn adapt_player(
         .as_ref()
         .unwrap_or_else(|| opposing_team(&snapshot.game, Some(team)));
     PlayerWeekStats {
-        season_week: nfl_data::SeasonWeek {
-            season: snapshot.game.season,
-            week: snapshot.game.week,
-            season_type: snapshot.game.season_type,
-        },
+        season: snapshot.game.season,
+        week: snapshot.game.week,
+        season_type: snapshot.game.season_type,
         gsis_id: gsis_id.0,
         team: canonical_team(team),
         opponent: Some(canonical_team(opponent)),
@@ -409,11 +407,9 @@ fn adapt_defense(
     team: TeamAbbr,
 ) -> TeamWeekStats {
     TeamWeekStats {
-        season_week: nfl_data::SeasonWeek {
-            season: snapshot.game.season,
-            week: snapshot.game.week,
-            season_type: snapshot.game.season_type,
-        },
+        season: snapshot.game.season,
+        week: snapshot.game.week,
+        season_type: snapshot.game.season_type,
         team,
         opponent: canonical_team(&row.opponent),
         gsis_game_id: snapshot.game.gsis_game_id.clone(),
@@ -449,9 +445,9 @@ pub fn live_game(game: &Game) -> Option<LiveGame> {
     Some(LiveGame {
         gsis_game_id: game.gsis_game_id.clone(),
         provider_game_id: provider_game_id(game)?,
-        season: game.season_week.season,
-        week: game.season_week.week,
-        season_type: game.season_week.season_type,
+        season: game.season,
+        week: game.week,
+        season_type: game.season_type,
         kickoff: game.kickoff,
         home_team: game.home_team,
         away_team: game.away_team,

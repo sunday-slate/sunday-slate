@@ -44,7 +44,7 @@ impl SeasonSlates {
         let game_week: HashMap<&str, Week> = self
             .games
             .iter()
-            .map(|g| (g.gsis_game_id.as_str(), g.season_week.week))
+            .map(|g| (g.gsis_game_id.as_str(), g.week))
             .collect();
         self.slates
             .iter()
@@ -775,7 +775,7 @@ fn rows_in_entry_order(entrants: Vec<ContestEntrant>, mine: Option<EntryId>) -> 
 /// The slate's NFL week. `None` for an unpublished (empty) slate. Every contest
 /// rule keeps a slate inside one week, so the first game names it.
 pub fn slate_week(games: &[Game]) -> Option<Week> {
-    games.first().map(|g| g.season_week.week)
+    games.first().map(|g| g.week)
 }
 
 /// A slate game for display: its id, matchup, and Eastern kickoff.
@@ -1109,11 +1109,9 @@ mod tests {
     fn game(id: &str, away: &str, home: &str, kickoff: Option<OffsetDateTime>) -> Game {
         Game {
             gsis_game_id: id.into(),
-            season_week: nfl_data::SeasonWeek {
-                season: Season(2025),
-                week: Week(19),
-                season_type: SeasonType::Post,
-            },
+            season: Season(2025),
+            week: Week(19),
+            season_type: SeasonType::Post,
             kickoff,
             away_team: away.parse().unwrap(),
             home_team: home.parse().unwrap(),
