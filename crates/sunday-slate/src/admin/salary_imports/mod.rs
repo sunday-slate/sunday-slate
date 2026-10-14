@@ -62,12 +62,13 @@ pub async fn salary_week_overview(
     let salary_count = salaries.len();
 
     let matched_ids = player_store::mapped_fd_ids(db.reader()).await?;
-    let unmatched = salaries.into_iter().filter(|salaried_player| {
-        match &salaried_player.player {
+    let unmatched = salaries
+        .into_iter()
+        .filter(|salaried_player| match &salaried_player.player {
             Some(player) => !matched_ids.contains(&player.id),
-            None => false
-        }
-    }).collect();
+            None => false,
+        })
+        .collect();
 
     Ok(SalaryWeekOverview {
         season_week,

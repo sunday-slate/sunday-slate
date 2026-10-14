@@ -20,6 +20,12 @@ const DEFAULT_SEASON: u16 = 2026;
 #[serde(transparent)]
 pub struct Season(pub u16);
 
+impl Display for Season {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 impl Default for Season {
     fn default() -> Self {
         Season(DEFAULT_SEASON)
@@ -42,6 +48,12 @@ impl Default for Season {
 #[sqlx(transparent)]
 #[serde(transparent)]
 pub struct Week(pub u8);
+
+impl Display for Week {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 #[derive(
     Debug,
@@ -130,13 +142,28 @@ impl Display for TeamAbbr {
     Hash,
     serde::Serialize,
     serde::Deserialize,
+    strum::EnumString,
+    strum::IntoStaticStr,
     sqlx::Type,
 )]
 #[serde(rename_all = "UPPERCASE")]
+#[strum(serialize_all = "UPPERCASE", ascii_case_insensitive)]
 pub enum SeasonType {
     #[default]
     Reg = 0,
     Post = 1,
+}
+
+impl SeasonType {
+    pub fn is_reg(&self) -> bool {
+        self == &SeasonType::Reg
+    }
+}
+
+impl Display for SeasonType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.into())
+    }
 }
 
 impl From<SeasonType> for u8 {

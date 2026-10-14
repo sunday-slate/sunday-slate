@@ -6,16 +6,16 @@
     <h2 class="mb-3 font-semibold">Import salaries</h2>
     <div class="grid gap-3 sm:grid-cols-3">
       <label>Season
-        <input class="input input-bordered w-full" type="number" name="season" min="1900" max="2200" value="{{ default_season }}" required>
+        <input class="input input-bordered w-full" type="number" name="season" min="1900" max="2200" value="{{ cur_week.season }}" required>
       </label>
       <label>Season type
         <select class="select select-bordered w-full" name="season_type">
-          <option value="REG" {% if !default_post %}selected{% endif %}>Regular</option>
-          <option value="POST" {% if default_post %}selected{% endif %}>Postseason</option>
+          <option value="REG" {% if cur_week.season_type.is_reg() %}selected{% endif %}>Regular</option>
+          <option value="POST" {% if !cur_week.season_type.is_reg() %}selected{% endif %}>Postseason</option>
         </select>
       </label>
       <label>Week
-        <input class="input input-bordered w-full" type="number" name="week" min="1" max="22" value="{{ default_week }}" required>
+        <input class="input input-bordered w-full" type="number" name="week" min="1" max="22" value="{{ cur_week.week }}" required>
       </label>
     </div>
     <input class="file-input mt-4 w-full" type="file" name="csv" accept=".csv,text/csv" aria-label="Salary CSV" required>
@@ -23,11 +23,11 @@
   </form>
   <h2 class="mb-3 text-lg font-semibold">Stored weeks</h2>
   <ul class="flex flex-col gap-2">
-    {% for (encoded, season, label, week, count, unmatched) in weeks %}
+    {% for (week, counts) in weeks.iter().rev() %}
     <li>
-      <a class="flex flex-wrap justify-between gap-2 rounded-box border border-base-300 p-4" href="/admin/salary-imports/{{ encoded }}">
-        <span>{{ season }} · {{ label }} · week {{ week }}</span>
-        <span>{{ count }} salaries · {{ unmatched }} unresolved</span>
+      <a class="flex flex-wrap justify-between gap-2 rounded-box border border-base-300 p-4" href="/admin/salary-imports/{{ week.encode() }}">
+        <span>{{ week.season }} · {{ week.season_type }} · week {{ week.week }}</span>
+        <span>{{ counts.salary_count }} salaries · {{ counts.unmatched_count }} unresolved</span>
       </a>
     </li>
     {% endfor %}

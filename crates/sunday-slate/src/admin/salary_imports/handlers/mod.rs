@@ -1,3 +1,5 @@
+mod index;
+
 use askama::Template;
 use axum::{
     Router,
@@ -8,10 +10,12 @@ use axum::{
 use nfl_data::{Season, SeasonType, SeasonWeek, Week};
 use serde::Deserialize;
 
-use crate::admin::salary_imports::view::{DashboardTemplate, WeekTemplate};
-use crate::admin::salary_imports::{self as import, default_season_week};
+use crate::admin::salary_imports as import;
+use crate::admin::salary_imports::view::WeekTemplate;
 use crate::auth::AdminUser;
 use crate::{AppError, AppState};
+
+use index::index;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -20,55 +24,6 @@ pub fn router() -> Router<AppState> {
         .route("/{week}/players/{fd_player_id}", get(players))
         .route("/{week}/players/{fd_player_id}/search", get(player_search))
         .route("/{week}/players/{fd_player_id}/resolve", post(resolve))
-}
-
-pub async fn index(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
-    let season = Season(state.config.season);
-    let games = state
-        .nfl
-        .games(season)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?;
-    let default_week = default_season_week(&games, season, state.config.now());
-
-    let counts = state
-        .nfl
-        .salary_counts_by_week()
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?;
-
-    let mut weeks = Vec::new();
-    for (season_week, salary_count) in counts.into_iter().rev() {
-        let overview = import::salary_week_overview(&state.db, &state.nfl, season_week)
-            .await
-            .map_err(|e| AppError::Internal(e.to_string()))?;
-        let label = if season_week.season_type == SeasonType::Post {
-            "POST"
-        } else {
-            "REG"
-        }
-        .to_owned();
-        weeks.push((
-            season_week.encode(),
-            season_week.season.0,
-            label,
-            season_week.week.0,
-            salary_count,
-            overview.unmatched.len(),
-        ));
-    }
-
-    let default_post = default_week.season_type == SeasonType::Post;
-    Ok(Html(
-        DashboardTemplate {
-            weeks,
-            default_season: default_week.season.0,
-            default_week: default_week.week.0,
-            default_post,
-            chrome: crate::chrome::Chrome::focused("Salary weeks", "/admin"),
-        }
-        .render()?,
-    ))
 }
 
 pub async fn upload(

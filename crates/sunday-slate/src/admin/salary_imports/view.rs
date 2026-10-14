@@ -2,16 +2,6 @@ use crate::admin::salary_imports::SalaryWeekOverview;
 use crate::chrome::Chrome;
 use askama::Template;
 
-#[derive(Template)]
-#[template(path = "admin/salary_imports/index.html")]
-pub struct DashboardTemplate {
-    pub weeks: Vec<(u32, u16, String, u8, i64, usize)>,
-    pub default_season: u16,
-    pub default_week: u8,
-    pub default_post: bool,
-    pub chrome: Chrome,
-}
-
 pub struct SalaryRowView {
     pub player_id: u32,
     pub first_name: String,
