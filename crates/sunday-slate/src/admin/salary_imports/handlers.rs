@@ -203,7 +203,7 @@ pub async fn players(
             fd_player_id,
             source_name: format!("{} {}", player.first_name, player.last_name),
             team: row.team.as_str().to_owned(),
-            position: row.position.label().to_owned(),
+            position: String::from(row.position),
             salary: row.salary,
             suggestion,
             results,

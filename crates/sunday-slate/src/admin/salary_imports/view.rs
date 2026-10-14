@@ -59,7 +59,7 @@ impl WeekTemplate {
                             first_name: p.first_name,
                             last_name: p.last_name,
                             team: s.team.as_str().to_owned(),
-                            position: s.position.label().to_owned(),
+                            position: String::from(s.position),
                             salary: s.salary,
                         })
                     })

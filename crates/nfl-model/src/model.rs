@@ -3,33 +3,6 @@ use time::OffsetDateTime;
 
 const DEFAULT_SEASON: u16 = 2026;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
-#[sqlx(rename_all = "UPPERCASE")]
-pub enum DfsPosition {
-    Qb,
-    Rb,
-    Wr,
-    Te,
-    Dst,
-}
-
-impl DfsPosition {
-    pub fn is_defense(self) -> bool {
-        matches!(self, DfsPosition::Dst)
-    }
-
-    /// How FanDuel writes the position, for display next to a staged row.
-    pub fn label(self) -> &'static str {
-        match self {
-            DfsPosition::Qb => "QB",
-            DfsPosition::Rb => "RB",
-            DfsPosition::Wr => "WR",
-            DfsPosition::Te => "TE",
-            DfsPosition::Dst => "D/ST",
-        }
-    }
-}
-
 #[derive(
     Debug,
     Clone,

@@ -109,7 +109,7 @@ pub async fn suggestion_for(
     let index = super::matcher::RosterIndex::build(&entries);
     let name = format!("{} {}", player.first_name, player.last_name);
 
-    let Some(gsis_id) = index.suggest_one(&name, salary.team.as_str(), salary.position.label())
+    let Some(gsis_id) = index.suggest_one(&name, salary.team.as_str(), salary.position.into())
     else {
         return Ok(None);
     };

@@ -172,7 +172,7 @@ async fn project_salary_week(
                 player_index
                     .match_one(&name, salary.team.as_str())
                     .or_else(|| {
-                        roster_index.match_one(&name, salary.team.as_str(), salary.position.label())
+                        roster_index.match_one(&name, salary.team.as_str(), salary.position.into())
                     })
             }
         };

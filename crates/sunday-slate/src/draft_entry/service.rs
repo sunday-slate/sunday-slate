@@ -351,7 +351,7 @@ pub async fn choices(
                 let gsis = player_ids[index].clone();
                 let identity = names.get(gsis.as_ref());
                 SlotChoice {
-                    position: row.dfs_position.label().into(),
+                    position: String::from(row.dfs_position),
                     is_picked: same_slot.as_ref() == Some(&gsis),
                     over_cap: row.salary > budget,
                     injury: injuries_by_gsis

@@ -4,7 +4,7 @@ use crate::{FanduelDataError, Game, Matchup, Player, SalariedPlayer};
 use nfl_model::{DfsPosition, SeasonWeek, TeamAbbr};
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct SalaryRow {
+struct SalaryRow {
     #[serde(rename = "Id")]
     pub id: String,
     #[serde(rename = "Position")]
@@ -21,36 +21,15 @@ pub(crate) struct SalaryRow {
     pub team: String,
 }
 
-impl SalaryRow {
-    pub fn position(&self) -> Option<nfl_model::DfsPosition> {
-        match self.position.to_ascii_uppercase().as_str() {
-            "QB" => Some(nfl_model::DfsPosition::Qb),
-            "RB" => Some(nfl_model::DfsPosition::Rb),
-            "WR" => Some(nfl_model::DfsPosition::Wr),
-            "TE" => Some(nfl_model::DfsPosition::Te),
-            "DST" | "DEF" | "D" => Some(nfl_model::DfsPosition::Dst),
-            _ => None,
-        }
-    }
-}
-
-fn parse_rows(data: &[u8]) -> Result<Vec<SalaryRow>, FanduelDataError> {
-    let mut reader = csv::Reader::from_reader(data);
-    reader
-        .deserialize()
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(FanduelDataError::Csv)
-}
-
-/// Parse typed source rows without persisting them, allowing validation before import.
-pub fn parse_csv(
+// Parse typed source rows without persisting them, allowing validation before import.
+pub(crate) fn parse_csv(
     season_week: SeasonWeek,
     data: &[u8],
 ) -> Result<Vec<SalariedPlayer>, FanduelDataError> {
     parse_rows(data)?
         .into_iter()
         .map(|row| {
-            let position = row.position().ok_or_else(|| {
+            let position = row.position.as_str().try_into().map_err(|_| {
                 FanduelDataError::InvalidRow(format!("unknown position {:?}", row.position))
             })?;
             let salary = row
@@ -100,6 +79,14 @@ pub fn parse_csv(
             })
         })
         .collect()
+}
+
+fn parse_rows(data: &[u8]) -> Result<Vec<SalaryRow>, FanduelDataError> {
+    let mut reader = csv::Reader::from_reader(data);
+    reader
+        .deserialize()
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(FanduelDataError::Csv)
 }
 
 #[cfg(test)]
