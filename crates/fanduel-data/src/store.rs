@@ -1,9 +1,9 @@
-use std::{collections::HashMap, str::FromStr};
-
 use crate::{FanduelDataError, Game, Matchup, Player, SalariedPlayer};
 use nfl_model::{DfsPosition, SeasonWeek, TeamAbbr};
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
+use std::collections::BTreeMap;
+use std::{collections::HashMap, str::FromStr};
 
 #[derive(Clone)]
 pub(crate) struct Store {
@@ -60,6 +60,7 @@ impl Store {
                 let player = match position {
                     DfsPosition::Dst => None,
                     _ => Some(Player {
+                        // safe unwraps due to DB constraint when non-DST
                         id: row.player_id.unwrap() as u32,
                         first_name: row.first_name.unwrap(),
                         last_name: row.last_name.unwrap(),
@@ -85,7 +86,7 @@ impl Store {
 
     pub(crate) async fn salary_counts_by_week(
         &self,
-    ) -> Result<Vec<(SeasonWeek, i64)>, FanduelDataError> {
+    ) -> Result<BTreeMap<SeasonWeek, i64>, FanduelDataError> {
         let rows = sqlx::query!(
             r#"
            SELECT
@@ -94,7 +95,6 @@ impl Store {
            FROM salaries
            JOIN games ON games.id = salaries.game_id
            GROUP BY games.season_week
-           ORDER BY games.season_week DESC
            "#
         )
         .fetch_all(&self.pool)
@@ -232,6 +232,8 @@ mod tests {
         assert_eq!(
             store.salary_counts_by_week().await.unwrap(),
             vec![(SeasonWeek::post(1), 1), (SeasonWeek::reg(1), 2)]
+                .into_iter()
+                .collect()
         );
     }
 

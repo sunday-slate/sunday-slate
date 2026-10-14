@@ -32,7 +32,10 @@ async fn facade_imports_reads_and_counts_typed_salaries_for_exact_week() {
             .unwrap()
             .is_empty()
     );
-    assert_eq!(nfl.salary_counts_by_week().await.unwrap(), vec![(week, 4)]);
+    assert_eq!(
+        nfl.salary_counts_by_week().await.unwrap(),
+        vec![(week, 4)].into_iter().collect()
+    );
 
     let updated_csv = std::str::from_utf8(CSV)
         .unwrap()
@@ -44,7 +47,10 @@ async fn facade_imports_reads_and_counts_typed_salaries_for_exact_week() {
     let readback = nfl.salaried_players_for(week).await.unwrap();
     assert_eq!(readback.len(), updated.len());
     assert!(updated.iter().all(|salary| readback.contains(salary)));
-    assert_eq!(nfl.salary_counts_by_week().await.unwrap(), vec![(week, 4)]);
+    assert_eq!(
+        nfl.salary_counts_by_week().await.unwrap(),
+        vec![(week, 4)].into_iter().collect()
+    );
 }
 
 #[tokio::test]

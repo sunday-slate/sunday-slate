@@ -5,6 +5,7 @@ mod store;
 
 pub use error::FanduelDataError;
 pub use models::{Game, Matchup, Player, SalariedPlayer};
+use std::collections::BTreeMap;
 
 use csv::parse_csv;
 use nfl_model::SeasonWeek;
@@ -50,7 +51,9 @@ impl FanduelData {
     }
 
     /// Count of stored player salaries by week
-    pub async fn salary_counts_by_week(&self) -> Result<Vec<(SeasonWeek, i64)>, FanduelDataError> {
+    pub async fn salary_counts_by_week(
+        &self,
+    ) -> Result<BTreeMap<SeasonWeek, i64>, FanduelDataError> {
         self.store.salary_counts_by_week().await
     }
 

@@ -30,13 +30,15 @@ pub async fn index(State(state): State<AppState>) -> Result<impl IntoResponse, A
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
     let default_week = default_season_week(&games, season, state.config.now());
+
     let counts = state
         .nfl
         .salary_counts_by_week()
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
+
     let mut weeks = Vec::new();
-    for (season_week, salary_count) in counts {
+    for (season_week, salary_count) in counts.into_iter().rev() {
         let overview = import::salary_week_overview(&state.db, &state.nfl, season_week)
             .await
             .map_err(|e| AppError::Internal(e.to_string()))?;
@@ -55,6 +57,7 @@ pub async fn index(State(state): State<AppState>) -> Result<impl IntoResponse, A
             overview.unmatched.len(),
         ));
     }
+
     let default_post = default_week.season_type == SeasonType::Post;
     Ok(Html(
         DashboardTemplate {

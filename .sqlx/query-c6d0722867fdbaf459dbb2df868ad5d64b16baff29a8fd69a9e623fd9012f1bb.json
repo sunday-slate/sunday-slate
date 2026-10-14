@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "\n           SELECT\n               games.season_week AS \"season_week: SeasonWeek\",\n               COUNT(*) AS salary_count\n           FROM salaries\n           JOIN games ON games.id = salaries.game_id\n           GROUP BY games.season_week\n           ORDER BY games.season_week DESC\n           ",
+  "query": "\n           SELECT\n               games.season_week AS \"season_week: SeasonWeek\",\n               COUNT(*) AS salary_count\n           FROM salaries\n           JOIN games ON games.id = salaries.game_id\n           GROUP BY games.season_week\n           ",
   "describe": {
     "columns": [
       {
@@ -29,5 +29,5 @@
       false
     ]
   },
-  "hash": "568ef56501f674166001806eeef83da42c9011d79c78a102ae32a1398248b67e"
+  "hash": "c6d0722867fdbaf459dbb2df868ad5d64b16baff29a8fd69a9e623fd9012f1bb"
 }
