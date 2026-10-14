@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id AS \"id!: i64\",\n                  gsis_player_id AS \"gsis_player_id!: String\",\n                  fd_player_id AS \"fd_player_id: String\",\n                  headshot_media_id AS \"headshot_media_id?: MediaId\"\n           FROM nfl_players\n           WHERE headshot_media_id IS NULL\n           ORDER BY id",
+  "query": "SELECT id AS \"id!: i64\",\n                  gsis_player_id AS \"gsis_player_id!: String\",\n                  fd_player_id AS \"fd_player_id: u32\",\n                  headshot_media_id AS \"headshot_media_id?: MediaId\"\n           FROM nfl_players\n           WHERE headshot_media_id IS NULL\n           ORDER BY id",
   "describe": {
     "columns": [
       {
@@ -26,9 +26,9 @@
         }
       },
       {
-        "name": "fd_player_id: String",
+        "name": "fd_player_id: u32",
         "ordinal": 2,
-        "type_info": "Text",
+        "type_info": "Integer",
         "origin": {
           "Table": {
             "table": "nfl_players",
@@ -58,5 +58,5 @@
       true
     ]
   },
-  "hash": "4aaac194d2d3cc7e9f61dfa1c302501a570a16ac0fdc017a86cd903be661e9e2"
+  "hash": "d924ee74bd8b9bbd4e1046b838b251fd9c66c2cd5cbe3baa370c7c363121660a"
 }

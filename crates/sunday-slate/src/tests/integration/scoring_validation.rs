@@ -144,7 +144,7 @@ async fn full_season_scores_match_fanduel() {
     for rec in rdr.records() {
         let rec = rec.unwrap();
         let week: u8 = rec[0].parse().unwrap();
-        let fd_player_id = &rec[1];
+        let fd_player_id: u32 = rec[1].parse().unwrap();
         let roster_position = &rec[2];
         let team = &rec[3];
         let fd_points: f64 = rec[4].parse().unwrap();

@@ -313,7 +313,7 @@ mod tests {
     async fn add_player(
         app: &TestApp,
         gsis_id: &str,
-        fd_id: &str,
+        fd_id: u32,
         headshot_url: Option<&str>,
         seed_identity: bool,
     ) {
@@ -373,7 +373,7 @@ mod tests {
         add_player(
             &app,
             "00-FETCH",
-            "fetch",
+            700001,
             Some(&format!("{}/player.png", server.uri())),
             true,
         )
@@ -408,7 +408,7 @@ mod tests {
                 ..
             }
         ));
-        let player = player_store::by_fd_id(&app.pool, "fetch")
+        let player = player_store::by_fd_id(&app.pool, 700001)
             .await
             .expect("player")
             .expect("crosswalk");
@@ -450,7 +450,7 @@ mod tests {
         add_player(
             &app,
             "00-ORPHAN",
-            "orphan",
+            700002,
             Some(&format!("{}/player.png", server.uri())),
             true,
         )
@@ -469,7 +469,7 @@ mod tests {
 
         assert_eq!(report.players_fetched, 1);
         assert_eq!(report.failed, 0);
-        let player = player_store::by_fd_id(&app.pool, "orphan")
+        let player = player_store::by_fd_id(&app.pool, 700002)
             .await
             .expect("player")
             .expect("crosswalk");
@@ -501,7 +501,7 @@ mod tests {
         add_player(
             &app,
             "00-FAIL",
-            "fail",
+            700003,
             Some(&format!("{}/player.png", server.uri())),
             true,
         )
@@ -529,7 +529,7 @@ mod tests {
                 ..
             }
         ));
-        let player = player_store::by_fd_id(&app.pool, "fail")
+        let player = player_store::by_fd_id(&app.pool, 700003)
             .await
             .expect("player")
             .expect("crosswalk");
@@ -565,7 +565,7 @@ mod tests {
         add_player(
             &app,
             "00-OVERSIZED",
-            "oversized",
+            700004,
             Some(&format!("{}/player.png", server.uri())),
             true,
         )
@@ -588,7 +588,7 @@ mod tests {
                 skipped: 0,
             }
         );
-        let player = player_store::by_fd_id(&app.pool, "oversized")
+        let player = player_store::by_fd_id(&app.pool, 700004)
             .await
             .expect("player")
             .expect("crosswalk");
@@ -615,8 +615,8 @@ mod tests {
     #[tokio::test]
     async fn fetch_missing_counts_absent_and_no_source_identities() {
         let app = TestApp::new().await;
-        add_player(&app, "00-NO-SOURCE", "no-source", None, true).await;
-        add_player(&app, "00-ABSENT", "absent", None, false).await;
+        add_player(&app, "00-NO-SOURCE", 700005, None, true).await;
+        add_player(&app, "00-ABSENT", 700006, None, false).await;
         link_teams(&app.pool, None).await;
 
         let (progress, _hold) = test_progress(&app);
@@ -646,7 +646,7 @@ mod tests {
         add_player(
             &app,
             "00-SAVEFAIL",
-            "savefail",
+            700007,
             Some(&format!("{}/player.png", server.uri())),
             true,
         )
@@ -673,7 +673,7 @@ mod tests {
                 skipped: 0,
             }
         );
-        let player = player_store::by_fd_id(&app.pool, "savefail")
+        let player = player_store::by_fd_id(&app.pool, 700007)
             .await
             .expect("player")
             .expect("crosswalk");
@@ -687,7 +687,7 @@ mod tests {
         add_player(
             &app,
             "00-LINKED",
-            "linked",
+            700008,
             Some("http://127.0.0.1:1/player.png"),
             true,
         )
@@ -717,7 +717,7 @@ mod tests {
     async fn start_fetch_runs_in_the_background_and_records_the_report() {
         let app = TestApp::new().await;
         link_teams(&app.pool, None).await;
-        add_player(&app, "00-NOSRC", "nosrc", None, true).await;
+        add_player(&app, "00-NOSRC", 700012, None, true).await;
 
         let state = app.state();
         assert!(start_fetch(&state));

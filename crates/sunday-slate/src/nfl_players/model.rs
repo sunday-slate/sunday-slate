@@ -4,6 +4,6 @@ use crate::media::MediaId;
 pub struct NflPlayer {
     pub id: i64,
     pub gsis_player_id: String,
-    pub fd_player_id: Option<String>,
+    pub fd_player_id: Option<u32>,
     pub headshot_media_id: Option<MediaId>,
 }

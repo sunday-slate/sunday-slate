@@ -64,8 +64,8 @@ pub async fn salary_week_overview(
         let Some(player) = &salary.player else {
             continue;
         };
-        let fd_id = player.id.to_string();
-        if player_store::by_fd_id(db.reader(), &fd_id).await?.is_none() {
+        let fd_id = player.id;
+        if player_store::by_fd_id(db.reader(), fd_id).await?.is_none() {
             unmatched.push(salary.clone());
         }
     }
@@ -80,7 +80,7 @@ pub async fn resolve_salary_player(
     db: &Db,
     nfl: &NflData,
     season_week: SeasonWeek,
-    fd_player_id: &str,
+    fd_player_id: u32,
     gsis_player_id: &str,
 ) -> Result<SalaryWeekOverview, SalaryImportError> {
     let source = nfl.salaried_players_for(season_week).await?;
@@ -88,7 +88,7 @@ pub async fn resolve_salary_player(
         salary
             .player
             .as_ref()
-            .is_some_and(|player| player.id.to_string() == fd_player_id)
+            .is_some_and(|player| player.id == fd_player_id)
     }) {
         return Err(SalaryImportError::Schedule);
     }
@@ -112,7 +112,7 @@ async fn project_salary_week(
     db: &Db,
     nfl: &NflData,
     season_week: SeasonWeek,
-    resolved_player: Option<(&str, &str)>,
+    resolved_player: Option<(u32, &str)>,
 ) -> Result<(), SalaryImportError> {
     let source = nfl.salaried_players_for(season_week).await?;
     let matchups = salary_matchups(&source);
@@ -160,12 +160,12 @@ async fn project_salary_week(
             None
         } else {
             let player = salary.player.as_ref().ok_or(SalaryImportError::Schedule)?;
-            let fd_id = player.id.to_string();
+            let fd_id = player.id;
             if let Some((resolved_fd_id, resolved_gsis_id)) = resolved_player
                 && resolved_fd_id == fd_id
             {
                 Some(resolved_gsis_id.to_owned())
-            } else if let Some(crosswalk) = player_store::by_fd_id(db.reader(), &fd_id).await? {
+            } else if let Some(crosswalk) = player_store::by_fd_id(db.reader(), player.id).await? {
                 Some(crosswalk.gsis_player_id)
             } else {
                 let name = format!("{} {}", player.first_name, player.last_name);
@@ -188,11 +188,11 @@ async fn project_salary_week(
             player_store::upsert(&mut *conn, gsis_player_id, fd_player_id).await?;
         }
         for (salary, game_id, gsis) in &mapped {
-            let player_id = salary.player.as_ref().map(|player| player.id.to_string());
+            let player_id = salary.player.as_ref().map(|player| player.id);
             let gsis_player_id = if salary.position == DfsPosition::Dst {
                 None
             } else {
-                player_store::upsert(&mut *conn, gsis, player_id.as_deref().unwrap()).await?;
+                player_store::upsert(&mut *conn, gsis, player_id.unwrap()).await?;
                 Some(gsis.clone())
             };
             salary_store::upsert(
@@ -507,7 +507,7 @@ mod tests {
             .await
             .expect("initial import");
 
-        let overview = resolve_salary_player(&db, &nfl, week, "99999", "00-3")
+        let overview = resolve_salary_player(&db, &nfl, week, 99999, "00-3")
             .await
             .expect("resolve and project");
         assert_eq!(overview.unmatched.len(), 2);
@@ -517,7 +517,7 @@ mod tests {
                 .iter()
                 .any(|row| { row.player.as_ref().is_some_and(|player| player.id == 99999) })
         );
-        let crosswalk = player_store::by_fd_id(db.reader(), "99999")
+        let crosswalk = player_store::by_fd_id(db.reader(), 99999)
             .await
             .unwrap()
             .unwrap();
@@ -549,12 +549,12 @@ mod tests {
             .unwrap();
 
         assert!(
-            resolve_salary_player(&db, &nfl, week, "99999", "00-3")
+            resolve_salary_player(&db, &nfl, week, 99999, "00-3")
                 .await
                 .is_err()
         );
         assert!(
-            player_store::by_fd_id(db.reader(), "99999")
+            player_store::by_fd_id(db.reader(), 99999)
                 .await
                 .unwrap()
                 .is_none()

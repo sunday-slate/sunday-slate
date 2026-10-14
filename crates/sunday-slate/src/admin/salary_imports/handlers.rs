@@ -185,11 +185,11 @@ pub struct PlayerSearch {
 
 pub async fn players(
     State(state): State<AppState>,
-    Path((encoded, fd_player_id)): Path<(u32, String)>,
+    Path((encoded, fd_player_id)): Path<(u32, u32)>,
     axum::extract::Query(query): axum::extract::Query<PlayerSearch>,
 ) -> Result<impl IntoResponse, AppError> {
     let season_week = SeasonWeek::decode(encoded).ok_or(AppError::NotFound)?;
-    let row = unmatched_salary(&state, &season_week, &fd_player_id).await?;
+    let row = unmatched_salary(&state, &season_week, fd_player_id).await?;
     let results = import::candidates::search(
         &state,
         &season_week,
@@ -224,7 +224,7 @@ pub async fn players(
 async fn unmatched_salary(
     state: &AppState,
     season_week: &SeasonWeek,
-    fd_player_id: &str,
+    fd_player_id: u32,
 ) -> Result<nfl_data::SalariedPlayer, AppError> {
     let overview = import::salary_week_overview(&state.db, &state.nfl, *season_week)
         .await
@@ -236,18 +236,18 @@ async fn unmatched_salary(
             salary
                 .player
                 .as_ref()
-                .is_some_and(|player| player.id.to_string() == fd_player_id)
+                .is_some_and(|player| player.id == fd_player_id)
         })
         .ok_or(AppError::NotFound)
 }
 
 pub async fn player_search(
     State(state): State<AppState>,
-    Path((encoded, fd_player_id)): Path<(u32, String)>,
+    Path((encoded, fd_player_id)): Path<(u32, u32)>,
     axum::extract::Query(query): axum::extract::Query<PlayerSearch>,
 ) -> Result<impl IntoResponse, AppError> {
     let season_week = SeasonWeek::decode(encoded).ok_or(AppError::NotFound)?;
-    let row = unmatched_salary(&state, &season_week, &fd_player_id).await?;
+    let row = unmatched_salary(&state, &season_week, fd_player_id).await?;
     let results = import::candidates::search(
         &state,
         &season_week,
@@ -275,7 +275,7 @@ pub struct ResolveForm {
 
 pub async fn resolve(
     State(state): State<AppState>,
-    Path((encoded, fd_player_id)): Path<(u32, String)>,
+    Path((encoded, fd_player_id)): Path<(u32, u32)>,
     axum::Form(form): axum::Form<ResolveForm>,
 ) -> Result<impl IntoResponse, AppError> {
     let season_week = SeasonWeek::decode(encoded).ok_or(AppError::NotFound)?;
@@ -291,7 +291,7 @@ pub async fn resolve(
         &state.db,
         &state.nfl,
         season_week,
-        &fd_player_id,
+        fd_player_id,
         &form.gsis_player_id,
     )
     .await
@@ -545,7 +545,7 @@ mod tests {
             3
         );
         assert_eq!(
-            crate::nfl_players::store::by_fd_id(&app.pool, "999")
+            crate::nfl_players::store::by_fd_id(&app.pool, 999)
                 .await
                 .unwrap()
                 .unwrap()
@@ -687,7 +687,7 @@ mod tests {
             .multipart(upload_form())
             .await
             .assert_status(StatusCode::SEE_OTHER);
-        crate::nfl_players::store::upsert(&app.pool, "00-roster-only", "777")
+        crate::nfl_players::store::upsert(&app.pool, "00-roster-only", 777)
             .await
             .unwrap();
 
@@ -719,7 +719,7 @@ mod tests {
         response.assert_text_contains("Confirm suggestion");
         response.assert_text_contains("name=\"gsis_player_id\" value=\"00-roster-only\"");
         assert!(
-            crate::nfl_players::store::by_fd_id(&app.pool, "999")
+            crate::nfl_players::store::by_fd_id(&app.pool, 999)
                 .await
                 .unwrap()
                 .is_none(),

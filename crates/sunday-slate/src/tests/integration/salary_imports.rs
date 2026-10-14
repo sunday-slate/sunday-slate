@@ -55,7 +55,7 @@ fn schedule_resolution_requires_complete_season_week() {
 #[tokio::test]
 async fn workflow_migration_rollback_recreates_the_previous_schema_and_index() {
     let pool = crate::tests::utils::in_memory_pool().await;
-    sqlx::query("INSERT INTO nfl_players (gsis_player_id, fd_player_id) VALUES ('gsis-preserved', 'fd-preserved')")
+    sqlx::query("INSERT INTO nfl_players (gsis_player_id, fd_player_id) VALUES ('gsis-preserved', 12345)")
         .execute(&pool).await.unwrap();
     sqlx::query("INSERT INTO nfl_player_salaries (gsis_game_id, gsis_player_id, team_abbr, dfs_position, salary) VALUES ('game-preserved', 'gsis-preserved', 'BUF', 'QB', 8000)")
         .execute(&pool).await.unwrap();
@@ -137,11 +137,11 @@ async fn workflow_migration_rollback_recreates_the_previous_schema_and_index() {
     .await
     .unwrap();
     assert_eq!(salary, 8000);
-    let fd: String = sqlx::query_scalar(
+    let fd: u32 = sqlx::query_scalar(
         "SELECT fd_player_id FROM nfl_players WHERE gsis_player_id = 'gsis-preserved'",
     )
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(fd, "fd-preserved");
+    assert_eq!(fd, 12345);
 }

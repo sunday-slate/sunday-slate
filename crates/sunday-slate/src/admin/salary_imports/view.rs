@@ -13,7 +13,7 @@ pub struct DashboardTemplate {
 }
 
 pub struct SalaryRowView {
-    pub player_id: String,
+    pub player_id: u32,
     pub first_name: String,
     pub last_name: String,
     pub team: String,
@@ -55,7 +55,7 @@ impl WeekTemplate {
                     .into_iter()
                     .filter_map(|s| {
                         s.player.map(|p| SalaryRowView {
-                            player_id: p.id.to_string(),
+                            player_id: p.id,
                             first_name: p.first_name,
                             last_name: p.last_name,
                             team: s.team.as_str().to_owned(),
@@ -74,7 +74,7 @@ impl WeekTemplate {
 #[template(path = "admin/salary_imports/resolve.html")]
 pub struct ResolutionTemplate {
     pub week: u32,
-    pub fd_player_id: String,
+    pub fd_player_id: u32,
     pub source_name: String,
     pub team: String,
     pub position: String,
@@ -90,7 +90,7 @@ pub struct ResolutionTemplate {
 #[template(path = "admin/salary_imports/_results.html")]
 pub struct CandidateResultsTemplate {
     pub week: u32,
-    pub fd_player_id: String,
+    pub fd_player_id: u32,
     pub team: String,
     pub results: super::candidates::CandidateResults,
     pub query_encoded: String,

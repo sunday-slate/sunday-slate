@@ -6,7 +6,7 @@ use crate::media::{Media, MediaId, store as media_store};
 use crate::nfl_players::model::NflPlayer;
 
 /// Look up a crosswalk row by the external salary-source player id.
-pub async fn by_fd_id<'e, E>(ex: E, fd_player_id: &str) -> Result<Option<NflPlayer>, sqlx::Error>
+pub async fn by_fd_id<'e, E>(ex: E, fd_player_id: u32) -> Result<Option<NflPlayer>, sqlx::Error>
 where
     E: sqlx::Executor<'e, Database = Sqlite>,
 {
@@ -14,7 +14,7 @@ where
         NflPlayer,
         r#"SELECT id AS "id!: i64",
                   gsis_player_id AS "gsis_player_id!: String",
-                  fd_player_id AS "fd_player_id: String",
+                  fd_player_id AS "fd_player_id: u32",
                   headshot_media_id AS "headshot_media_id?: MediaId"
            FROM nfl_players WHERE fd_player_id = ?"#,
         fd_player_id,
@@ -37,12 +37,26 @@ where
     Ok(ids.into_iter().collect())
 }
 
+pub async fn mapped_fd_ids<'e, E>(ex: E) -> Result<HashSet<u32>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = Sqlite>,
+{
+    let ids = sqlx::query_scalar!(
+        r#"SELECT fd_player_id AS "fd_player_id!: u32"
+           FROM nfl_players WHERE fd_player_id IS NOT NULL"#,
+    )
+    .fetch_all(ex)
+    .await?;
+
+    Ok(ids.into_iter().collect())
+}
+
 /// Lazily create the crosswalk row for a matched player. Idempotent on
 /// gsis_player_id: a second call with the same gsis backfills fd_player_id.
 pub async fn upsert<'e, E>(
     ex: E,
     gsis_player_id: &str,
-    fd_player_id: &str,
+    fd_player_id: u32,
 ) -> Result<NflPlayer, sqlx::Error>
 where
     E: sqlx::Executor<'e, Database = Sqlite>,
@@ -53,7 +67,7 @@ where
            ON CONFLICT (gsis_player_id) DO UPDATE SET fd_player_id = ?2
            RETURNING id AS "id!: i64",
                      gsis_player_id AS "gsis_player_id!: String",
-                     fd_player_id AS "fd_player_id: String",
+                     fd_player_id AS "fd_player_id: u32",
                      headshot_media_id AS "headshot_media_id?: MediaId""#,
         gsis_player_id,
         fd_player_id,
@@ -70,7 +84,7 @@ where
         NflPlayer,
         r#"SELECT id AS "id!: i64",
                   gsis_player_id AS "gsis_player_id!: String",
-                  fd_player_id AS "fd_player_id: String",
+                  fd_player_id AS "fd_player_id: u32",
                   headshot_media_id AS "headshot_media_id?: MediaId"
            FROM nfl_players
            WHERE headshot_media_id IS NULL
@@ -140,26 +154,24 @@ mod tests {
 
     #[sqlx::test]
     async fn upsert_then_lookup(pool: SqlitePool) {
-        assert!(by_fd_id(&pool, "166092").await.expect("miss").is_none());
-        let p = upsert(&pool, "00-0036355", "166092").await.expect("upsert");
+        assert!(by_fd_id(&pool, 166092).await.expect("miss").is_none());
+        let p = upsert(&pool, "00-0036355", 166092).await.expect("upsert");
         assert_eq!(p.gsis_player_id, "00-0036355");
-        let found = by_fd_id(&pool, "166092").await.expect("hit").expect("some");
+        let found = by_fd_id(&pool, 166092).await.expect("hit").expect("some");
         assert_eq!(found.id, p.id);
     }
 
     #[sqlx::test]
     async fn upsert_backfills_fd_id_on_gsis_conflict(pool: SqlitePool) {
-        let first = upsert(&pool, "00-0036355", "111").await.expect("first");
-        let second = upsert(&pool, "00-0036355", "222").await.expect("second");
+        let first = upsert(&pool, "00-0036355", 111).await.expect("first");
+        let second = upsert(&pool, "00-0036355", 222).await.expect("second");
         assert_eq!(first.id, second.id);
-        assert_eq!(second.fd_player_id.as_deref(), Some("222"));
+        assert_eq!(second.fd_player_id, Some(222));
     }
     #[sqlx::test]
     async fn headshot_missing_and_batch_queries_follow_media_links(pool: SqlitePool) {
-        let linked = upsert(&pool, "00-LINKED", "linked").await.expect("linked");
-        let missing = upsert(&pool, "00-MISSING", "missing")
-            .await
-            .expect("missing");
+        let linked = upsert(&pool, "00-LINKED", 333).await.expect("linked");
+        let missing = upsert(&pool, "00-MISSING", 444).await.expect("missing");
         let media_id = media_store::insert(&pool, "headshot.png", "image/png", 12, 256, 128)
             .await
             .expect("media");
@@ -182,7 +194,7 @@ mod tests {
         assert_eq!(rows["00-LINKED"].id, media_id);
         assert!(headshots_for(&pool, &[]).await.expect("empty").is_empty());
         assert_eq!(
-            upsert(&pool, "00-LINKED", "linked-again")
+            upsert(&pool, "00-LINKED", 333)
                 .await
                 .expect("preserve link")
                 .headshot_media_id,
