@@ -11,7 +11,6 @@ use nflverse_data::NflverseData;
 
 pub use config::NflDataConfig;
 pub use data_revision::DataRevision;
-use fanduel_data::WeeklySummary;
 pub use fanduel_data::{FanduelDataError, SalariedPlayer};
 pub use identity::PlayerIdentity;
 pub use live::{
@@ -30,6 +29,12 @@ pub use nflverse_data::{
     RefreshStatus, SyncReport,
 };
 pub use web::router as admin_router;
+
+pub struct WeeklySummary {
+    pub season_week: SeasonWeek,
+    pub salary_count: usize,
+    pub unmatched_count: usize
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum NflDataConnectError {
@@ -92,12 +97,27 @@ impl NflData {
     ) -> Result<Vec<SalariedPlayer>, FanduelDataError> {
         self.fanduel.salaried_players_for(season_week).await
     }
-
+    
     pub async fn fanduel_weekly_summaries(
         &self,
         matched_ids: &[u32],
     ) -> Result<Vec<WeeklySummary>, FanduelDataError> {
-        self.fanduel.weekly_summaries(matched_ids).await
+            let salary_counts = self.fanduel.weekly_salary_counts().await?;
+            let unmatched_counts = self.fanduel.weekly_unmatched_counts(matched_ids).await?;
+        
+            let summaries = salary_counts
+                .into_iter()
+                .map(|(season_week, salary_count)| {
+                    let unmatched_count = unmatched_counts.get(&season_week).copied().unwrap_or(0);
+                    WeeklySummary {
+                        season_week,
+                        salary_count,
+                        unmatched_count,
+                    }
+                })
+                .collect();
+        
+            Ok(summaries)
     }
 
     /// Opens both provider databases and runs their migrations.

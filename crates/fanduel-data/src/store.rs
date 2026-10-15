@@ -1,4 +1,4 @@
-use crate::{FanduelDataError, Game, Matchup, Player, SalariedPlayer, WeeklySummary};
+use crate::{FanduelDataError, Game, Matchup, Player, SalariedPlayer};
 use nfl_model::{DfsPosition, SeasonWeek, TeamAbbr};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{QueryBuilder, Sqlite, SqlitePool};
@@ -156,34 +156,14 @@ impl Store {
         Ok(())
     }
 
-    pub(crate) async fn weekly_summaries(
+    pub(crate) async fn salary_counts_by_week(
         &self,
-        matched_ids: &[u32],
-    ) -> Result<Vec<WeeklySummary>, FanduelDataError> {
-        let salary_counts = self.salary_counts_by_week().await?;
-        let unmatched_counts = self.unmatched_counts_by_week(matched_ids).await?;
-
-        let summaries = salary_counts
-            .into_iter()
-            .map(|(week, salary_count)| {
-                let unmatched_count = unmatched_counts.get(&week).copied().unwrap_or(0);
-                WeeklySummary {
-                    season_week: week,
-                    salary_count: salary_count as usize,
-                    unmatched_count: unmatched_count as usize,
-                }
-            })
-            .collect();
-
-        Ok(summaries)
-    }
-
-    async fn salary_counts_by_week(&self) -> Result<BTreeMap<SeasonWeek, i64>, FanduelDataError> {
+    ) -> Result<BTreeMap<SeasonWeek, usize>, FanduelDataError> {
         let rows = sqlx::query!(
             r#"
            SELECT
                games.season_week AS "season_week: SeasonWeek",
-               COUNT(*) AS salary_count
+               COUNT(*) AS "salary_count: u32"
            FROM salaries
            JOIN games ON games.id = salaries.game_id
            GROUP BY games.season_week
@@ -194,14 +174,14 @@ impl Store {
 
         Ok(rows
             .into_iter()
-            .map(|row| (row.season_week, row.salary_count))
+            .map(|row| (row.season_week, row.salary_count as usize))
             .collect())
     }
 
-    async fn unmatched_counts_by_week(
+    pub(crate) async fn unmatched_counts_by_week(
         &self,
         matched_ids: &[u32],
-    ) -> Result<BTreeMap<SeasonWeek, u32>, FanduelDataError> {
+    ) -> Result<BTreeMap<SeasonWeek, usize>, FanduelDataError> {
         let mut query = QueryBuilder::<Sqlite>::new(
             r#"
             SELECT
@@ -230,7 +210,7 @@ impl Store {
             .fetch_all(&self.pool)
             .await?;
 
-        Ok(rows.into_iter().collect())
+        Ok(rows.into_iter().map(|(w, c)| (w, c as usize)).collect())
     }
 }
 

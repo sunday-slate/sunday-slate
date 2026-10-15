@@ -4,7 +4,8 @@ mod models;
 mod store;
 
 pub use error::FanduelDataError;
-pub use models::{Game, Matchup, Player, SalariedPlayer, WeeklySummary};
+pub use models::{Game, Matchup, Player, SalariedPlayer};
+use std::collections::BTreeMap;
 
 use csv::parse_csv;
 use nfl_model::SeasonWeek;
@@ -49,11 +50,17 @@ impl FanduelData {
         self.store.save_salaried_players(salaries).await
     }
 
-    pub async fn weekly_summaries(
+    pub async fn weekly_salary_counts(
+        &self,
+    ) -> Result<BTreeMap<SeasonWeek, usize>, FanduelDataError> {
+        self.store.salary_counts_by_week().await
+    }
+
+    pub async fn weekly_unmatched_counts(
         &self,
         matched_ids: &[u32],
-    ) -> Result<Vec<WeeklySummary>, FanduelDataError> {
-        self.store.weekly_summaries(matched_ids).await
+    ) -> Result<BTreeMap<SeasonWeek, usize>, FanduelDataError> {
+        self.store.unmatched_counts_by_week(matched_ids).await
     }
 
     /// All salaried players for a given week
