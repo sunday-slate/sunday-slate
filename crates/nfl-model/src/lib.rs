@@ -13,8 +13,7 @@ pub use live::{
     ProviderResponse, RawBody,
 };
 pub use model::{
-    Game, Player, PlayerWeekStats, Season, SeasonType, TeamAbbr, TeamWeekStats, Week,
-    WeeklyRosterEntry,
+    Game, Player, PlayerWeekStats, Season, SeasonType, TeamWeekStats, Week, WeeklyRosterEntry,
 };
 
-pub use models::{DfsPosition, SeasonWeek};
+pub use models::{DfsPosition, SeasonWeek, TeamAbbr};

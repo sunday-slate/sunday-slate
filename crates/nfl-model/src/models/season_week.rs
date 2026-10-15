@@ -7,14 +7,42 @@ use sqlx::{Database, Decode, Encode, Type, encode::IsNull, error::BoxDynError};
 
 use crate::{Season, SeasonType, Week};
 
+/// An NFL week identified by season year, season type, and week number.
+///
+/// Regular-season and postseason weeks are distinct even when their week numbers match.
+/// [`reg`](Self::reg) and [`post`](Self::post) use the default [`Season`]; construct the fields
+/// directly to select a different season.
+///
+/// Equality, ordering, hashing, and SQLx integer storage use the value returned by
+/// [`encode`](Self::encode).
+///
+/// # Examples
+///
+/// ```
+/// use nfl_model::{Season, SeasonType, SeasonWeek, Week};
+///
+/// let week = SeasonWeek {
+///     season: Season(2026),
+///     season_type: SeasonType::Reg,
+///     week: Week(1),
+/// };
+/// assert_eq!(week.encode(), 2_026_001);
+/// assert_eq!(SeasonWeek::decode(2_026_001), Some(week));
+/// ```
 #[derive(Debug, Clone, Copy)]
 pub struct SeasonWeek {
+    /// Year identifying the NFL season, including for postseason games in the next calendar year.
     pub season: Season,
+    /// Whether this is a regular-season or postseason week.
     pub season_type: SeasonType,
+    /// Week number within the selected season type.
     pub week: Week,
 }
 
 impl SeasonWeek {
+    /// Create a regular-season week using the default [`Season`].
+    ///
+    /// The week number is not validated against the NFL schedule.
     pub fn reg(week_num: u8) -> Self {
         Self {
             season: Season::default(),
@@ -23,6 +51,9 @@ impl SeasonWeek {
         }
     }
 
+    /// Create a postseason week using the default [`Season`].
+    ///
+    /// The week number is not validated against the NFL schedule.
     pub fn post(week_num: u8) -> Self {
         Self {
             season: Season::default(),
@@ -31,12 +62,19 @@ impl SeasonWeek {
         }
     }
 
+    /// Encode as `season * 1_000 + season_type * 100 + week`.
+    ///
+    /// The season-type digit is `0` for regular-season weeks and `1` for postseason weeks.
     pub fn encode(&self) -> u32 {
         u32::from(self.season.0) * 1_000
             + u32::from(self.season_type) * 100
             + u32::from(self.week.0)
     }
 
+    /// Decode a value in the integer format produced by [`encode`](Self::encode).
+    ///
+    /// Returns `None` if the season-type digit is neither `0` nor `1`. The season year and
+    /// week number are not validated against the NFL schedule.
     pub fn decode(value: u32) -> Option<Self> {
         let year = (value / 1_000) as u16;
         let choice = ((value / 100) % 10) as u8;

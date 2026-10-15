@@ -1,6 +1,8 @@
 use std::fmt::{Display, Formatter};
 use time::OffsetDateTime;
 
+use crate::TeamAbbr;
+
 const DEFAULT_SEASON: u16 = 2026;
 
 #[derive(
@@ -52,80 +54,6 @@ pub struct Week(pub u8);
 impl Display for Week {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
-    }
-}
-
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    serde::Serialize,
-    serde::Deserialize,
-    sqlx::Type,
-    strum::AsRefStr,
-    strum::EnumString,
-)]
-#[allow(non_camel_case_types)]
-#[serde(rename_all = "UPPERCASE")]
-#[sqlx(type_name = "TEXT", rename_all = "UPPERCASE")]
-#[strum(serialize_all = "UPPERCASE", ascii_case_insensitive)]
-pub enum TeamAbbr {
-    ARI,
-    ATL,
-    BAL,
-    BUF,
-    CAR,
-    CHI,
-    CIN,
-    CLE,
-    DAL,
-    DEN,
-    DET,
-    GB,
-    HOU,
-    IND,
-    #[serde(alias = "JAC")]
-    #[strum(serialize = "JAX", serialize = "JAC")]
-    JAX,
-    KC,
-    LAC,
-    #[serde(alias = "LAR")]
-    #[strum(serialize = "LA", serialize = "LAR")]
-    LA,
-    LV,
-    MIA,
-    MIN,
-    NE,
-    NO,
-    NYG,
-    NYJ,
-    PHI,
-    PIT,
-    SEA,
-    SF,
-    TB,
-    TEN,
-    WAS,
-}
-
-impl TeamAbbr {
-    pub fn as_str(&self) -> &str {
-        match self {
-            Self::JAX => "JAX",
-            Self::LA => "LA",
-            _ => self.as_ref(),
-        }
-    }
-}
-
-impl Display for TeamAbbr {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
     }
 }
 
@@ -210,19 +138,6 @@ impl Game {
     /// the transition instants for its year.
     pub fn kickoff_eastern(&self) -> Option<OffsetDateTime> {
         self.kickoff.map(crate::eastern::to_eastern)
-    }
-}
-
-#[cfg(test)]
-mod team_abbr_tests {
-    use super::TeamAbbr;
-
-    #[test]
-    fn parses_legacy_abbreviations_to_canonical_variants() {
-        assert_eq!("JAC".parse(), Ok(TeamAbbr::JAX));
-        assert_eq!("LAR".parse(), Ok(TeamAbbr::LA));
-        assert_eq!(TeamAbbr::JAX.as_str(), "JAX");
-        assert_eq!(TeamAbbr::LA.as_str(), "LA");
     }
 }
 

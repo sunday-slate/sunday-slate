@@ -3,9 +3,15 @@ use nfl_model::TeamAbbr;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
+/// The away and home teams in a game.
+///
+/// Parses from and displays as `AWAY@HOME` (for example, `BUF@NYJ`), using [`TeamAbbr`]
+/// for each team.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Matchup {
+    /// Away team abbreviation.
     pub away: TeamAbbr,
+    /// Home team abbreviation.
     pub home: TeamAbbr,
 }
 
