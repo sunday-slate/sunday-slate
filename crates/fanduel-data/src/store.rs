@@ -1,7 +1,7 @@
 use crate::{FanduelDataError, Game, Matchup, Player, SalariedPlayer, WeeklySummary};
 use nfl_model::{DfsPosition, SeasonWeek, TeamAbbr};
-use sqlx::sqlite::SqliteConnectOptions;
-use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+use sqlx::{QueryBuilder, Sqlite, SqlitePool};
 use std::collections::BTreeMap;
 use std::{collections::HashMap, str::FromStr};
 
@@ -84,85 +84,6 @@ impl Store {
             .collect()
     }
 
-    pub(crate) async fn salary_counts_by_week(
-        &self,
-    ) -> Result<BTreeMap<SeasonWeek, i64>, FanduelDataError> {
-        let rows = sqlx::query!(
-            r#"
-           SELECT
-               games.season_week AS "season_week: SeasonWeek",
-               COUNT(*) AS salary_count
-           FROM salaries
-           JOIN games ON games.id = salaries.game_id
-           GROUP BY games.season_week
-           "#
-        )
-        .fetch_all(&self.pool)
-        .await?;
-
-        Ok(rows
-            .into_iter()
-            .map(|row| (row.season_week, row.salary_count))
-            .collect())
-    }
-
-    async fn unmatched_counts_by_week(
-        &self,
-        matched_ids: &[u32],
-    ) -> Result<BTreeMap<SeasonWeek, u32>, FanduelDataError> {
-        let mut query = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
-            r#"
-        SELECT
-            games.season_week,
-            COUNT(*) AS salary_count
-        FROM salaries
-        JOIN games ON games.id = salaries.game_id
-        "#,
-        );
-
-        // An empty matched list means every salary is unmatched.
-        if !matched_ids.is_empty() {
-            query.push(" WHERE salaries.player_id NOT IN (");
-
-            let mut separated = query.separated(", ");
-            for &id in matched_ids {
-                separated.push_bind(id);
-            }
-            separated.push_unseparated(")");
-        }
-
-        query.push(" GROUP BY games.season_week");
-
-        let rows = query
-            .build_query_as::<(SeasonWeek, u32)>()
-            .fetch_all(&self.pool)
-            .await?;
-
-        Ok(rows.into_iter().collect())
-    }
-
-    pub(crate) async fn weekly_summaries(
-        &self,
-        matched_ids: &[u32],
-    ) -> Result<Vec<WeeklySummary>, FanduelDataError> {
-        let salary_counts = self.salary_counts_by_week().await?;
-        let unmatched_counts = self.unmatched_counts_by_week(matched_ids).await?;
-
-        let summaries = salary_counts
-            .into_iter()
-            .map(|(week, salary_count)| {
-                let unmatched_count = unmatched_counts.get(&week).copied().unwrap_or(0);
-                WeeklySummary {
-                    season_week: week,
-                    salary_count: salary_count as usize,
-                    unmatched_count: unmatched_count as usize,
-                }
-            })
-            .collect();
-
-        Ok(summaries)
-    }
-
     pub(crate) async fn save_salaried_players(
         &self,
         salaries: &[SalariedPlayer],
@@ -187,8 +108,8 @@ impl Store {
                         game.matchup.away.as_str(),
                         game.matchup.home.as_str(),
                     )
-                    .fetch_one(&mut *transaction)
-                    .await?;
+                        .fetch_one(&mut *transaction)
+                        .await?;
                     game_ids.insert(game_key, id);
                     id
                 }
@@ -201,8 +122,8 @@ impl Store {
                     &player.first_name,
                     &player.last_name,
                 )
-                .execute(&mut *transaction)
-                .await?;
+                    .execute(&mut *transaction)
+                    .await?;
 
                 sqlx::query!(
                     "INSERT INTO salaries (player_id, game_id, salary, position, team) VALUES (?, ?, ?, ?, ?) ON CONFLICT (game_id, player_id) WHERE position <> 'DST' DO UPDATE SET salary = excluded.salary, position = excluded.position, team = excluded.team",
@@ -212,8 +133,8 @@ impl Store {
                     salary.position,
                     salary.team.as_str(),
                 )
-                .execute(&mut *transaction)
-                .await?;
+                    .execute(&mut *transaction)
+                    .await?;
             } else {
                 if salary.position != DfsPosition::Dst {
                     return Err(FanduelDataError::InvalidRow(
@@ -226,13 +147,90 @@ impl Store {
                     i64::from(salary.salary),
                     salary.team.as_str(),
                 )
-                .execute(&mut *transaction)
-                .await?;
+                    .execute(&mut *transaction)
+                    .await?;
             }
         }
 
         transaction.commit().await?;
         Ok(())
+    }
+
+    pub(crate) async fn weekly_summaries(
+        &self,
+        matched_ids: &[u32],
+    ) -> Result<Vec<WeeklySummary>, FanduelDataError> {
+        let salary_counts = self.salary_counts_by_week().await?;
+        let unmatched_counts = self.unmatched_counts_by_week(matched_ids).await?;
+
+        let summaries = salary_counts
+            .into_iter()
+            .map(|(week, salary_count)| {
+                let unmatched_count = unmatched_counts.get(&week).copied().unwrap_or(0);
+                WeeklySummary {
+                    season_week: week,
+                    salary_count: salary_count as usize,
+                    unmatched_count: unmatched_count as usize,
+                }
+            })
+            .collect();
+
+        Ok(summaries)
+    }
+
+    async fn salary_counts_by_week(&self) -> Result<BTreeMap<SeasonWeek, i64>, FanduelDataError> {
+        let rows = sqlx::query!(
+            r#"
+           SELECT
+               games.season_week AS "season_week: SeasonWeek",
+               COUNT(*) AS salary_count
+           FROM salaries
+           JOIN games ON games.id = salaries.game_id
+           GROUP BY games.season_week
+           "#
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| (row.season_week, row.salary_count))
+            .collect())
+    }
+
+    async fn unmatched_counts_by_week(
+        &self,
+        matched_ids: &[u32],
+    ) -> Result<BTreeMap<SeasonWeek, u32>, FanduelDataError> {
+        let mut query = QueryBuilder::<Sqlite>::new(
+            r#"
+            SELECT
+                games.season_week,
+                COUNT(*) AS salary_count
+            FROM salaries
+            JOIN games ON games.id = salaries.game_id
+            "#,
+        );
+
+        // An empty matched list means every salary is unmatched.
+        if !matched_ids.is_empty() {
+            query.push(" WHERE salaries.player_id NOT IN (");
+
+            let mut separated = query.separated(", ");
+            for &id in matched_ids {
+                separated.push_bind(id);
+            }
+            separated.push_unseparated(")");
+        }
+
+        query.push(" GROUP BY games.season_week");
+
+        let rows = query
+            .build_query_as::<(SeasonWeek, u32)>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(rows.into_iter().collect())
     }
 }
 

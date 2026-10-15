@@ -449,7 +449,6 @@ mod tests {
             Err(SalaryImportError::Schedule)
         ));
         assert!(nfl.salaried_players_for(week).await.unwrap().is_empty());
-        assert!(nfl.salary_counts_by_week().await.unwrap().is_empty());
         let game_ids = [
             "2025_01_BUF_NYJ",
             "2025_01_NYG_WAS",

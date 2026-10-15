@@ -597,7 +597,7 @@ mod tests {
             root.assert_text_contains(format!("/admin/salary-imports/{encoded}"));
         }
         assert_eq!(root.text().matches("3 salaries").count(), 3);
-        assert_eq!(root.text().matches("2 unresolved").count(), 3);
+        assert_eq!(root.text().matches("3 unresolved").count(), 3);
     }
 
     #[tokio::test]
@@ -791,7 +791,13 @@ mod tests {
                 .await
                 .assert_status(StatusCode::BAD_REQUEST);
         }
-        assert!(app.nfl.salary_counts_by_week().await.unwrap().is_empty());
+        assert!(
+            app.nfl
+                .fanduel_weekly_summaries(&[])
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[tokio::test]

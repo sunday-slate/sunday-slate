@@ -5,7 +5,7 @@ mod identity;
 mod test;
 mod web;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 use nflverse_data::NflverseData;
 
@@ -91,13 +91,6 @@ impl NflData {
         season_week: SeasonWeek,
     ) -> Result<Vec<SalariedPlayer>, FanduelDataError> {
         self.fanduel.salaried_players_for(season_week).await
-    }
-
-    /// Count stored player and DST salary source rows, grouped by complete week.
-    pub async fn salary_counts_by_week(
-        &self,
-    ) -> Result<BTreeMap<SeasonWeek, i64>, FanduelDataError> {
-        self.fanduel.salary_counts_by_week().await
     }
 
     pub async fn fanduel_weekly_summaries(
