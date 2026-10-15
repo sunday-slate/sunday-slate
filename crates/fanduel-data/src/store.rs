@@ -189,12 +189,13 @@ impl Store {
                 COUNT(*) AS salary_count
             FROM salaries
             JOIN games ON games.id = salaries.game_id
+            WHERE salaries.player_id IS NOT NULL
             "#,
         );
 
-        // An empty matched list means every salary is unmatched.
+        // DST rows are always matched; an empty list leaves every player unmatched.
         if !matched_ids.is_empty() {
-            query.push(" WHERE salaries.player_id NOT IN (");
+            query.push(" AND salaries.player_id NOT IN (");
 
             let mut separated = query.separated(", ");
             for &id in matched_ids {
@@ -273,6 +274,111 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unmatched_counts_exclude_dst_and_matched_players() {
+        let store = Store::in_memory().await.unwrap();
+        assert!(
+            store
+                .unmatched_counts_by_week(&[])
+                .await
+                .unwrap()
+                .is_empty()
+        );
+
+        store
+            .save_salaried_players(&[
+                salary(
+                    DfsPosition::Qb,
+                    Some(Player {
+                        id: 62239,
+                        first_name: "Josh".into(),
+                        last_name: "Allen".into(),
+                    }),
+                    TeamAbbr::BUF,
+                    8200,
+                ),
+                salary(
+                    DfsPosition::Wr,
+                    Some(Player {
+                        id: 99999,
+                        first_name: "Mystery".into(),
+                        last_name: "Receiver".into(),
+                    }),
+                    TeamAbbr::NYJ,
+                    5000,
+                ),
+                salary(DfsPosition::Dst, None, TeamAbbr::BUF, 3500),
+            ])
+            .await
+            .unwrap();
+
+        assert_eq!(
+            store.unmatched_counts_by_week(&[]).await.unwrap(),
+            BTreeMap::from([(SeasonWeek::reg(1), 2)])
+        );
+        assert_eq!(
+            store.unmatched_counts_by_week(&[62239]).await.unwrap(),
+            BTreeMap::from([(SeasonWeek::reg(1), 1)])
+        );
+        // Weeks with no unmatched players are omitted rather than returned with zero.
+        assert!(
+            store
+                .unmatched_counts_by_week(&[62239, 99999])
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_save_rolls_back_the_batch_and_preserves_existing_rows() {
+        for invalid in [
+            salary(DfsPosition::Qb, None, TeamAbbr::BUF, 8200),
+            salary(DfsPosition::Dst, None, TeamAbbr::NYJ, 0),
+        ] {
+            let store = Store::in_memory().await.unwrap();
+            let existing = salary(DfsPosition::Dst, None, TeamAbbr::BUF, 3500);
+            store
+                .save_salaried_players(std::slice::from_ref(&existing))
+                .await
+                .unwrap();
+            let mut new_player = salary(
+                DfsPosition::Qb,
+                Some(Player {
+                    id: 62239,
+                    first_name: "Josh".into(),
+                    last_name: "Allen".into(),
+                }),
+                TeamAbbr::BUF,
+                8200,
+            );
+            new_player.game.season_week = SeasonWeek::reg(2);
+
+            assert!(
+                store
+                    .save_salaried_players(&[new_player, invalid])
+                    .await
+                    .is_err()
+            );
+            assert_eq!(
+                store
+                    .salaried_players_for(SeasonWeek::reg(1))
+                    .await
+                    .unwrap(),
+                vec![existing]
+            );
+            let counts: (i64, i64, i64) = sqlx::query_as(
+                "SELECT (SELECT COUNT(*) FROM games),
+                        (SELECT COUNT(*) FROM players),
+                        (SELECT COUNT(*) FROM salaries)",
+            )
+            .fetch_one(&store.pool)
+            .await
+            .unwrap();
+            assert_eq!(counts, (1, 0, 1));
+        }
+    }
+
+    #[tokio::test]
     async fn saves_and_updates_player_and_dst_salaries_idempotently() {
         let store = Store::in_memory().await.unwrap();
         let players = vec![
@@ -286,23 +392,44 @@ mod tests {
                 TeamAbbr::BUF,
                 8200,
             ),
+            salary(DfsPosition::Dst, None, TeamAbbr::BUF, 3300),
             salary(DfsPosition::Dst, None, TeamAbbr::NYJ, 3500),
         ];
 
         store.save_salaried_players(&players).await.unwrap();
+        store.save_salaried_players(&players).await.unwrap();
         let mut updated = players.clone();
         updated[0].salary = 8400;
-        updated[1].salary = 3700;
+        updated[0].position = DfsPosition::Rb;
+        updated[0].team = TeamAbbr::NYJ;
+        let player = updated[0].player.as_mut().unwrap();
+        player.first_name = "Updated".into();
+        player.last_name = "Player".into();
+        updated[1].salary = 3600;
+        updated[2].salary = 3700;
+        store.save_salaried_players(&updated).await.unwrap();
         store.save_salaried_players(&updated).await.unwrap();
 
-        let rows: Vec<(Option<i64>, i64, String)> =
-            sqlx::query_as("SELECT player_id, salary, position FROM salaries ORDER BY salary")
-                .fetch_all(&store.pool)
+        let rows: Vec<(Option<i64>, i64, String, String)> = sqlx::query_as(
+            "SELECT player_id, salary, position, team FROM salaries ORDER BY salary",
+        )
+        .fetch_all(&store.pool)
+        .await
+        .unwrap();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0], (None, 3600, "DST".to_owned(), "BUF".to_owned()));
+        assert_eq!(rows[1], (None, 3700, "DST".to_owned(), "NYJ".to_owned()));
+        assert_eq!(
+            rows[2],
+            (Some(62239), 8400, "RB".to_owned(), "NYJ".to_owned())
+        );
+
+        let names: (String, String) =
+            sqlx::query_as("SELECT first_name, last_name FROM players WHERE id = 62239")
+                .fetch_one(&store.pool)
                 .await
                 .unwrap();
-        assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0], (None, 3700, "DST".to_owned()));
-        assert_eq!(rows[1], (Some(62239), 8400, "QB".to_owned()));
+        assert_eq!(names, ("Updated".to_owned(), "Player".to_owned()));
 
         let games: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM games")
             .fetch_one(&store.pool)

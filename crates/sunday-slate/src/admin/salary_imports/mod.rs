@@ -2,7 +2,6 @@ mod candidates;
 mod handlers;
 pub mod matcher;
 pub mod schedule;
-mod view;
 
 pub use handlers::router;
 
