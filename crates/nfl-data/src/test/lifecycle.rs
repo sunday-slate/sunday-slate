@@ -24,7 +24,7 @@ mod tests {
     #[tokio::test]
     async fn construction_and_disabled_lifecycle_make_no_requests() {
         for interval in [None, Some(Duration::ZERO)] {
-            let (nfl, server, _dir) = mock_nfl(interval).await;
+            let (nfl, server) = mock_nfl(interval).await;
             nfl.start_background_tasks();
             nfl.start_background_tasks();
             nfl.stop_background_tasks();
@@ -37,7 +37,7 @@ mod tests {
 
     #[tokio::test]
     async fn stopping_services_does_not_cancel_running_refresh() {
-        let (nfl, _server, _dir) = mock_nfl_delayed(Duration::from_millis(200)).await;
+        let (nfl, _server) = mock_nfl_delayed(Duration::from_millis(200)).await;
         assert!(nfl.provider.request_refresh().await.unwrap());
         tokio::time::timeout(Duration::from_secs(1), async {
             while !matches!(nfl.provider.refresh_status(), RunnerState::Running { .. }) {
@@ -68,7 +68,7 @@ mod tests {
     #[tokio::test]
     async fn lifecycle_waits_one_interval_and_does_not_duplicate_timers() {
         let interval = Duration::from_millis(150);
-        let (nfl, server, _dir) = mock_nfl(Some(interval)).await;
+        let (nfl, server) = mock_nfl(Some(interval)).await;
         nfl.start_background_tasks();
         nfl.start_background_tasks();
         tokio::time::sleep(Duration::from_millis(60)).await;
@@ -82,7 +82,7 @@ mod tests {
     #[tokio::test]
     async fn lifecycle_stop_and_restart_use_the_configured_interval() {
         let interval = Duration::from_millis(150);
-        let (nfl, server, _dir) = mock_nfl(Some(interval)).await;
+        let (nfl, server) = mock_nfl(Some(interval)).await;
         nfl.start_background_tasks();
         wait_for_requests(&server, 5).await;
         nfl.stop_background_tasks();

@@ -1,4 +1,9 @@
+use std::fmt::{Display, Formatter};
 use time::OffsetDateTime;
+
+use crate::TeamAbbr;
+
+const DEFAULT_SEASON: u16 = 2026;
 
 #[derive(
     Debug,
@@ -17,6 +22,18 @@ use time::OffsetDateTime;
 #[serde(transparent)]
 pub struct Season(pub u16);
 
+impl Display for Season {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl Default for Season {
+    fn default() -> Self {
+        Season(DEFAULT_SEASON)
+    }
+}
+
 #[derive(
     Debug,
     Clone,
@@ -34,21 +51,71 @@ pub struct Season(pub u16);
 #[serde(transparent)]
 pub struct Week(pub u8);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, sqlx::Type)]
-#[sqlx(transparent)]
-#[serde(transparent)]
-pub struct TeamAbbr(pub String);
+impl Display for Week {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 /// Stored as TEXT "REG"/"POST". Upstream playoff game types (WC/DIV/CON/SB)
 /// map to Post at ingest.
+#[repr(u8)]
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, sqlx::Type,
+    Default,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+    strum::EnumString,
+    strum::IntoStaticStr,
+    sqlx::Type,
 )]
-#[sqlx(rename_all = "UPPERCASE")]
 #[serde(rename_all = "UPPERCASE")]
+#[strum(serialize_all = "UPPERCASE", ascii_case_insensitive)]
 pub enum SeasonType {
-    Reg,
-    Post,
+    #[default]
+    Reg = 0,
+    Post = 1,
+}
+
+impl SeasonType {
+    pub fn is_reg(&self) -> bool {
+        self == &SeasonType::Reg
+    }
+}
+
+impl Display for SeasonType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.into())
+    }
+}
+
+impl From<SeasonType> for u8 {
+    fn from(value: SeasonType) -> Self {
+        value as u8
+    }
+}
+
+impl From<SeasonType> for u32 {
+    fn from(value: SeasonType) -> Self {
+        value as u32
+    }
+}
+
+impl TryFrom<u8> for SeasonType {
+    type Error = ();
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Reg),
+            1 => Ok(Self::Post),
+            _ => Err(()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -173,8 +240,8 @@ mod kickoff_eastern_tests {
             week: Week(1),
             season_type: SeasonType::Reg,
             kickoff,
-            home_team: TeamAbbr("LA".into()),
-            away_team: TeamAbbr("SF".into()),
+            home_team: TeamAbbr::LA,
+            away_team: TeamAbbr::SF,
             home_score: None,
             away_score: None,
         }

@@ -86,7 +86,7 @@ mod tests {
     async fn admin_avatar_fetch_starts_a_background_run_and_reports_it() {
         let app = admin_app().await;
         link_all_teams(&app).await;
-        crate::nfl_players::store::upsert(&app.pool, "00-NO-SOURCE", "no-source")
+        crate::nfl_players::store::upsert(&app.pool, "00-NO-SOURCE", 700011)
             .await
             .expect("crosswalk");
         app.nfl
@@ -98,7 +98,7 @@ mod tests {
                     first_name: None,
                     last_name: None,
                     position: Some("QB".into()),
-                    latest_team: Some(nfl_data::TeamAbbr("KC".into())),
+                    latest_team: Some(nfl_data::TeamAbbr::KC),
                     headshot_url: None,
                 }],
                 &[],

@@ -1,10 +1,6 @@
-use std::collections::HashMap;
+use nfl_data::{Player, SalariedPlayer, Season, SeasonWeek, TeamAbbr, Week, WeeklyRosterEntry};
 
-use askama::Template;
-use nfl_data::{Player, Season, TeamAbbr as NflTeamAbbr, Week, WeeklyRosterEntry};
-
-use crate::admin::salary_imports::model::SalaryImportRow;
-use crate::admin::salary_imports::store as import_store;
+use crate::nfl_players::store::mapped_gsis_ids;
 use crate::{AppError, AppState};
 
 pub struct Candidate {
@@ -41,7 +37,7 @@ pub fn candidate(p: &Player) -> Candidate {
 /// weekly roster's coarse buckets (DB/OL/DL) and the finer-grained `players`
 /// table (CB/OT/DE).
 const NON_SKILL_POSITIONS: &[&str] = &[
-    "DB", "DL", "LB", "OL", "P", "LS", "CB", "S", "SS", "FS", "SAF", "DE", "DT", "NT", "ILB",
+    "DB", "DL", "LB", "OL", "P", "K", "LS", "CB", "S", "SS", "FS", "SAF", "DE", "DT", "NT", "ILB",
     "MLB", "OLB", "OT", "T", "G", "OG", "C",
 ];
 
@@ -57,7 +53,7 @@ pub fn is_skill_position(position: Option<&str>) -> bool {
 fn candidates_for(players: &[Player], team: &str) -> Vec<Candidate> {
     players
         .iter()
-        .filter(|p| p.latest_team.as_ref().map(|t| t.0.as_str()) == Some(team))
+        .filter(|p| p.latest_team.as_ref().map(|t| t.as_str()) == Some(team))
         .filter(|p| is_skill_position(p.position.as_deref()))
         .map(candidate)
         .collect()
@@ -86,154 +82,116 @@ async fn roster_candidates(
     state: &AppState,
     season: Season,
     week: Week,
-    team: &str,
+    team: &TeamAbbr,
 ) -> Result<Vec<Candidate>, AppError> {
     let entries = state
         .nfl
-        .weekly_roster(season, week, &NflTeamAbbr(team.to_string()))
+        .weekly_roster(season, week, team)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
     Ok(entries.iter().filter_map(roster_candidate).collect())
 }
 
-/// gsis_game_id -> week, so a staged row can name its own week.
-async fn week_by_game(state: &AppState, season: Season) -> Result<HashMap<String, Week>, AppError> {
-    let games = state
+/// A human-confirmed nickname/surname suggestion from the exact week's roster.
+pub async fn suggestion_for(
+    state: &AppState,
+    season_week: &SeasonWeek,
+    salary: &SalariedPlayer,
+) -> Result<Option<Candidate>, AppError> {
+    let Some(player) = &salary.player else {
+        return Ok(None);
+    };
+    let entries = state
         .nfl
-        .games(season)
+        .weekly_roster(season_week.season, season_week.week, &salary.team)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
-    Ok(games
-        .into_iter()
-        .map(|g| (g.gsis_game_id, g.week))
-        .collect())
+    let index = super::matcher::RosterIndex::build(&entries);
+    let name = format!("{} {}", player.first_name, player.last_name);
+
+    let Some(gsis_id) = index.suggest_one(&name, salary.team.as_str(), salary.position.into())
+    else {
+        return Ok(None);
+    };
+
+    if mapped_gsis_ids(state.db.reader()).await?.contains(&gsis_id) {
+        return Ok(None);
+    }
+
+    Ok(entries
+        .iter()
+        .find(|entry| entry.gsis_id.as_deref() == Some(gsis_id.as_str()))
+        .and_then(roster_candidate))
 }
 
-/// Longest candidate list rendered at once. Week-scoped rosters land well under
-/// this, so the cap only bites on a broad search or the latest-team fallback;
-/// the count line in `_results.html` discloses whatever it hides.
-const RESULT_LIMIT: usize = 100;
+pub struct CandidateResults {
+    pub candidates: Vec<Candidate>,
+    pub total: usize,
+    pub scope_label: String,
+    pub widened: bool,
+}
 
-/// The clickable candidate list for one row: each hit submits its gsis id back
-/// to that row's resolve endpoint.
-#[derive(Template)]
-#[template(path = "admin/salary_imports/_results.html")]
-pub struct ResultsFragment {
-    import_id: i64,
-    row_id: i64,
-    candidates: Vec<Candidate>,
-    total: usize,
-    /// What the list was drawn from, e.g. "on BUF, week 1". Rendered in the
-    /// count line so a widened list can never be mistaken for the week's.
-    scope_label: String,
-    widen_url: String,
-    /// Back to this row's own list. Rendered only once widened, which is the
-    /// only state the admin cannot otherwise leave: the widen control is gone,
-    /// and a query under the global floor returns nothing to pick from.
-    narrow_url: String,
-    /// True once the admin has widened, which retires the widen control.
+/// Keep the week's team roster as the default; widening is always explicit.
+pub async fn search(
+    state: &AppState,
+    season_week: &SeasonWeek,
+    team: &TeamAbbr,
+    query: &str,
     widened: bool,
-    /// True when the widened query is under the global two-character floor, so
-    /// no search ran at all. Distinguished from an empty result: the admin has
-    /// to be told to type more, not that his player does not exist.
-    too_short: bool,
-}
-
-impl ResultsFragment {
-    /// Builds both urls itself rather than taking them: they differ only by
-    /// `scope=all`, and a caller free to pass one without the other could
-    /// render a way back that widens again.
-    pub fn new(
-        import_id: i64,
-        row_id: i64,
-        mut candidates: Vec<Candidate>,
-        scope_label: String,
-        widened: bool,
-        too_short: bool,
-    ) -> Self {
-        let total = candidates.len();
-        // Sorted here, not per source, so every list the admin sees is ordered
-        // the same way — and so the cap keeps the first N by surname rather
-        // than whatever order the query happened to return.
-        candidates.sort_by(|a, b| a.sort_key.cmp(&b.sort_key));
-        candidates.truncate(RESULT_LIMIT);
-        let narrow_url = format!("/admin/salary-imports/{import_id}/rows/{row_id}/players");
-        Self {
-            import_id,
-            row_id,
-            candidates,
-            total,
-            scope_label,
-            widen_url: format!("{narrow_url}?scope=all"),
-            narrow_url,
-            widened,
-            too_short,
-        }
-    }
-}
-
-/// Which scoping a row's default candidate list was actually built from. The
-/// caption has to name the list the admin is looking at, and the fallback below
-/// fires on a condition — an empty weekly roster — that the caller cannot see.
-/// Reported rather than re-derived, so caption and list cannot drift apart.
-pub enum CandidateSource {
-    /// That team's roster for the row's week.
-    Week(Week),
-    /// The player table's latest-team scoping, used when the row's week has no
-    /// synced roster. Not week-scoped: a player traded away mid-season is
-    /// missing from it and a player signed later is in it.
-    LatestTeam,
-}
-
-impl CandidateSource {
-    /// How the count line names this scoping.
-    pub fn label(&self, team: &str) -> String {
-        match self {
-            Self::Week(week) => format!("on {team}, week {}", week.0),
-            Self::LatestTeam => format!("on {team}, no weekly roster synced"),
-        }
-    }
-}
-
-/// The list a row shows before anything is typed: that week's roster for the
-/// row's team, or the latest-team scoping if no weekly roster is synced.
-pub async fn team_default_candidates(
-    state: &AppState,
-    import_id: i64,
-    row: &SalaryImportRow,
-) -> Result<(Vec<Candidate>, CandidateSource), AppError> {
-    let Some(batch) = import_store::get(state.db.reader(), import_id).await? else {
-        return Err(AppError::NotFound);
+) -> Result<CandidateResults, AppError> {
+    let needle = query.trim().to_lowercase();
+    let (mut candidates, scope_label) = if widened {
+        let hits: Vec<Candidate> = state
+            .nfl
+            .players()
+            .await
+            .map_err(|e| AppError::Internal(e.to_string()))?
+            .iter()
+            .filter(|p| p.full_name.to_lowercase().contains(&needle))
+            .filter(|p| is_skill_position(p.position.as_deref()))
+            .map(candidate)
+            .collect();
+        (hits, "across all teams".to_owned())
+    } else {
+        let roster = roster_candidates(state, season_week.season, season_week.week, team).await?;
+        let (base, label) = if roster.is_empty() {
+            let players = state
+                .nfl
+                .players()
+                .await
+                .map_err(|e| AppError::Internal(e.to_string()))?;
+            (
+                candidates_for(&players, team.as_str()),
+                format!("on {team}"),
+            )
+        } else {
+            (roster, format!("on {team}"))
+        };
+        let hits: Vec<Candidate> = base
+            .into_iter()
+            .filter(|c| c.label.to_lowercase().contains(&needle))
+            .collect();
+        (hits, label)
     };
-    let season = Season(batch.season as u16);
-    if let Some(week) = week_for_row(state, import_id, row).await? {
-        let c = roster_candidates(state, season, week, &row.fd_team).await?;
-        if !c.is_empty() {
-            return Ok((c, CandidateSource::Week(week)));
-        }
-    }
-    let all = state
-        .nfl
-        .players()
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?;
-    Ok((
-        candidates_for(&all, &row.fd_team),
-        CandidateSource::LatestTeam,
-    ))
+    let mapped = mapped_gsis_ids(state.db.reader()).await?;
+    candidates.retain(|candidate| !mapped.contains(&candidate.gsis_id));
+    let total = candidates.len();
+    candidates.sort_by(|a, b| a.sort_key.cmp(&b.sort_key));
+    candidates.truncate(100);
+    Ok(CandidateResults {
+        candidates,
+        total,
+        scope_label,
+        widened,
+    })
 }
 
-/// The week this row's game belongs to, or `None` when the games table has never
-/// heard of it. Both the default candidate list and the scope label it is
-/// captioned with have to agree on this, so they read it from one place.
-async fn week_for_row(
-    state: &AppState,
-    import_id: i64,
-    row: &SalaryImportRow,
-) -> Result<Option<Week>, AppError> {
-    let Some(batch) = import_store::get(state.db.reader(), import_id).await? else {
-        return Err(AppError::NotFound);
-    };
-    let weeks = week_by_game(state, Season(batch.season as u16)).await?;
-    Ok(weeks.get(&row.gsis_game_id).copied())
+#[cfg(test)]
+mod tests {
+    use super::is_skill_position;
+
+    #[test]
+    fn kicker_position_is_not_a_salary_player_candidate() {
+        assert!(!is_skill_position(Some("K")));
+    }
 }

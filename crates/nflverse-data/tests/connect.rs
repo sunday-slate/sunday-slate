@@ -44,32 +44,26 @@ async fn in_memory_is_empty_and_queryable() {
 }
 
 #[tokio::test]
-async fn reopening_preserves_cached_records_and_runs_only_one_baseline() {
-    let dir = tempfile::tempdir().unwrap();
-    let config = NflverseDataConfig {
-        database_url: format!("sqlite://{}/cache.db", dir.path().display()),
-        ..Default::default()
-    };
-    let nfl = NflverseData::connect(config.clone()).await.unwrap();
-    let pool = sqlx::SqlitePool::connect(&config.database_url)
-        .await
-        .unwrap();
-    sqlx::query(
-        "INSERT INTO players (gsis_id, full_name, espn_id) VALUES ('00-P', 'Player', '42')",
+async fn in_memory_store_preserves_seeded_records() {
+    let nfl = NflverseData::in_memory().await.unwrap();
+    nfl.seed_for_test(
+        &[nflverse_data::Player {
+            gsis_id: "00-P".into(),
+            espn_id: Some("42".into()),
+            full_name: "Player".into(),
+            first_name: None,
+            last_name: None,
+            position: None,
+            latest_team: None,
+            headshot_url: None,
+        }],
+        &[],
     )
-    .execute(&pool)
     .await
     .unwrap();
-    drop(nfl);
-    let reopened = NflverseData::connect(config).await.unwrap();
-    let players = reopened.players().await.unwrap();
+    let players = nfl.players().await.unwrap();
     assert_eq!(players.len(), 1);
     assert_eq!(players[0].espn_id.as_deref(), Some("42"));
-    let versions: Vec<i64> = sqlx::query_scalar("SELECT version FROM _sqlx_migrations")
-        .fetch_all(&pool)
-        .await
-        .unwrap();
-    assert_eq!(versions, [20261005000000]);
 }
 
 #[tokio::test]

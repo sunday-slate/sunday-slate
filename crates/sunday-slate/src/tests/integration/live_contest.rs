@@ -32,9 +32,9 @@ fn live_player(espn_id: &str, name: &str, rushing_yards: i32) -> LivePlayerStats
     LivePlayerStats {
         espn_id: Some(EspnPlayerId(espn_id.into())),
         name: Some(name.into()),
-        team: Some(TeamAbbr("KC".into())),
+        team: Some(TeamAbbr::KC),
         position: Some("RB".into()),
-        opponent: Some(TeamAbbr("BUF".into())),
+        opponent: Some(TeamAbbr::BUF),
         completions: 0,
         attempts: 0,
         passing_tds: 0,
@@ -61,8 +61,8 @@ fn live_filler_players() -> Vec<LivePlayerStats> {
 
 fn live_defense(team: &str, opponent: &str) -> LiveTeamStats {
     LiveTeamStats {
-        team: TeamAbbr(team.into()),
-        opponent: TeamAbbr(opponent.into()),
+        team: team.parse().unwrap(),
+        opponent: opponent.parse().unwrap(),
         sacks: 0,
         interceptions: 0,
         fumble_recoveries: 0,
@@ -347,8 +347,8 @@ async fn live_contest_ranks_and_drills_into_provisional_scores(pool: SqlitePool)
 
     let buf_player = PlayerWeekStats {
         gsis_id: "00-BUF".into(),
-        team: TeamAbbr("BUF".into()),
-        opponent: Some(TeamAbbr("KC".into())),
+        team: TeamAbbr::BUF,
+        opponent: Some(TeamAbbr::KC),
         ..factories::player_stats("00-BUF", 1)
     };
     let buf_defense = TeamWeekStats {
@@ -360,11 +360,11 @@ async fn live_contest_ranks_and_drills_into_provisional_scores(pool: SqlitePool)
             Season(2025),
             &[
                 PlayerWeekStats {
-                    opponent: Some(TeamAbbr("BUF".into())),
+                    opponent: Some(TeamAbbr::BUF),
                     ..factories::rb_stats("00-A", 1, 100)
                 },
                 PlayerWeekStats {
-                    opponent: Some(TeamAbbr("BUF".into())),
+                    opponent: Some(TeamAbbr::BUF),
                     ..factories::rb_stats("00-B", 1, 200)
                 },
                 buf_player,
@@ -519,8 +519,8 @@ async fn dev_feed_snapshot_outranks_official_stats(pool: SqlitePool) {
 
     let buf_player = PlayerWeekStats {
         gsis_id: "00-BUF".into(),
-        team: TeamAbbr("BUF".into()),
-        opponent: Some(TeamAbbr("KC".into())),
+        team: TeamAbbr::BUF,
+        opponent: Some(TeamAbbr::KC),
         ..factories::player_stats("00-BUF", 1)
     };
     let buf_defense = TeamWeekStats {
@@ -532,11 +532,11 @@ async fn dev_feed_snapshot_outranks_official_stats(pool: SqlitePool) {
             Season(2025),
             &[
                 PlayerWeekStats {
-                    opponent: Some(TeamAbbr("BUF".into())),
+                    opponent: Some(TeamAbbr::BUF),
                     ..factories::rb_stats("00-A", 1, 100)
                 },
                 PlayerWeekStats {
-                    opponent: Some(TeamAbbr("BUF".into())),
+                    opponent: Some(TeamAbbr::BUF),
                     ..factories::rb_stats("00-B", 1, 200)
                 },
                 buf_player,

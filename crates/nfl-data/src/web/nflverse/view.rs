@@ -152,7 +152,7 @@ mod tests {
 
     #[tokio::test]
     async fn nflverse_idle_scheduler_and_last_run_presentation() {
-        let (nfl, _, _) = mock_nfl(Some(Duration::from_secs(3600))).await;
+        let (nfl, _) = mock_nfl(Some(Duration::from_secs(3600))).await;
         let page = NflverseTemplate::load(&nfl)
             .await
             .unwrap()
@@ -161,7 +161,7 @@ mod tests {
         assert!(page.contains("Automatic refresh every hour."));
         assert_eq!(page.matches("Never synced").count(), 5);
 
-        let (nfl, _, _) = mock_nfl(None).await;
+        let (nfl, _) = mock_nfl(None).await;
         assert!(
             !NflverseTemplate::load(&nfl)
                 .await
@@ -174,7 +174,7 @@ mod tests {
 
     #[tokio::test]
     async fn nflverse_running_panel_polls_and_disables_submission() {
-        let (nfl, _, _) = mock_nfl_delayed(Duration::from_millis(800)).await;
+        let (nfl, _) = mock_nfl_delayed(Duration::from_millis(800)).await;
         assert!(nfl.provider.request_refresh().await.unwrap());
         assert!(!nfl.provider.request_refresh().await.unwrap());
         let template = NflverseTemplate::load(&nfl).await.unwrap();
@@ -193,7 +193,7 @@ mod tests {
         use utils::background::RunnerState;
 
         for succeeds in [false, true] {
-            let (nfl, _server, _cache) =
+            let (nfl, _server) =
                 crate::test::test_support::mock_nfl_with_schedule(None, succeeds).await;
             assert!(nfl.provider.request_refresh().await.unwrap());
             let mut completed = false;
@@ -228,7 +228,7 @@ mod tests {
 
     #[tokio::test]
     async fn nflverse_report_text_is_escaped() {
-        let (nfl, _, _) = mock_nfl(None).await;
+        let (nfl, _) = mock_nfl(None).await;
         let template = NflverseTemplate::idle(
             nfl.provider.freshness().await.unwrap(),
             Some(utils::background::LastRun {

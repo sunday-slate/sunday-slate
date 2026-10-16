@@ -31,7 +31,7 @@ impl<'a> PlayerIndex<'a> {
             many => {
                 let team_hits: Vec<&&Player> = many
                     .iter()
-                    .filter(|p| p.latest_team.as_ref().map(|t| t.0.as_str()) == Some(fd_team))
+                    .filter(|p| p.latest_team.as_ref().map(|t| t.as_str()) == Some(fd_team))
                     .collect();
                 match team_hits.as_slice() {
                     [p] => Some(p.gsis_id.clone()),
@@ -95,11 +95,11 @@ impl RosterIndex {
                 position: e.position.clone(),
             };
             by_team_norm
-                .entry((e.team.0.clone(), normalize(&e.full_name)))
+                .entry((e.team.as_str().to_owned(), normalize(&e.full_name)))
                 .or_default()
                 .push(hit());
             by_team_stem
-                .entry((e.team.0.clone(), strip_suffix(&e.full_name)))
+                .entry((e.team.as_str().to_owned(), strip_suffix(&e.full_name)))
                 .or_default()
                 .push(hit());
         }
@@ -191,7 +191,6 @@ fn pick(hits: &[RosterHit], dfs_position: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nfl_data::TeamAbbr as NflTeamAbbr;
 
     fn player(gsis: &str, name: &str, team: &str) -> Player {
         Player {
@@ -201,7 +200,7 @@ mod tests {
             first_name: None,
             last_name: None,
             position: None,
-            latest_team: Some(NflTeamAbbr(team.into())),
+            latest_team: Some(team.parse().unwrap()),
             headshot_url: None,
         }
     }
@@ -241,7 +240,7 @@ mod tests {
         WeeklyRosterEntry {
             season: nfl_data::Season(2025),
             week: nfl_data::Week(1),
-            team: NflTeamAbbr(team.into()),
+            team: team.parse().unwrap(),
             gsis_id: gsis.map(Into::into),
             espn_id: None,
             full_name: name.into(),

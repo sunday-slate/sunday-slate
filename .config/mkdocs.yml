@@ -11,6 +11,9 @@ nav:
   - Home: index.md
   - Deploying: deploy-with-nix.md
   - NFL Data: nfl-data-sources.md  
+  - Rust API:
+      - fanduel-data: https://docs.sundayslate.org/rustdoc/fanduel_data/
+      - nfl-model: https://docs.sundayslate.org/rustdoc/nfl_model/
   - About These Documents: about.md
 
 theme:

@@ -41,6 +41,7 @@ async fn resolve_matches_fanduel_2025() {
 
     let nfl = NflData::connect(NflDataConfig {
         database_url: format!("sqlite://{nfl_db}"),
+        fanduel_database_url: "sqlite::memory:".into(),
         ..Default::default()
     })
     .await
@@ -51,7 +52,7 @@ async fn resolve_matches_fanduel_2025() {
         let rule = Rule::from_name(name).unwrap_or_else(|| panic!("unknown contest {name}"));
         let got: BTreeSet<String> = resolve(&rule, SEASON, &games)
             .iter()
-            .map(|g| format!("{}@{}", g.away_team.0, g.home_team.0))
+            .map(|g| format!("{}@{}", g.away_team.as_str(), g.home_team.as_str()))
             .collect();
 
         // Wild Card is the single documented deviation: FanDuel kept the Monday

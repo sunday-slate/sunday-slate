@@ -6,16 +6,38 @@ on:
       - "docs/**"
       - ".config/mkdocs.yml"
       - "scripts/repo_links.py"
+      - "crates/fanduel-data/**"
+      - "crates/nfl-model/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".cargo/**"
+      - ".sqlx/**"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      SQLX_OFFLINE: "true"
     permissions:
       contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 (actions/checkout)
+      - name: Install Rust toolchain
+        run: rustup toolchain install --no-self-update
+      - name: Cache Rust dependencies and build output
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: rustdoc
+      - name: Install Rust build tools
+        # The workspace's Linux linker configuration uses mold.
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes mold
+      - name: Build Rust API docs
+        run: cargo doc --locked -p fanduel-data -p nfl-model
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5 (actions/setup-python)
         with:
@@ -28,6 +50,12 @@ jobs:
         run: |
           pip install "mkdocs-material==9.7.7"
           mkdocs build --strict -f .config/mkdocs.yml
+      - name: Include Rust API docs in Pages site
+        run: |
+          mkdir -p _site/rustdoc
+          cp -a target/doc/. _site/rustdoc/
+          test -f _site/rustdoc/fanduel_data/index.html
+          test -f _site/rustdoc/nfl_model/index.html
       - name: Upload artifact
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3 (actions/upload-pages-artifact)
         with:

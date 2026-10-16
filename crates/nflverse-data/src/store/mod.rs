@@ -26,6 +26,10 @@ pub(crate) struct Store {
 
 impl Store {
     pub(crate) async fn open(database_url: &str) -> Result<Self, NflDataError> {
+        if database_url == "sqlite::memory:" {
+            return Self::in_memory().await;
+        }
+
         let base = SqliteConnectOptions::from_str(database_url)?
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal)

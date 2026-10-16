@@ -175,7 +175,7 @@ pub async fn publish(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nfl_data::{Season, SeasonType, TeamAbbr as NflTeamAbbr, Week};
+    use nfl_data::{Season, SeasonType, TeamAbbr, Week};
     use time::OffsetDateTime;
     use time::macros::datetime;
 
@@ -186,8 +186,8 @@ mod tests {
             week: Week(5),
             season_type: SeasonType::Reg,
             kickoff,
-            away_team: NflTeamAbbr("BUF".into()),
-            home_team: NflTeamAbbr("KC".into()),
+            away_team: TeamAbbr::BUF,
+            home_team: TeamAbbr::KC,
             home_score: None,
             away_score: None,
         }

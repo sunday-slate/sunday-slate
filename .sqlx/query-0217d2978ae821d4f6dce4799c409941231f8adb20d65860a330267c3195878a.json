@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO salaries (player_id, game_id, salary, position, team) VALUES (?, ?, ?, ?, ?) ON CONFLICT (game_id, player_id) WHERE position <> 'DST' DO UPDATE SET salary = excluded.salary, position = excluded.position, team = excluded.team",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "0217d2978ae821d4f6dce4799c409941231f8adb20d65860a330267c3195878a"
+}

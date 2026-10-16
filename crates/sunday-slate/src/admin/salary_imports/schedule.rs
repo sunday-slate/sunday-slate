@@ -1,55 +1,53 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap};
 
-use nfl_data::Game;
+use nfl_data::{Game, SeasonWeek};
 
 #[derive(Debug, PartialEq)]
 pub enum ScheduleError {
-    /// No single NFL week's games contain every slate matchup.
+    /// The requested season week does not contain every slate matchup.
     NoWeekContainsSlate,
 }
 
 /// Resolve the games of a slate from its directed matchups.
 ///
 /// Each FanDuel row carries a directed `AWAY@HOME` matchup. A directed matchup is
-/// NOT unique across a full season: a same-venue playoff rematch repeats a
-/// regular-season matchup (e.g. `SF@SEA` in both week 1 and a divisional game),
-/// and `nfl.games` returns regular season and postseason together. A slate is
-/// always one NFL week, so the whole slate pins the week: pick the earliest week
-/// whose games contain every slate matchup, then map each matchup to that week's
-/// game. `matchups` holds `(away, home)` in nflverse codes; the caller normalizes
-/// FanDuel's native codes first.
+/// NOT unique across a full season: a same-venue playoff rematch can repeat a
+/// regular-season matchup, and `nfl.games` returns regular season and postseason
+/// together. Restrict lookup by the complete requested season, season type, and
+/// week before matching directed `(away, home)` pairs. `matchups` holds nflverse
+/// codes; the caller supplies canonical FanDuel team abbreviations.
 pub fn resolve_slate_games(
     season_games: &[Game],
+    season_week: &SeasonWeek,
     matchups: &BTreeSet<(String, String)>,
 ) -> Result<Vec<Game>, ScheduleError> {
-    let mut by_week: BTreeMap<u8, HashMap<(&str, &str), &Game>> = BTreeMap::new();
-    for g in season_games {
-        by_week
-            .entry(g.week.0)
-            .or_default()
-            .insert((g.away_team.0.as_str(), g.home_team.0.as_str()), g);
-    }
+    let week: HashMap<(&str, &str), &Game> = season_games
+        .iter()
+        .filter(|game| {
+            game.season == season_week.season
+                && game.season_type == season_week.season_type
+                && game.week == season_week.week
+        })
+        .map(|game| ((game.away_team.as_str(), game.home_team.as_str()), game))
+        .collect();
 
-    // BTreeMap iterates weeks in ascending order, so `find` yields the earliest
-    // week that fully contains the slate.
-    let Some(week) = by_week.values().find(|week| {
-        matchups
-            .iter()
-            .all(|(a, h)| week.contains_key(&(a.as_str(), h.as_str())))
-    }) else {
+    if !matchups
+        .iter()
+        .all(|(away, home)| week.contains_key(&(away.as_str(), home.as_str())))
+    {
         return Err(ScheduleError::NoWeekContainsSlate);
-    };
+    }
 
     Ok(matchups
         .iter()
-        .map(|(a, h)| week[&(a.as_str(), h.as_str())].clone())
+        .map(|(away, home)| week[&(away.as_str(), home.as_str())].clone())
         .collect())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nfl_data::{Season, SeasonType, TeamAbbr as NflTeamAbbr, Week};
+    use nfl_data::{Season, SeasonType, SeasonWeek, Week};
     use time::OffsetDateTime;
     use time::macros::datetime;
 
@@ -60,10 +58,23 @@ mod tests {
             week: Week(week),
             season_type: SeasonType::Reg,
             kickoff: Some(kickoff),
-            home_team: NflTeamAbbr(home.into()),
-            away_team: NflTeamAbbr(away.into()),
+            home_team: home.parse().unwrap(),
+            away_team: away.parse().unwrap(),
             home_score: None,
             away_score: None,
+        }
+    }
+
+    fn game_type(mut game: Game, season_type: SeasonType) -> Game {
+        game.season_type = season_type;
+        game
+    }
+
+    fn season_week(season_type: SeasonType, week: u8) -> SeasonWeek {
+        SeasonWeek {
+            season: Season(2025),
+            season_type,
+            week: Week(week),
         }
     }
 
@@ -92,8 +103,12 @@ mod tests {
                 datetime!(2025-10-05 20:00 UTC),
             ),
         ];
-        let got = resolve_slate_games(&games, &matchups(&[("LA", "SF"), ("BUF", "KC")]))
-            .expect("resolve");
+        let got = resolve_slate_games(
+            &games,
+            &season_week(SeasonType::Reg, 5),
+            &matchups(&[("LA", "SF"), ("BUF", "KC")]),
+        )
+        .expect("resolve");
         let ids: BTreeSet<_> = got.iter().map(|g| g.gsis_game_id.clone()).collect();
         assert_eq!(ids.len(), 2);
         assert!(ids.contains("2025_05_LA_SF"));
@@ -118,7 +133,12 @@ mod tests {
                 datetime!(2025-10-05 20:00 UTC),
             ),
         ];
-        let got = resolve_slate_games(&games, &matchups(&[("LA", "SF")])).expect("resolve");
+        let got = resolve_slate_games(
+            &games,
+            &season_week(SeasonType::Reg, 5),
+            &matchups(&[("LA", "SF")]),
+        )
+        .expect("resolve");
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].gsis_game_id, "2025_05_LA_SF");
     }
@@ -141,7 +161,12 @@ mod tests {
                 datetime!(2025-12-14 17:00 UTC),
             ),
         ];
-        let got = resolve_slate_games(&games, &matchups(&[("SF", "LA")])).expect("resolve");
+        let got = resolve_slate_games(
+            &games,
+            &season_week(SeasonType::Reg, 15),
+            &matchups(&[("SF", "LA")]),
+        )
+        .expect("resolve");
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].gsis_game_id, "2025_15_SF_LA");
     }
@@ -174,12 +199,66 @@ mod tests {
                 datetime!(2026-01-18 20:00 UTC),
             ),
         ];
-        let got = resolve_slate_games(&games, &matchups(&[("SF", "SEA"), ("BUF", "NYJ")]))
-            .expect("resolve");
+        let got = resolve_slate_games(
+            &games,
+            &season_week(SeasonType::Reg, 1),
+            &matchups(&[("SF", "SEA"), ("BUF", "NYJ")]),
+        )
+        .expect("resolve");
         let ids: BTreeSet<_> = got.iter().map(|g| g.gsis_game_id.clone()).collect();
         assert!(ids.contains("2025_01_SF_SEA"));
         assert!(ids.contains("2025_01_BUF_NYJ"));
         assert!(!ids.contains("2025_20_SF_SEA"));
+    }
+
+    #[test]
+    fn exact_season_week_disambiguates_regular_and_postseason_rematches() {
+        let regular = game(
+            "2025_01_SF_SEA",
+            1,
+            "SEA",
+            "SF",
+            datetime!(2025-09-07 20:00 UTC),
+        );
+        let postseason = game_type(
+            game(
+                "2025_01_SF_SEA_POST",
+                1,
+                "SEA",
+                "SF",
+                datetime!(2026-01-18 20:00 UTC),
+            ),
+            SeasonType::Post,
+        );
+        let games = vec![regular, postseason];
+        for (requested, expected) in [
+            (season_week(SeasonType::Reg, 1), "2025_01_SF_SEA"),
+            (season_week(SeasonType::Post, 1), "2025_01_SF_SEA_POST"),
+        ] {
+            let resolved = resolve_slate_games(&games, &requested, &matchups(&[("SF", "SEA")]))
+                .expect("exact season week resolves");
+            assert_eq!(resolved.len(), 1);
+            assert_eq!(resolved[0].gsis_game_id, expected);
+        }
+    }
+
+    #[test]
+    fn missing_target_week_does_not_resolve_a_matchup_from_another_week() {
+        let games = vec![game(
+            "2025_01_SF_SEA",
+            1,
+            "SEA",
+            "SF",
+            datetime!(2025-09-07 20:00 UTC),
+        )];
+        assert_eq!(
+            resolve_slate_games(
+                &games,
+                &season_week(SeasonType::Reg, 2),
+                &matchups(&[("SF", "SEA")])
+            ),
+            Err(ScheduleError::NoWeekContainsSlate)
+        );
     }
 
     #[test]
@@ -192,7 +271,11 @@ mod tests {
             datetime!(2025-10-05 17:00 UTC),
         )];
         assert_eq!(
-            resolve_slate_games(&games, &matchups(&[("KC", "BUF")])),
+            resolve_slate_games(
+                &games,
+                &season_week(SeasonType::Reg, 5),
+                &matchups(&[("KC", "BUF")])
+            ),
             Err(ScheduleError::NoWeekContainsSlate)
         );
     }

@@ -28,6 +28,7 @@ async fn server() -> (TestServer, MockServer) {
     }
     let nfl = NflData::connect(NflDataConfig {
         database_url: "sqlite::memory:".into(),
+        fanduel_database_url: "sqlite::memory:".into(),
         github_api_base: upstream.uri(),
         refresh_interval: None,
         ..Default::default()
@@ -73,6 +74,7 @@ async fn nflverse_setup_errors_are_generic_500_responses() {
     let database_url = format!("sqlite://{}/cache.db", cache.path().display());
     let nfl = NflData::connect(NflDataConfig {
         database_url: database_url.clone(),
+        fanduel_database_url: "sqlite::memory:".into(),
         github_api_base: upstream.uri(),
         refresh_interval: None,
         ..Default::default()
@@ -101,7 +103,6 @@ async fn nflverse_setup_errors_are_generic_500_responses() {
 #[tokio::test]
 async fn nflverse_post_and_scheduled_refresh_are_single_flight() {
     let upstream = MockServer::start().await;
-    let cache = tempfile::tempdir().unwrap();
     let delay = Duration::from_millis(350);
     for tag in [
         "schedules",
@@ -125,7 +126,8 @@ async fn nflverse_post_and_scheduled_refresh_are_single_flight() {
     let interval = Duration::from_millis(60);
     let nfl = Arc::new(
         NflData::connect(NflDataConfig {
-            database_url: format!("sqlite://{}/cache.db", cache.path().display()),
+            database_url: "sqlite::memory:".into(),
+            fanduel_database_url: "sqlite::memory:".into(),
             github_api_base: upstream.uri(),
             refresh_interval: Some(interval),
             ..Default::default()

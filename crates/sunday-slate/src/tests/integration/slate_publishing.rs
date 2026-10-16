@@ -1,7 +1,7 @@
 //! Slate publishing: the admin editor at `/admin/contests/{id}/slate`.
 
 use http::StatusCode;
-use nfl_data::{Game, Season, SeasonType, TeamAbbr as NflTeamAbbr, Week};
+use nfl_data::{Game, Season, SeasonType, TeamAbbr, Week};
 use sqlx::SqlitePool;
 use time::OffsetDateTime;
 use time::macros::datetime;
@@ -17,8 +17,8 @@ pub(crate) fn game(id: &str, week: u8, kickoff: OffsetDateTime) -> Game {
         week: Week(week),
         season_type: SeasonType::Reg,
         kickoff: Some(kickoff),
-        away_team: NflTeamAbbr("BUF".into()),
-        home_team: NflTeamAbbr("KC".into()),
+        away_team: TeamAbbr::BUF,
+        home_team: TeamAbbr::KC,
         home_score: None,
         away_score: None,
     }
@@ -30,14 +30,14 @@ pub(crate) fn game(id: &str, week: u8, kickoff: OffsetDateTime) -> Game {
 pub(crate) fn week_one() -> Vec<Game> {
     vec![
         Game {
-            away_team: NflTeamAbbr("DAL".into()),
-            home_team: NflTeamAbbr("PHI".into()),
+            away_team: TeamAbbr::DAL,
+            home_team: TeamAbbr::PHI,
             ..game("2025_01_THU", 1, datetime!(2025-09-05 00:20 UTC))
         },
         game("2025_01_BUF_KC", 1, datetime!(2025-09-07 17:00 UTC)),
         Game {
-            away_team: NflTeamAbbr("SF".into()),
-            home_team: NflTeamAbbr("LA".into()),
+            away_team: TeamAbbr::SF,
+            home_team: TeamAbbr::LA,
             ..game("2025_01_SNF", 1, datetime!(2025-09-08 00:20 UTC))
         },
     ]

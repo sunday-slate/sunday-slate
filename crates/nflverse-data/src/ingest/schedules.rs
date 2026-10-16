@@ -54,8 +54,14 @@ pub(crate) fn parse(
             week: Week(raw.week),
             season_type,
             kickoff,
-            home_team: TeamAbbr(raw.home_team),
-            away_team: TeamAbbr(raw.away_team),
+            home_team: raw
+                .home_team
+                .parse::<TeamAbbr>()
+                .map_err(|e| e.to_string())?,
+            away_team: raw
+                .away_team
+                .parse::<TeamAbbr>()
+                .map_err(|e| e.to_string())?,
             home_score: raw.home_score,
             away_score: raw.away_score,
         }))
@@ -90,8 +96,8 @@ game_id,season,game_type,week,gameday,weekday,gametime,away_team,away_score,home
         assert_eq!(thursday.season_type, SeasonType::Reg);
         // 2025-10-02 20:15 America/New_York (EDT, -4) == 00:15 UTC next day.
         assert_eq!(thursday.kickoff, Some(datetime!(2025-10-03 00:15 UTC)));
-        assert_eq!(thursday.home_team.0, "LA");
-        assert_eq!(thursday.away_team.0, "SF");
+        assert_eq!(thursday.home_team, TeamAbbr::LA);
+        assert_eq!(thursday.away_team, TeamAbbr::SF);
         assert_eq!(thursday.home_score, Some(23));
         assert_eq!(thursday.away_score, Some(26));
 

@@ -50,7 +50,7 @@ pub fn resolve_games(ids: &[String], season_games: &[Game]) -> Vec<Game> {
 mod tests {
     use super::*;
     use crate::Db;
-    use nfl_data::{Game, Season, SeasonType, TeamAbbr as NflTeamAbbr, Week};
+    use nfl_data::{Game, Season, SeasonType, TeamAbbr, Week};
     use sqlx::SqlitePool;
     use time::OffsetDateTime;
     use time::macros::datetime;
@@ -62,8 +62,8 @@ mod tests {
             week: Week(week),
             season_type: SeasonType::Reg,
             kickoff: Some(kickoff),
-            away_team: NflTeamAbbr("BUF".into()),
-            home_team: NflTeamAbbr("KC".into()),
+            away_team: TeamAbbr::BUF,
+            home_team: TeamAbbr::KC,
             home_score: None,
             away_score: None,
         }
@@ -93,7 +93,7 @@ mod tests {
         let games = vec![game("sun", 5, datetime!(2025-10-05 17:00 UTC))];
         let slate = published_slate(&pool, ContestId(1), &games).await.unwrap();
         assert_eq!(slate.len(), 1);
-        assert_eq!(slate[0].home_team.0, "KC");
+        assert_eq!(slate[0].home_team.as_str(), "KC");
         assert_eq!(slate[0].week.0, 5);
     }
 

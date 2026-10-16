@@ -1,7 +1,7 @@
 //! Contest list: the Contests tab and the /contests page.
 
 use nfl_data::{
-    PlayerWeekStats as NflPlayerWeekStats, Season, SeasonType, TeamAbbr as NflTeamAbbr,
+    PlayerWeekStats as NflPlayerWeekStats, Season, SeasonType, TeamAbbr,
     TeamWeekStats as NflTeamWeekStats, Week,
 };
 use sqlx::SqlitePool;
@@ -59,8 +59,8 @@ fn rb(gsis: &str, week: u8, rush_yards: i32) -> NflPlayerWeekStats {
         week: Week(week),
         season_type: SeasonType::Reg,
         gsis_id: gsis.into(),
-        team: NflTeamAbbr("KC".into()),
-        opponent: Some(NflTeamAbbr("BUF".into())),
+        team: TeamAbbr::KC,
+        opponent: Some(TeamAbbr::BUF),
         completions: 0,
         attempts: 0,
         passing_yards: 0,
@@ -180,8 +180,8 @@ async fn lists_contests_newest_first_with_winners(pool: SqlitePool) {
     // 100 rush yards = 13.00 FanDuel points; 50 = 5.00.
     let buf_player = NflPlayerWeekStats {
         gsis_id: "00-BUF".into(),
-        team: NflTeamAbbr("BUF".into()),
-        opponent: Some(NflTeamAbbr("KC".into())),
+        team: TeamAbbr::BUF,
+        opponent: Some(TeamAbbr::KC),
         ..factories::player_stats("00-BUF", 1)
     };
     let buf_defense = NflTeamWeekStats {

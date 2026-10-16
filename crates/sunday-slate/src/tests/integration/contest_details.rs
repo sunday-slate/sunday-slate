@@ -50,8 +50,8 @@ async fn contest_details_ranks_entries_and_crowns_the_winner(pool: SqlitePool) {
     app.nfl.seed_for_test(&[], &[game]).await.unwrap();
     let buf_player = PlayerWeekStats {
         gsis_id: "00-BUF".into(),
-        team: TeamAbbr("BUF".into()),
-        opponent: Some(TeamAbbr("KC".into())),
+        team: TeamAbbr::BUF,
+        opponent: Some(TeamAbbr::KC),
         ..factories::player_stats("00-BUF", 1)
     };
     let buf_defense = TeamWeekStats {
@@ -63,11 +63,11 @@ async fn contest_details_ranks_entries_and_crowns_the_winner(pool: SqlitePool) {
             Season(2025),
             &[
                 PlayerWeekStats {
-                    opponent: Some(TeamAbbr("BUF".into())),
+                    opponent: Some(TeamAbbr::BUF),
                     ..factories::rb_stats("00-A", 1, 100)
                 },
                 PlayerWeekStats {
-                    opponent: Some(TeamAbbr("BUF".into())),
+                    opponent: Some(TeamAbbr::BUF),
                     ..factories::rb_stats("00-B", 1, 200)
                 },
                 buf_player,

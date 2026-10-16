@@ -2,8 +2,7 @@ pub mod service;
 
 use crate::entries::{Lineup, NflPlayerId};
 use nfl_data::{
-    PlayerWeekStats as NflPlayerWeekStats, TeamAbbr as NflTeamAbbr,
-    TeamWeekStats as NflTeamWeekStats,
+    PlayerWeekStats as NflPlayerWeekStats, TeamAbbr, TeamWeekStats as NflTeamWeekStats,
 };
 use std::collections::HashMap;
 
@@ -140,7 +139,7 @@ pub fn score_defense(t: &NflTeamWeekStats) -> Score {
 #[derive(Default, Clone, Debug)]
 pub struct WeekStats {
     pub players: HashMap<NflPlayerId, NflPlayerWeekStats>,
-    pub defenses: HashMap<NflTeamAbbr, NflTeamWeekStats>,
+    pub defenses: HashMap<TeamAbbr, NflTeamWeekStats>,
 }
 
 /// Total FanDuel points for a lineup against one week's stats. A slot whose
@@ -219,7 +218,7 @@ fn group_digits(digits: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nfl_data::{Season, SeasonType, TeamAbbr as NflTeamAbbr, Week};
+    use nfl_data::{Season, SeasonType, TeamAbbr, Week};
 
     #[test]
     fn winning_score_is_the_maximum_above_zero() {
@@ -278,7 +277,7 @@ mod tests {
             week: Week(5),
             season_type: SeasonType::Reg,
             gsis_id: "00-1".into(),
-            team: NflTeamAbbr("SF".into()),
+            team: TeamAbbr::SF,
             opponent: None,
             completions: 0,
             attempts: 0,
@@ -347,8 +346,8 @@ mod tests {
             season: Season(2025),
             week: Week(5),
             season_type: SeasonType::Reg,
-            team: NflTeamAbbr("SF".into()),
-            opponent: NflTeamAbbr("LA".into()),
+            team: TeamAbbr::SF,
+            opponent: TeamAbbr::LA,
             gsis_game_id: "2025_05_SF_LA".into(),
             sacks: 0,
             interceptions: 0,
@@ -371,7 +370,7 @@ mod tests {
             wr3: NflPlayerId("00-WR3".into()),
             te: NflPlayerId("00-TE".into()),
             flex: NflPlayerId("00-FLEX".into()),
-            def: NflTeamAbbr("KC".into()),
+            def: TeamAbbr::KC,
         }
     }
 
@@ -383,12 +382,12 @@ mod tests {
         rb.rushing_yards = 100;
         // Defense allowing 3 points: 7.0.
         let mut def = zero_defense();
-        def.team = NflTeamAbbr("KC".into());
+        def.team = TeamAbbr::KC;
         def.points_allowed = 3;
 
         let stats = WeekStats {
             players: [(NflPlayerId("00-RB1".into()), rb)].into(),
-            defenses: [(NflTeamAbbr("KC".into()), def)].into(),
+            defenses: [(TeamAbbr::KC, def)].into(),
         };
         // Every other slot has no stat line that week -> contributes 0.
         let total = score_lineup(&test_lineup(), &stats);

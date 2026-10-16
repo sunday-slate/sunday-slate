@@ -1,55 +1,37 @@
 {% extends "app.html" %}
 {% block content %}
-<div class="mx-auto max-w-md">
-  <p class="mb-5 text-sm text-base-content/60">
-    Upload a FanDuel players-list CSV to set this slate's salaries.
-  </p>
-
-  <div class="card mb-6 border border-base-300 bg-base-100 shadow-sm">
-    <div class="card-body">
-      <form method="post" action="/admin/salary-imports" enctype="multipart/form-data"
-            class="flex flex-col gap-4">
-        <fieldset class="fieldset">
-          <legend class="fieldset-legend">FanDuel CSV</legend>
-          <input type="file" name="csv" accept=".csv,text/csv" required
-                 class="file-input w-full">
-          {% if let Some(msg) = error %}
-          <p class="label text-xs text-error">{{ msg }}</p>
-          {% endif %}
-        </fieldset>
-        {% if !offending.is_empty() %}
-        <div class="rounded-box border border-warning/40 bg-warning/10 p-3 text-xs">
-          <p class="mb-1 font-medium">These rows couldn't be processed — fix the CSV and re-upload:</p>
-          <ul class="list-disc pl-4">
-            {% for o in offending %}<li>{{ o }}</li>{% endfor %}
-          </ul>
-        </div>
-        {% endif %}
-        <button type="submit" class="btn btn-primary mt-2">Upload</button>
-      </form>
+<div class="mx-auto max-w-3xl">
+  <h1 class="mb-4 text-2xl font-bold">Salary weeks</h1>
+  <form method="post" action="/admin/salary-imports" enctype="multipart/form-data" class="card mb-8 border border-base-300 bg-base-100 p-5">
+    <h2 class="mb-3 font-semibold">Import salaries</h2>
+    <div class="grid gap-3 sm:grid-cols-3">
+      <label>Season
+        <input class="input input-bordered w-full" type="number" name="season" min="1900" max="2200" value="{{ cur_week.season }}" required>
+      </label>
+      <label>Season type
+        <select class="select select-bordered w-full" name="season_type">
+          <option value="REG" {% if cur_week.season_type.is_reg() %}selected{% endif %}>Regular</option>
+          <option value="POST" {% if !cur_week.season_type.is_reg() %}selected{% endif %}>Postseason</option>
+        </select>
+      </label>
+      <label>Week
+        <input class="input input-bordered w-full" type="number" name="week" min="1" max="22" value="{{ cur_week.week }}" required>
+      </label>
     </div>
-  </div>
-
-  <h2 class="mb-2 text-sm font-semibold text-base-content/60">Recent imports</h2>
+    <input class="file-input mt-4 w-full" type="file" name="csv" accept=".csv,text/csv" aria-label="Salary CSV" required>
+    <button class="btn btn-primary mt-4" type="submit">Import and apply salaries</button>
+  </form>
+  <h2 class="mb-3 text-lg font-semibold">Stored weeks</h2>
   <ul class="flex flex-col gap-2">
-    {% for imp in imports %}
+    {% for (week, counts) in weeks.iter().rev() %}
     <li>
-      <a href="/admin/salary-imports/{{ imp.id }}"
-         class="flex items-center justify-between rounded-box border border-base-300 bg-base-100 px-4 py-3">
-        <span class="text-sm">
-          #{{ imp.id }} ·
-          {% if let Some(w) = imp.week %}week {{ w }}{% else %}week unknown{% endif %} ·
-          {{ imp.games }} games
-        </span>
-        <span class='badge {% if imp.status == "committed" %}badge-success{% else %}badge-ghost{% endif %}'>
-          {{ imp.status }}
-        </span>
+      <a class="flex flex-wrap justify-between gap-2 rounded-box border border-base-300 p-4" href="/admin/salary-imports/{{ week.encode() }}">
+        <span>{{ week.season }} · {{ week.season_type }} · week {{ week.week }}</span>
+        <span>{{ counts.salary_count }} salaries · {{ counts.unmatched_count }} unresolved</span>
       </a>
     </li>
     {% endfor %}
-    {% if imports.is_empty() %}
-    <li class="text-sm text-base-content/60">No imports yet.</li>
-    {% endif %}
+    {% if weeks.is_empty() %}<li class="text-base-content/60">No salaries imported.</li>{% endif %}
   </ul>
 </div>
 {% endblock %}

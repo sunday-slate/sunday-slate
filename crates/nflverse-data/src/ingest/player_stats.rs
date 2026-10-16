@@ -44,8 +44,15 @@ pub(crate) fn parse(asset: &str, bytes: &[u8]) -> Result<Vec<PlayerWeekStats>, N
             week: Week(raw.week),
             season_type,
             gsis_id: raw.player_id,
-            team: TeamAbbr(raw.team),
-            opponent: raw.opponent_team.map(TeamAbbr),
+            team: raw
+                .team
+                .parse::<TeamAbbr>()
+                .map_err(|error| error.to_string())?,
+            opponent: raw
+                .opponent_team
+                .map(|team| team.parse::<TeamAbbr>())
+                .transpose()
+                .map_err(|error| error.to_string())?,
             completions: count(raw.completions),
             attempts: count(raw.attempts),
             passing_yards: yards(raw.passing_yards),
@@ -91,8 +98,8 @@ mod tests {
         assert_eq!(rodgers.season, Season(2025));
         assert_eq!(rodgers.week, Week(1));
         assert_eq!(rodgers.season_type, SeasonType::Reg);
-        assert_eq!(rodgers.team, TeamAbbr("PIT".into()));
-        assert_eq!(rodgers.opponent, Some(TeamAbbr("NYJ".into())));
+        assert_eq!(rodgers.team, TeamAbbr::PIT);
+        assert_eq!(rodgers.opponent, Some(TeamAbbr::NYJ));
         assert_eq!(rodgers.completions, 22);
         assert_eq!(rodgers.attempts, 30);
         assert_eq!(rodgers.passing_yards, 244);

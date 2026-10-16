@@ -1,0 +1,110 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n                   p.id AS \"player_id?\",\n                   p.first_name AS \"first_name?\",\n                   p.last_name AS \"last_name?\",\n                   g.away_team AS \"away_team: TeamAbbr\",\n                   g.home_team AS \"home_team: TeamAbbr\",\n                   s.salary,\n                   s.position AS \"position: DfsPosition\",\n                   s.team AS \"team: TeamAbbr\"\n               FROM salaries s\n               JOIN games g ON g.id = s.game_id\n               LEFT JOIN players p ON p.id = s.player_id\n               WHERE g.season_week = ?\n               ORDER BY g.away_team, g.home_team, s.position, s.team, p.id",
+  "describe": {
+    "columns": [
+      {
+        "name": "player_id?",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "players",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "first_name?",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "players",
+            "name": "first_name"
+          }
+        }
+      },
+      {
+        "name": "last_name?",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "players",
+            "name": "last_name"
+          }
+        }
+      },
+      {
+        "name": "away_team: TeamAbbr",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "games",
+            "name": "away_team"
+          }
+        }
+      },
+      {
+        "name": "home_team: TeamAbbr",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "games",
+            "name": "home_team"
+          }
+        }
+      },
+      {
+        "name": "salary",
+        "ordinal": 5,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "salaries",
+            "name": "salary"
+          }
+        }
+      },
+      {
+        "name": "position: DfsPosition",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "salaries",
+            "name": "position"
+          }
+        }
+      },
+      {
+        "name": "team: TeamAbbr",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "salaries",
+            "name": "team"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "9aa9583ab28c192427ba1a5a742916dd4c92fabb13a597c374ed4b43cfe20081"
+}

@@ -3,6 +3,7 @@
 pub mod eastern;
 pub mod live;
 mod model;
+mod models;
 
 pub use eastern::{eastern_offset, to_eastern};
 pub use live::{
@@ -12,6 +13,7 @@ pub use live::{
     ProviderResponse, RawBody,
 };
 pub use model::{
-    Game, Player, PlayerWeekStats, Season, SeasonType, TeamAbbr, TeamWeekStats, Week,
-    WeeklyRosterEntry,
+    Game, Player, PlayerWeekStats, Season, SeasonType, TeamWeekStats, Week, WeeklyRosterEntry,
 };
+
+pub use models::{DfsPosition, SeasonWeek, TeamAbbr};

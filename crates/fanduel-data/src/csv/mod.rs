@@ -1,0 +1,113 @@
+mod salary_row;
+
+use crate::{FanduelDataError, Game, Matchup, Player, SalariedPlayer};
+use nfl_model::{DfsPosition, SeasonWeek, TeamAbbr};
+use salary_row::parse_rows;
+
+// Parse typed source rows without persisting them, allowing validation before import.
+pub(crate) fn parse_csv(
+    season_week: SeasonWeek,
+    data: &[u8],
+) -> Result<Vec<SalariedPlayer>, FanduelDataError> {
+    parse_rows(data)?
+        .into_iter()
+        .map(|row| {
+            let position = row.position.as_str().try_into().map_err(|_| {
+                FanduelDataError::InvalidRow(format!("unknown position {:?}", row.position))
+            })?;
+            let salary = row
+                .salary
+                .parse::<u32>()
+                .ok()
+                .filter(|salary| *salary > 0)
+                .ok_or_else(|| {
+                    FanduelDataError::InvalidRow(format!("invalid salary {:?}", row.salary))
+                })?;
+            let game = Game {
+                matchup: row.game.parse::<Matchup>()?,
+                season_week,
+            };
+            let team = row
+                .team
+                .parse::<TeamAbbr>()
+                .map_err(|error| FanduelDataError::InvalidRow(error.to_string()))?;
+
+            let player = if position == DfsPosition::Dst {
+                None
+            } else {
+                let first_name = row.first_name.trim().to_owned();
+                let last_name = row.last_name.trim().to_owned();
+                if first_name.is_empty() || last_name.is_empty() {
+                    return Err(FanduelDataError::InvalidRow(
+                        "player name is missing".to_owned(),
+                    ));
+                }
+                let id = row.id.rsplit('-').next().unwrap_or(&row.id);
+                let id = id.parse::<u32>().ok().filter(|id| *id > 0).ok_or_else(|| {
+                    FanduelDataError::InvalidRow(format!("invalid FanDuel player id {:?}", row.id))
+                })?;
+                Some(Player {
+                    id,
+                    first_name,
+                    last_name,
+                })
+            };
+
+            Ok(SalariedPlayer {
+                player,
+                game,
+                salary,
+                position,
+                team,
+            })
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_csv;
+    use nfl_model::{DfsPosition, SeasonWeek, TeamAbbr};
+
+    #[test]
+    fn parses_fanduel_export_players_games_and_defense() {
+        let salaries = parse_csv(
+            SeasonWeek::reg(1),
+            include_bytes!("./fixtures/fanduel-export.csv"),
+        )
+        .unwrap();
+
+        assert_eq!(salaries.len(), 4);
+        assert_eq!(salaries[0].player.as_ref().unwrap().id, 62239);
+        assert_eq!(salaries[0].player.as_ref().unwrap().first_name, "Josh");
+        assert_eq!(salaries[0].position, DfsPosition::Qb);
+        assert_eq!(salaries[0].team, TeamAbbr::BUF);
+        assert_eq!(salaries[0].game.matchup.away, TeamAbbr::BUF);
+        assert_eq!(salaries[0].game.season_week, SeasonWeek::reg(1));
+
+        let defense = &salaries[1];
+        assert!(defense.player.is_none());
+        assert_eq!(defense.position, DfsPosition::Dst);
+        assert_eq!(defense.team, TeamAbbr::NYG);
+
+        let jaguar = salaries
+            .iter()
+            .find(|row| row.team == TeamAbbr::JAX)
+            .unwrap();
+        assert_eq!(jaguar.game.matchup.away, TeamAbbr::JAX);
+        let ram = salaries
+            .iter()
+            .find(|row| row.team == TeamAbbr::LA)
+            .unwrap();
+        assert_eq!(ram.game.matchup.away, TeamAbbr::LA);
+    }
+
+    #[test]
+    fn rejects_an_unrecognized_position_in_the_export() {
+        let csv = include_str!("./fixtures/fanduel-export.csv").replacen(",QB,", ",CPT,", 1);
+        assert!(matches!(
+            parse_csv(SeasonWeek::reg(1), csv.as_bytes()),
+            Err(crate::FanduelDataError::InvalidRow(_))
+        ));
+    }
+}

@@ -4,7 +4,7 @@ use axum::http::StatusCode;
 
 #[tokio::test]
 async fn admin_follows_tools_to_nflverse_without_a_league_or_team() {
-    let (nfl, server, _dir) = crate::tests::nfl::mocked_nfl().await;
+    let (nfl, server) = crate::tests::nfl::mocked_nfl().await;
     let app = TestApp::new_with_nfl(nfl).await;
     let admin = factories::user(
         &app.pool,
@@ -45,7 +45,7 @@ async fn admin_follows_tools_to_nflverse_without_a_league_or_team() {
 
 #[tokio::test]
 async fn anonymous_and_non_admin_cannot_read_or_sync_nfl_data() {
-    let (nfl, server, _dir) = crate::tests::nfl::mocked_nfl().await;
+    let (nfl, server) = crate::tests::nfl::mocked_nfl().await;
     let app = TestApp::new_with_nfl(nfl).await;
     for path in [
         "/nfl-data-admin",

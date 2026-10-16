@@ -720,10 +720,10 @@ fn normalize_player(
     let team = optional_team(object, PLAYER_TEAM_KEYS, game)?;
     let position = optional_position(object)?;
     let opponent = team.as_ref().map(|team| {
-        if canonical_team(&game.home_team.0) == canonical_team(&team.0) {
-            TeamAbbr(game.away_team.0.clone())
+        if canonical_team(game.home_team.as_str()) == canonical_team(team.as_str()) {
+            game.away_team
         } else {
-            TeamAbbr(game.home_team.0.clone())
+            game.home_team
         }
     });
 
@@ -908,11 +908,11 @@ fn normalize_defenses(
     }
     let mut defenses = Vec::with_capacity(by_team.len());
     for (canonical, parts) in by_team {
-        let team = TeamAbbr(team_label_for_game(&canonical, game));
-        let opponent = if canonical_team(&game.home_team.0) == Some(canonical.as_str()) {
-            TeamAbbr(game.away_team.0.clone())
+        let team = team_label_for_game(&canonical, game);
+        let opponent = if canonical_team(game.home_team.as_str()) == Some(canonical.as_str()) {
+            game.away_team
         } else {
-            TeamAbbr(game.home_team.0.clone())
+            game.home_team
         };
         defenses.push(LiveTeamStats {
             team,
@@ -1361,7 +1361,7 @@ fn optional_team(
     }
     match teams.len() {
         0 => Ok(None),
-        1 => Ok(Some(TeamAbbr(teams.into_iter().next().unwrap()))),
+        1 => Ok(Some(teams.into_iter().next().unwrap())),
         _ => Err(NormalizeError::IdentityConflict(
             "player team fields disagree".into(),
         )),
@@ -1380,7 +1380,9 @@ fn scoreboard_team(
     })?;
     let value = canonical_team(&value)
         .ok_or_else(|| NormalizeError::Invalid(format!("unknown team abbreviation {value:?}")))?;
-    Ok(TeamAbbr(value.into()))
+    value
+        .parse::<TeamAbbr>()
+        .map_err(|_| NormalizeError::Invalid(format!("unknown team abbreviation {value:?}")))
 }
 
 fn team_display(value: &Value, field: &str) -> Result<Option<String>, NormalizeError> {
@@ -1395,7 +1397,7 @@ fn team_display(value: &Value, field: &str) -> Result<Option<String>, NormalizeE
     nonempty_display(value)
 }
 
-fn team_for_game(value: &str, game: &LiveGame) -> Result<String, NormalizeError> {
+fn team_for_game(value: &str, game: &LiveGame) -> Result<TeamAbbr, NormalizeError> {
     let value = canonical_team_for_game(value, game)?;
     Ok(team_label_for_game(value, game))
 }
@@ -1403,17 +1405,11 @@ fn team_for_game(value: &str, game: &LiveGame) -> Result<String, NormalizeError>
 fn canonical_team_for_game(value: &str, game: &LiveGame) -> Result<&'static str, NormalizeError> {
     let value = canonical_team(value)
         .ok_or_else(|| NormalizeError::Invalid(format!("unknown team abbreviation {value:?}")))?;
-    let home = canonical_team(&game.home_team.0).ok_or_else(|| {
-        NormalizeError::Invalid(format!(
-            "unknown requested home team {:?}",
-            game.home_team.0
-        ))
+    let home = canonical_team(game.home_team.as_str()).ok_or_else(|| {
+        NormalizeError::Invalid(format!("unknown requested home team {:?}", game.home_team))
     })?;
-    let away = canonical_team(&game.away_team.0).ok_or_else(|| {
-        NormalizeError::Invalid(format!(
-            "unknown requested away team {:?}",
-            game.away_team.0
-        ))
+    let away = canonical_team(game.away_team.as_str()).ok_or_else(|| {
+        NormalizeError::Invalid(format!("unknown requested away team {:?}", game.away_team))
     })?;
     if value != home && value != away {
         return Err(NormalizeError::Invalid(format!(
@@ -1423,11 +1419,11 @@ fn canonical_team_for_game(value: &str, game: &LiveGame) -> Result<&'static str,
     Ok(value)
 }
 
-fn team_label_for_game(value: &str, game: &LiveGame) -> String {
-    if canonical_team(&game.home_team.0) == Some(value) {
-        game.home_team.0.clone()
+fn team_label_for_game(value: &str, game: &LiveGame) -> TeamAbbr {
+    if canonical_team(game.home_team.as_str()) == Some(value) {
+        game.home_team
     } else {
-        game.away_team.0.clone()
+        game.away_team
     }
 }
 
@@ -1636,8 +1632,8 @@ mod tests {
             week: Week(1),
             season_type: SeasonType::Reg,
             kickoff: Some(datetime!(2026-09-10 20:35:00 -04:00)),
-            home_team: TeamAbbr("LAR".into()),
-            away_team: TeamAbbr("SF".into()),
+            home_team: TeamAbbr::LA,
+            away_team: TeamAbbr::SF,
         }
     }
 
@@ -1685,8 +1681,8 @@ mod tests {
             week: Week(3),
             season_type: SeasonType::Reg,
             kickoff: Some(datetime!(2026-09-27 17:00:00 UTC)),
-            home_team: TeamAbbr("CLE".into()),
-            away_team: TeamAbbr("CAR".into()),
+            home_team: TeamAbbr::CLE,
+            away_team: TeamAbbr::CAR,
         };
         // Trimmed player stats from the Tank01 box score fetched through MCP.
         let value = json!({
@@ -1856,7 +1852,7 @@ mod tests {
     #[test]
     fn keeps_requested_game_team_spelling_across_provider_aliases() {
         let mut game = game();
-        game.home_team = TeamAbbr("LA".into());
+        game.home_team = TeamAbbr::LA;
         let value = json!({
             "gameID": "20260910_SF@LAR",
             "playerStats": [{
@@ -1870,17 +1866,17 @@ mod tests {
         let snapshot =
             normalize_box_score(&value, &game, datetime!(2026-09-11 01:00:00 UTC)).unwrap();
         let player = &snapshot.players.unwrap()[0];
-        assert_eq!(player.team, Some(TeamAbbr("LA".into())));
-        assert_eq!(player.opponent, Some(TeamAbbr("SF".into())));
+        assert_eq!(player.team, Some(TeamAbbr::LA));
+        assert_eq!(player.opponent, Some(TeamAbbr::SF));
         let defense = &snapshot.defenses.unwrap()[0];
-        assert_eq!(defense.team, TeamAbbr("LA".into()));
-        assert_eq!(defense.opponent, TeamAbbr("SF".into()));
+        assert_eq!(defense.team, TeamAbbr::LA);
+        assert_eq!(defense.opponent, TeamAbbr::SF);
         assert_eq!(defense.interceptions, 1);
     }
     #[test]
     fn normalizes_trimmed_synthetic_tank01_capture() {
         let mut game = game();
-        game.home_team = TeamAbbr("LA".into());
+        game.home_team = TeamAbbr::LA;
         let mut final_snapshot = None;
         let mut saw_play_by_play = false;
         for line in include_str!("../tests/fixtures/tank01_box_bodies.ndjson").lines() {
@@ -1942,7 +1938,7 @@ mod tests {
         let defenses = snapshot.defenses.unwrap();
         let sf = defenses
             .iter()
-            .find(|defense| defense.team.0 == "SF")
+            .find(|defense| defense.team == TeamAbbr::SF)
             .unwrap();
         assert_eq!(sf.interceptions, 1);
         assert_eq!(sf.fumble_recoveries, 1);
@@ -1951,7 +1947,7 @@ mod tests {
 
         let la = defenses
             .iter()
-            .find(|defense| defense.team.0 == "LA")
+            .find(|defense| defense.team == TeamAbbr::LA)
             .unwrap();
         assert_eq!(la.interceptions, 1);
         assert_eq!(la.points_allowed, 27);
@@ -2059,8 +2055,8 @@ mod tests {
             }]
         }))
         .unwrap();
-        assert_eq!(nested.games[0].home_team, TeamAbbr("LA".into()));
-        assert_eq!(nested.games[0].away_team, TeamAbbr("SF".into()));
+        assert_eq!(nested.games[0].home_team, TeamAbbr::LA);
+        assert_eq!(nested.games[0].away_team, TeamAbbr::SF);
         assert!(
             normalize_scoreboard(&json!({"games": []}))
                 .unwrap()

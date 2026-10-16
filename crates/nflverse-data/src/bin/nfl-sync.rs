@@ -130,12 +130,11 @@ mod tests {
                 .mount(&server)
                 .await;
         }
-        let dir = tempfile::tempdir().unwrap();
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
         let exit = run(
             NflverseDataConfig {
-                database_url: format!("sqlite://{}/cache.db", dir.path().display()),
+                database_url: "sqlite::memory:".into(),
                 github_api_base: server.uri(),
                 earliest_season: 2025,
                 github_token: Some(Secret::new("sentinel")),

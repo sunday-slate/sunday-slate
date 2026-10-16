@@ -1,0 +1,33 @@
+{
+  "db_name": "SQLite",
+  "query": "\n           SELECT\n               games.season_week AS \"season_week: SeasonWeek\",\n               COUNT(*) AS \"salary_count: u32\"\n           FROM salaries\n           JOIN games ON games.id = salaries.game_id\n           GROUP BY games.season_week\n           ",
+  "describe": {
+    "columns": [
+      {
+        "name": "season_week: SeasonWeek",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "games",
+            "name": "season_week"
+          }
+        }
+      },
+      {
+        "name": "salary_count: u32",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "9ff7d20f1d5ca7aa0274044c998467b07beebf73ad289fdb6bcb95582958918f"
+}

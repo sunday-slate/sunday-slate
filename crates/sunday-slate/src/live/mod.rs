@@ -352,7 +352,7 @@ pub fn official_complete_for_slate(games: &[Game], stats: &WeekStats) -> bool {
             if defense.count() != 1 {
                 return false;
             }
-            defense_coverage.insert((game.gsis_game_id.as_str(), team.0.as_str()));
+            defense_coverage.insert((game.gsis_game_id.as_str(), team.as_str()));
 
             let players = stats.players.values().filter(|row| {
                 row.season == season
@@ -364,7 +364,7 @@ pub fn official_complete_for_slate(games: &[Game], stats: &WeekStats) -> bool {
             if players.count() == 0 {
                 return false;
             }
-            player_teams.insert((game.gsis_game_id.as_str(), team.0.as_str()));
+            player_teams.insert((game.gsis_game_id.as_str(), team.as_str()));
         }
     }
     defense_coverage.len() == games.len() * 2 && player_teams.len() == games.len() * 2
@@ -411,7 +411,7 @@ pub async fn load_contest_scores(
         .collect::<HashSet<_>>();
     let expected_teams = games
         .iter()
-        .flat_map(|game| [game.home_team.0.as_str(), game.away_team.0.as_str()])
+        .flat_map(|game| [game.home_team.as_str(), game.away_team.as_str()])
         .collect::<HashSet<_>>();
 
     let mut player_map = HashMap::new();
@@ -419,11 +419,11 @@ pub async fn load_contest_scores(
         if player.season != season
             || player.week != week
             || player.season_type != season_type
-            || !expected_teams.contains(player.team.0.as_str())
+            || !expected_teams.contains(player.team.as_str())
             || player
                 .opponent
                 .as_ref()
-                .is_none_or(|opponent| !expected_teams.contains(opponent.0.as_str()))
+                .is_none_or(|opponent| !expected_teams.contains(opponent.as_str()))
         {
             continue;
         }
@@ -448,13 +448,15 @@ pub async fn load_contest_scores(
             || defense.week != week
             || defense.season_type != season_type
             || !expected_games.contains(defense.gsis_game_id.as_str())
-            || !expected_teams.contains(defense.team.0.as_str())
+            || !expected_teams.contains(defense.team.as_str())
         {
             continue;
         }
-        let key = (defense.gsis_game_id.clone(), defense.team.0.clone());
-        if !defense_keys.insert(key.clone())
-            || defense_map.insert(defense.team.clone(), defense).is_some()
+        let key = (
+            defense.gsis_game_id.clone(),
+            defense.team.as_str().to_owned(),
+        );
+        if !defense_keys.insert(key.clone()) || defense_map.insert(defense.team, defense).is_some()
         {
             return Ok(ContestScores::Unavailable);
         }
@@ -516,20 +518,20 @@ pub(crate) fn slate_tuple(games: &[Game]) -> Option<(Season, Week, SeasonType)> 
 mod tests {
     use super::*;
     use crate::tests::factories;
-    use nfl_data::{PlayerWeekStats, TeamAbbr as NflTeamAbbr, TeamWeekStats};
+    use nfl_data::{PlayerWeekStats, TeamAbbr, TeamWeekStats};
 
     #[test]
     fn official_stats_require_every_slate_team_and_matching_game() {
         let game = factories::game("live", 1);
         let kc = PlayerWeekStats {
-            team: NflTeamAbbr("KC".into()),
-            opponent: Some(NflTeamAbbr("BUF".into())),
+            team: TeamAbbr::KC,
+            opponent: Some(TeamAbbr::BUF),
             ..factories::player_stats("kc", 1)
         };
         let buf = PlayerWeekStats {
             gsis_id: "buf".into(),
-            team: NflTeamAbbr("BUF".into()),
-            opponent: Some(NflTeamAbbr("KC".into())),
+            team: TeamAbbr::BUF,
+            opponent: Some(TeamAbbr::KC),
             ..factories::player_stats("buf", 1)
         };
         let kc_def = TeamWeekStats {
@@ -545,10 +547,7 @@ mod tests {
                 (crate::entries::NflPlayerId("kc".into()), kc),
                 (crate::entries::NflPlayerId("buf".into()), buf),
             ]),
-            defenses: HashMap::from([
-                (NflTeamAbbr("KC".into()), kc_def),
-                (NflTeamAbbr("BUF".into()), buf_def),
-            ]),
+            defenses: HashMap::from([(TeamAbbr::KC, kc_def), (TeamAbbr::BUF, buf_def)]),
         };
 
         assert!(official_complete_for_slate(
@@ -557,7 +556,7 @@ mod tests {
         ));
 
         let mut missing = complete.clone();
-        missing.defenses.remove(&NflTeamAbbr("BUF".into()));
+        missing.defenses.remove(&TeamAbbr::BUF);
         assert!(!official_complete_for_slate(
             std::slice::from_ref(&game),
             &missing

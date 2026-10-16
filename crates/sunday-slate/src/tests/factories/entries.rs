@@ -2,7 +2,7 @@
 
 use nfl_data::{
     Game, Player, PlayerIdentity, PlayerWeekStats as NflPlayerWeekStats, Season, SeasonType,
-    TeamAbbr as NflTeamAbbr, TeamWeekStats as NflTeamWeekStats, Week, WeeklyRosterEntry,
+    TeamAbbr, TeamWeekStats as NflTeamWeekStats, Week, WeeklyRosterEntry,
 };
 use sqlx::SqlitePool;
 
@@ -15,8 +15,8 @@ pub fn game(id: &str, week: u8) -> Game {
         week: Week(week),
         season_type: SeasonType::Reg,
         kickoff: None,
-        home_team: NflTeamAbbr("KC".into()),
-        away_team: NflTeamAbbr("BUF".into()),
+        home_team: TeamAbbr::KC,
+        away_team: TeamAbbr::BUF,
         home_score: None,
         away_score: None,
     }
@@ -38,7 +38,7 @@ pub fn player_stats(gsis: &str, week: u8) -> NflPlayerWeekStats {
         week: Week(week),
         season_type: SeasonType::Reg,
         gsis_id: gsis.into(),
-        team: NflTeamAbbr("KC".into()),
+        team: TeamAbbr::KC,
         opponent: None,
         completions: 0,
         attempts: 0,
@@ -72,8 +72,8 @@ pub fn defense_stats(team: &str, opponent: &str, week: u8) -> NflTeamWeekStats {
         season: Season(2025),
         week: Week(week),
         season_type: SeasonType::Reg,
-        team: NflTeamAbbr(team.into()),
-        opponent: NflTeamAbbr(opponent.into()),
+        team: team.parse().unwrap(),
+        opponent: opponent.parse().unwrap(),
         gsis_game_id: format!("2025_{week:02}_{opponent}_{team}"),
         sacks: 0,
         interceptions: 0,
@@ -102,7 +102,7 @@ pub fn player(gsis: &str, name: &str) -> Player {
         first_name: None,
         last_name: None,
         position: None,
-        latest_team: Some(NflTeamAbbr("KC".into())),
+        latest_team: Some(TeamAbbr::KC),
         headshot_url: None,
     }
 }
@@ -113,7 +113,7 @@ pub fn weekly_roster_entry(gsis: &str, name: &str, week: u8) -> WeeklyRosterEntr
     WeeklyRosterEntry {
         season: Season(2025),
         week: Week(week),
-        team: NflTeamAbbr("KC".into()),
+        team: TeamAbbr::KC,
         gsis_id: Some(gsis.into()),
         espn_id: None,
         full_name: name.into(),
@@ -126,7 +126,7 @@ pub fn weekly_roster_entry(gsis: &str, name: &str, week: u8) -> WeeklyRosterEntr
 pub fn identity(name: &str, team: Option<&str>) -> PlayerIdentity {
     PlayerIdentity {
         name: name.into(),
-        team: team.map(|t| NflTeamAbbr(t.into())),
+        team: team.map(|t| t.parse().unwrap()),
         position: None,
         headshot_url: None,
     }

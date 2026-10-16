@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id!: i64\",\n                  gsis_player_id AS \"gsis_player_id!: String\",\n                  fd_player_id AS \"fd_player_id: u32\",\n                  headshot_media_id AS \"headshot_media_id?: MediaId\"\n           FROM nfl_players\n           WHERE headshot_media_id IS NULL\n           ORDER BY id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "nfl_players",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "gsis_player_id!: String",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "nfl_players",
+            "name": "gsis_player_id"
+          }
+        }
+      },
+      {
+        "name": "fd_player_id: u32",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "nfl_players",
+            "name": "fd_player_id"
+          }
+        }
+      },
+      {
+        "name": "headshot_media_id?: MediaId",
+        "ordinal": 3,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "nfl_players",
+            "name": "headshot_media_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "d924ee74bd8b9bbd4e1046b838b251fd9c66c2cd5cbe3baa370c7c363121660a"
+}

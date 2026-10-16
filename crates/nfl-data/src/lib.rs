@@ -11,6 +11,7 @@ use nflverse_data::NflverseData;
 
 pub use config::NflDataConfig;
 pub use data_revision::DataRevision;
+pub use fanduel_data::{FanduelDataError, SalariedPlayer};
 pub use identity::PlayerIdentity;
 pub use live::{
     EspnPlayerId, InjuryDesignation, InjuryEntry, InjuryProvider, InjuryReport, LiveGame,
@@ -20,14 +21,32 @@ pub use live::{
 };
 pub use nfl_model::live;
 pub use nfl_model::{
-    Game, Player, PlayerWeekStats, Season, SeasonType, TeamAbbr, TeamWeekStats, Week,
-    WeeklyRosterEntry, eastern_offset, to_eastern,
+    DfsPosition, Game, Player, PlayerWeekStats, Season, SeasonType, SeasonWeek, TeamAbbr,
+    TeamWeekStats, Week, WeeklyRosterEntry, eastern_offset, to_eastern,
 };
-pub use nflverse_data::NflverseDataError as NflDataError;
+pub use nflverse_data::{
+    Dataset, DatasetFreshness, DatasetReport, DatasetStatus, NflverseDataError as NflDataError,
+    RefreshStatus, SyncReport,
+};
 pub use web::router as admin_router;
+
+pub struct WeeklySummary {
+    pub season_week: SeasonWeek,
+    pub salary_count: usize,
+    pub unmatched_count: usize,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum NflDataConnectError {
+    #[error("nflverse provider startup failed: {0}")]
+    Nflverse(#[source] NflDataError),
+    #[error("FanDuel provider startup failed: {0}")]
+    Fanduel(#[source] FanduelDataError),
+}
 
 pub struct NflData {
     provider: NflverseData,
+    fanduel: fanduel_data::FanduelData,
     refresh_interval: Option<std::time::Duration>,
 }
 
@@ -55,13 +74,69 @@ impl NflData {
         ))
     }
 
-    /// Opens (creating if missing) the cache database and runs migrations.
-    pub async fn connect(config: NflDataConfig) -> Result<Self, NflDataError> {
+    pub fn parse_fanduel_csv(
+        &self,
+        season_week: SeasonWeek,
+        csv_data: &[u8],
+    ) -> Result<Vec<SalariedPlayer>, FanduelDataError> {
+        self.fanduel.parse_fanduel_csv(season_week, csv_data)
+    }
+
+    /// Persist typed FanDuel source rows after caller-specific validation.
+    pub async fn save_fanduel_salaries(
+        &self,
+        salaries: &[SalariedPlayer],
+    ) -> Result<(), FanduelDataError> {
+        self.fanduel.save_salaried_players(salaries).await
+    }
+
+    /// Read stored FanDuel salary source rows for an exact contest week.
+    pub async fn salaried_players_for(
+        &self,
+        season_week: SeasonWeek,
+    ) -> Result<Vec<SalariedPlayer>, FanduelDataError> {
+        self.fanduel.salaried_players_for(season_week).await
+    }
+
+    pub async fn fanduel_weekly_summaries(
+        &self,
+        matched_ids: &[u32],
+    ) -> Result<Vec<WeeklySummary>, FanduelDataError> {
+        let salary_counts = self.fanduel.weekly_salary_counts().await?;
+        let unmatched_counts = self.fanduel.weekly_unmatched_counts(matched_ids).await?;
+
+        let summaries = salary_counts
+            .into_iter()
+            .map(|(season_week, salary_count)| {
+                let unmatched_count = unmatched_counts.get(&season_week).copied().unwrap_or(0);
+                WeeklySummary {
+                    season_week,
+                    salary_count,
+                    unmatched_count,
+                }
+            })
+            .collect();
+
+        Ok(summaries)
+    }
+
+    /// Opens both provider databases and runs their migrations.
+    pub async fn connect(config: NflDataConfig) -> Result<Self, NflDataConnectError> {
         let refresh_interval = config
             .refresh_interval
             .filter(|interval| !interval.is_zero());
+        let provider = NflverseData::connect(config.clone().into())
+            .await
+            .map_err(NflDataConnectError::Nflverse)?;
+        let fanduel = if config.fanduel_database_url == "sqlite::memory:" {
+            fanduel_data::FanduelData::in_memory().await
+        } else {
+            fanduel_data::FanduelData::connect(&config.fanduel_database_url).await
+        }
+        .map_err(NflDataConnectError::Fanduel)?;
         Ok(Self {
-            provider: NflverseData::connect(config.into()).await?,
+            provider,
+            fanduel,
             refresh_interval,
         })
     }
@@ -69,9 +144,16 @@ impl NflData {
     /// A fresh, empty, in-memory cache — for tests and tooling that need an
     /// `NflData` handle without a database file. Migrations are applied; no data
     /// is synced.
-    pub async fn in_memory() -> Result<Self, NflDataError> {
+    pub async fn in_memory() -> Result<Self, NflDataConnectError> {
+        let provider = NflverseData::in_memory()
+            .await
+            .map_err(NflDataConnectError::Nflverse)?;
+        let fanduel = fanduel_data::FanduelData::in_memory()
+            .await
+            .map_err(NflDataConnectError::Fanduel)?;
         Ok(Self {
-            provider: NflverseData::in_memory().await?,
+            provider,
+            fanduel,
             refresh_interval: None,
         })
     }
@@ -223,7 +305,7 @@ mod identify_tests {
             first_name: None,
             last_name: None,
             position: Some("RB".into()),
-            latest_team: Some(TeamAbbr("KC".into())),
+            latest_team: Some(TeamAbbr::KC),
             headshot_url: None,
         }
     }
@@ -233,7 +315,7 @@ mod identify_tests {
             season: Season(2025),
             espn_id: None,
             week: Week(1),
-            team: TeamAbbr("BUF".into()),
+            team: TeamAbbr::BUF,
             gsis_id: Some(gsis.into()),
             full_name: name.into(),
             last_name: None,
@@ -255,12 +337,12 @@ mod identify_tests {
 
         let from_players = &got["00-P"];
         assert_eq!(from_players.name, "Player Table");
-        assert_eq!(from_players.team, Some(TeamAbbr("KC".into())));
+        assert_eq!(from_players.team, Some(TeamAbbr::KC));
         assert_eq!(from_players.position.as_deref(), Some("RB"));
 
         let from_roster = &got["00-R"];
         assert_eq!(from_roster.name, "Roster Only");
-        assert_eq!(from_roster.team, Some(TeamAbbr("BUF".into())));
+        assert_eq!(from_roster.team, Some(TeamAbbr::BUF));
         assert_eq!(from_roster.position.as_deref(), Some("WR"));
 
         // An id in neither source has no identity to report.
@@ -277,7 +359,7 @@ mod identify_tests {
             first_name: None,
             last_name: None,
             position: Some("QB".into()),
-            latest_team: Some(TeamAbbr("KC".into())),
+            latest_team: Some(TeamAbbr::KC),
             headshot_url: Some("https://img.example/photo.png".into()),
         };
         nfl.seed_for_test(&[player], &[]).await.unwrap();
@@ -303,7 +385,7 @@ mod seed_week_stats_tests {
             week: Week(1),
             season_type: crate::SeasonType::Reg,
             gsis_id: "00-RB".into(),
-            team: crate::TeamAbbr("KC".into()),
+            team: crate::TeamAbbr::KC,
             opponent: None,
             completions: 0,
             attempts: 0,
@@ -328,8 +410,8 @@ mod seed_week_stats_tests {
             season: Season(2025),
             week: Week(1),
             season_type: crate::SeasonType::Reg,
-            team: crate::TeamAbbr("KC".into()),
-            opponent: crate::TeamAbbr("BUF".into()),
+            team: crate::TeamAbbr::KC,
+            opponent: crate::TeamAbbr::BUF,
             gsis_game_id: "2025_01_BUF_KC".into(),
             sacks: 3,
             interceptions: 1,

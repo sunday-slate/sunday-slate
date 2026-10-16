@@ -130,7 +130,7 @@ mod tests {
             first_name: Some("Jordan".into()),
             last_name: Some("Love".into()),
             position: Some("QB".into()),
-            latest_team: Some(TeamAbbr("GB".into())),
+            latest_team: Some(TeamAbbr::GB),
             espn_id: Some("4036378".into()),
             headshot_url: None,
         };
@@ -159,7 +159,7 @@ mod tests {
             first_name: Some("Jordan".into()),
             last_name: Some("Love".into()),
             position: Some("QB".into()),
-            latest_team: Some(TeamAbbr("GB".into())),
+            latest_team: Some(TeamAbbr::GB),
             espn_id: Some("4036378".into()),
             headshot_url: None,
         };

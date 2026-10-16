@@ -29,7 +29,11 @@ pub(crate) fn parse(asset: &str, bytes: &[u8]) -> Result<Vec<Player>, NflDataErr
             first_name: raw.first_name,
             last_name: raw.last_name,
             position: raw.position,
-            latest_team: raw.latest_team.map(TeamAbbr),
+            latest_team: raw
+                .latest_team
+                .map(|team| team.parse::<TeamAbbr>())
+                .transpose()
+                .map_err(|error| error.to_string())?,
             headshot_url: raw.headshot,
         }))
     })
@@ -56,7 +60,7 @@ gsis_id,display_name,common_first_name,first_name,last_name,short_name,football_
         assert_eq!(love.full_name, "Jordan Love");
         assert_eq!(love.espn_id.as_deref(), Some("4036378"));
         assert_eq!(love.position.as_deref(), Some("QB"));
-        assert_eq!(love.latest_team, Some(TeamAbbr("GB".into())));
+        assert_eq!(love.latest_team, Some(TeamAbbr::GB));
         assert!(
             love.headshot_url
                 .as_deref()

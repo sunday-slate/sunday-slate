@@ -16,7 +16,6 @@ use crate::contests::{ContestId, store};
 use crate::live::LiveContestHub;
 use crate::live::identity::LiveIdentityIndex;
 use crate::live::snapshot::live_game;
-use crate::player_identity::normalize_team;
 use crate::{AppError, AppState};
 
 const RECONCILE_INTERVAL: Duration = Duration::from_secs(20);
@@ -101,14 +100,14 @@ impl FeedReplay {
                     }
                     if let Some(defenses) = &snapshot.defenses {
                         if defenses.iter().any(|defense| {
-                            normalize_team(&defense.team.0) == normalize_team(&game.home_team.0)
+                            defense.team == game.home_team
                                 && defense.dst_present
                                 && defense.team_stats_present
                         }) {
                             replace_latest(&mut replay.latest_home_defense, &event);
                         }
                         if defenses.iter().any(|defense| {
-                            normalize_team(&defense.team.0) == normalize_team(&game.away_team.0)
+                            defense.team == game.away_team
                                 && defense.dst_present
                                 && defense.team_stats_present
                         }) {
@@ -300,10 +299,10 @@ where
 
         let mut teams = games
             .iter()
-            .flat_map(|game| [game.home_team.clone(), game.away_team.clone()])
+            .flat_map(|game| [game.home_team, game.away_team])
             .collect::<Vec<_>>();
-        teams.sort_by(|a, b| a.0.cmp(&b.0));
-        teams.dedup_by(|a, b| a.0 == b.0);
+        teams.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+        teams.dedup_by(|a, b| a == b);
 
         if !started
             && first
@@ -331,7 +330,10 @@ where
             tuple.0,
             tuple.1,
             tuple.2,
-            teams.iter().map(|team| team.0.clone()).collect::<Vec<_>>(),
+            teams
+                .iter()
+                .map(|team| team.as_str().to_owned())
+                .collect::<Vec<_>>(),
         );
         let identity = if let Some(index) = coordinator.identity.get(&identity_key) {
             index.clone()
@@ -588,7 +590,7 @@ where
                     target
                         .teams
                         .iter()
-                        .map(|team| team.0.clone())
+                        .map(|team| team.as_str().to_owned())
                         .collect::<Vec<_>>(),
                 );
                 let index = match coordinator.identity.get(&identity_key) {
@@ -855,8 +857,8 @@ mod tests {
                     phase: LiveGamePhase::InProgress,
                     period: Some("2".into()),
                     clock: Some("08:00".into()),
-                    home_team: self.game.home_team.clone(),
-                    away_team: self.game.away_team.clone(),
+                    home_team: self.game.home_team,
+                    away_team: self.game.away_team,
                     home_score: Some(7),
                     away_score: Some(3),
                 }],
@@ -951,10 +953,10 @@ mod tests {
         (app, ContestId(contest))
     }
 
-    async fn mocked_nfl_host() -> (TestApp, wiremock::MockServer, tempfile::TempDir) {
-        let (nfl, server, dir) = crate::tests::nfl::mocked_nfl().await;
+    async fn mocked_nfl_host() -> (TestApp, wiremock::MockServer) {
+        let (nfl, server) = crate::tests::nfl::mocked_nfl().await;
         let app = TestApp::new_with_nfl(nfl).await;
-        (app, server, dir)
+        (app, server)
     }
 
     async fn seed_alpha_runner(app: &TestApp) {
@@ -970,7 +972,7 @@ mod tests {
             entries: vec![InjuryEntry {
                 espn_id: Some(EspnPlayerId("injury-alpha".into())),
                 name: "Alpha Runner".into(),
-                team: Some(TeamAbbr("KC".into())),
+                team: Some(TeamAbbr::KC),
                 position: Some("RB".into()),
                 designation: InjuryDesignation::Questionable,
             }],
@@ -1007,7 +1009,7 @@ mod tests {
     async fn coordinator_reuses_identity_for_equal_revision_and_rebuilds_after_sync(
         _pool: SqlitePool,
     ) {
-        let (app, server, _dir) = mocked_nfl_host().await;
+        let (app, server) = mocked_nfl_host().await;
         crate::tests::nfl::mount_schedule_release(&server, "2026-01-01T00:00:00Z", REVISION_CSV)
             .await;
         app.login_admin().await;
@@ -1073,7 +1075,18 @@ mod tests {
 
     #[sqlx::test]
     async fn coordinator_revision_errors_follow_reconciliation_error_path(_pool: SqlitePool) {
-        let (app, _server, dir) = mocked_nfl_host().await;
+        let dir = tempfile::tempdir().unwrap();
+        let server = wiremock::MockServer::start().await;
+        let nfl = nfl_data::NflData::connect(nfl_data::NflDataConfig {
+            database_url: format!("sqlite://{}/cache.db", dir.path().display()),
+            fanduel_database_url: "sqlite::memory:".into(),
+            github_api_base: server.uri(),
+            refresh_interval: None,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let app = TestApp::new_with_nfl(Arc::new(nfl)).await;
         let mut game = factories::game_at("2025_01_BUF_KC", 1, KICKOFF);
         game.kickoff = None;
         let contest = factories::contest_with_games(
@@ -1582,11 +1595,11 @@ mod tests {
         )
         .await;
         let mut kc_player = factories::player_stats("00-KC", 1);
-        kc_player.team = TeamAbbr("KC".into());
-        kc_player.opponent = Some(TeamAbbr("BUF".into()));
+        kc_player.team = TeamAbbr::KC;
+        kc_player.opponent = Some(TeamAbbr::BUF);
         let mut buf_player = factories::player_stats("00-BUF", 1);
-        buf_player.team = TeamAbbr("BUF".into());
-        buf_player.opponent = Some(TeamAbbr("KC".into()));
+        buf_player.team = TeamAbbr::BUF;
+        buf_player.opponent = Some(TeamAbbr::KC);
         let mut defenses = [
             factories::defense_stats("KC", "BUF", 1),
             factories::defense_stats("BUF", "KC", 1),
@@ -1632,8 +1645,8 @@ mod tests {
         );
         let mut washington =
             factories::game_at("2026_01_WAS_PHI", 1, datetime!(2026 - 09 - 13 20:25 UTC));
-        washington.home_team = TeamAbbr("PHI".into());
-        washington.away_team = TeamAbbr("WAS".into());
+        washington.home_team = TeamAbbr::PHI;
+        washington.away_team = TeamAbbr::WAS;
         assert_eq!(
             provider_game_id(&washington),
             Some("20260913_WSH@PHI".into())

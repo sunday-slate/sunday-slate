@@ -10,16 +10,8 @@ pub(crate) fn normalize_name(name: &str) -> String {
         .join(" ")
 }
 
-pub(crate) fn normalize_team(code: &str) -> &str {
-    match code {
-        "JAC" => "JAX",
-        "LAR" => "LA",
-        other => other,
-    }
-}
-
 pub(crate) fn canonical_team(team: &TeamAbbr) -> TeamAbbr {
-    TeamAbbr(normalize_team(&team.0).to_owned())
+    *team
 }
 
 pub(crate) fn provider_team(team: &str) -> &str {

@@ -9,7 +9,6 @@ use axum::extract::{Path, State};
 use axum::response::{Html, Response};
 use axum::routing::{get, post};
 use axum_htmx::HxRequest;
-use nfl_data::TeamAbbr as NflTeamAbbr;
 use serde::Deserialize;
 
 use crate::chrome::Chrome;
@@ -141,7 +140,7 @@ pub async fn set_slot(
         let abbr = form
             .team_abbr
             .ok_or_else(|| AppError::BadRequest("DEF takes a team_abbr.".into()))?;
-        SlotValue::Defense(NflTeamAbbr(abbr))
+        SlotValue::Defense(abbr.parse().unwrap())
     } else {
         let gsis = form
             .gsis_id
@@ -193,6 +192,7 @@ mod tests {
     use crate::entries::service::PickInfo;
     use crate::entries::{RosterSlot, SlotValue};
     use crate::injuries::InjuryDesignation;
+    use nfl_data::TeamAbbr;
     use strum::IntoEnumIterator;
 
     /// A named pick priced at `salary`, kicking off at 1:00pm.
@@ -300,7 +300,7 @@ mod tests {
         page.slots = RosterSlot::iter()
             .map(|slot| {
                 let value = match slot {
-                    RosterSlot::Def => Some(SlotValue::Defense(NflTeamAbbr("KC".into()))),
+                    RosterSlot::Def => Some(SlotValue::Defense(TeamAbbr::KC)),
                     _ => Some(SlotValue::Player(NflPlayerId("00-P".into()))),
                 };
                 EditorSlotRow {
@@ -375,14 +375,14 @@ mod tests {
 
     #[test]
     fn picks_renders_the_def_slot() {
-        let mut info = PickInfo::defense(&NflTeamAbbr("KC".into()), None, &[], Some(4_000));
+        let mut info = PickInfo::defense(&TeamAbbr::KC, None, &[], Some(4_000));
         info.kickoff = Some("1:00pm".into());
         PickView {
             chrome: Chrome::focused("Select DEF", "/contests/1/draft-entry"),
             contest_id: 1,
             slot: RosterSlot::Def,
             choices: vec![SlotChoice {
-                key: SlotValue::Defense(NflTeamAbbr("KC".into())),
+                key: SlotValue::Defense(TeamAbbr::KC),
                 position: "D/ST".into(),
                 is_picked: true,
                 over_cap: false,

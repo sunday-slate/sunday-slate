@@ -1,0 +1,5 @@
+Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,Injury Indicator,Injury Details,Tier,,,Roster Position
+135064-62239,QB,Josh,Josh Allen,Allen,25.48,17,8200,BUF@NYJ,BUF,NYJ,,,,,,QB
+135064-12543,D,New York,New York Giants,Giants,4.6,17,3000,NYG@WAS,NYG,WAS,,,,,,DEF
+135064-80796,RB,Travis,Travis Etienne Jr.,Etienne Jr.,14.2,16,7400,JAC@HOU,JAC,HOU,Q,Hamstring,,,,RB/FLEX
+135064-99999,WR,Rookie,Rookie Wideout,Wideout,,0,4500,LAR@SEA,LAR,SEA,,,,,,WR/FLEX
