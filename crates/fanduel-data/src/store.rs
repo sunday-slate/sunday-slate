@@ -1,9 +1,12 @@
 use crate::{FanduelDataError, Game, Matchup, Player, SalariedPlayer};
 use nfl_model::{DfsPosition, SeasonWeek, TeamAbbr};
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+use sqlx::migrate::Migrator;
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{QueryBuilder, Sqlite, SqlitePool};
 use std::collections::BTreeMap;
 use std::{collections::HashMap, str::FromStr};
+
+static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Clone)]
 pub(crate) struct Store {
@@ -11,13 +14,18 @@ pub(crate) struct Store {
 }
 
 impl Store {
-    // Connect to an existing store. Database should exist and be fully migrated.
+    // Connect to a store, creating the database and applying migrations if needed.
     pub(crate) async fn connect(database_url: &str) -> Result<Self, FanduelDataError> {
-        let options = SqliteConnectOptions::from_str(database_url)?.foreign_keys(true);
+        let options = SqliteConnectOptions::from_str(database_url)?
+            .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Wal)
+            .foreign_keys(true);
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect_with(options)
             .await?;
+
+        MIGRATOR.run(&pool).await?;
 
         Ok(Self { pool })
     }
@@ -25,7 +33,6 @@ impl Store {
     // Create an empty in-memory store with all migrations applied
     pub(crate) async fn in_memory() -> Result<Self, FanduelDataError> {
         let store = Self::connect("sqlite::memory:").await?;
-        sqlx::migrate!("./migrations").run(&store.pool).await?;
         Ok(store)
     }
 

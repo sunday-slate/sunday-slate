@@ -9,9 +9,8 @@
 //!
 //! # Importing salaries
 //!
-//! Connect to a database whose schema has been created from this crate's migrations, parse the
-//! export, and save the resulting records. The workspace `Justfile` provides a database setup
-//! recipe; the migrations can also be run independently.
+//! Connect, creating the database and applying this crate's migrations as
+//! needed, parse the export, and save the resulting records.
 //!
 //! ```no_run
 //! use fanduel_data::FanduelData;
@@ -57,7 +56,8 @@ pub struct FanduelData {
 }
 
 impl FanduelData {
-    /// Connect to a SQLite database whose schema has been created from this crate's migrations.
+    /// Connect, creating the database and applying this crate's migrations
+    /// if needed. Migration applies are idempotent.
     pub async fn connect(database_url: &str) -> Result<Self, FanduelDataError> {
         Ok(Self {
             store: Store::connect(database_url).await?,
