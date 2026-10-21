@@ -21,7 +21,7 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use axum_htmx::HxRequest;
 use garde::Validate;
-use nfl_data::{Season, Week};
+use nfl_data::Season;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use tower_sessions::Session;
@@ -295,24 +295,19 @@ pub async fn show(
     let edit_team_id = viewer_team.map(|t| t.id).filter(|id| *id == team_id);
     let now = state.now_eastern();
 
-    // Finished contests only, and narrowed to this team's, so week_stats
-    // loads just the weeks this page scores. A live contest is deliberately
-    // absent: the season list's empty state promises "No scored contests
-    // yet" and its total is a best-10 of final scores, so a partial score
-    // never belonged there — the open-contests section above owns the live
-    // row instead. The standings page draws its own scores from the same
-    // helper.
+    // Officially-decided contests only, narrowed to this team's: a contest
+    // joins the season list exactly when its slate's official stats have fully
+    // arrived — the same trigger that crowns the contest list's winner. A live
+    // contest is deliberately absent: its partial score never belonged in a
+    // total that only final scores move (the open-contests section above owns
+    // the live row). The standings page draws its scores from the same helper.
     let season = Season(state.config.season);
     let slates = SeasonSlates::load(state.db.reader(), &state.nfl, season).await?;
     let contests = contests_store::all(state.db.reader()).await?;
-    let contest_week: HashMap<ContestId, Week> = slates
-        .finished_contest_weeks(now)
-        .into_iter()
-        .filter(|(contest, _)| team.entries.iter().any(|e| e.contest == *contest))
-        .collect();
-    let stats =
-        scoring_service::week_stats(&state.nfl, season, contest_week.values().copied()).await?;
-    let scores = scoring_service::score_entries(&team.entries, &contest_week, &stats);
+    let wanted: HashSet<ContestId> = team.entries.iter().map(|e| e.contest).collect();
+    let results = slates.official_contest_weeks(&state, &wanted).await?;
+    let scores =
+        scoring_service::score_entries(&team.entries, &results.contest_week, &results.stats);
 
     let names: HashMap<ContestId, &str> =
         contests.iter().map(|c| (c.id, c.name.as_str())).collect();

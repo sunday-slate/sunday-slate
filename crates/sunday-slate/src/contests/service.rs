@@ -56,24 +56,77 @@ impl SeasonSlates {
             })
             .collect()
     }
+}
 
-    /// Each finished materialized contest's NFL week.
-    pub fn finished_contest_weeks(&self, now: OffsetDateTime) -> HashMap<ContestId, Week> {
-        let mut contest_week = self.contest_weeks();
-        let kickoffs = self.kickoffs();
-        contest_week.retain(|contest, _| {
-            let ids = &self.slates[contest];
-            let first = ids
+/// Contests whose slates' official stats have fully arrived, plus the
+/// stats behind them.
+#[derive(Default)]
+pub struct OfficialResults {
+    /// Each qualifying contest's NFL week.
+    pub contest_week: HashMap<ContestId, Week>,
+    /// Each qualifying week's player and defense feeds, loaded once per week
+    /// however many contests share it. Ready to hand to `scored_teams` /
+    /// `score_entries` without another fetch.
+    pub stats: HashMap<Week, WeekStats>,
+}
+
+impl SeasonSlates {
+    /// The `wanted` contests whose slates' official stats have fully arrived
+    /// — the same gate the contest page applies
+    /// ([`crate::live::official_complete_for_slate`]). Skips slates that are
+    /// not locked (nothing has kicked off), whose games the schedule lost, or
+    /// whose stats have not arrived, instead of scoring them false zeros —
+    /// the same exclusions `live::load_contest_scores` applies.
+    pub async fn official_contest_weeks(
+        &self,
+        state: &AppState,
+        wanted: &HashSet<ContestId>,
+    ) -> Result<OfficialResults, AppError> {
+        let now = state.now();
+        let mut candidates: Vec<(ContestId, Week, Vec<Game>)> = Vec::new();
+        for (contest, ids) in self.slates.iter().filter(|(c, _)| wanted.contains(c)) {
+            let games = ids
                 .iter()
-                .filter_map(|id| kickoffs.get(id.0.as_str()).copied())
-                .min();
-            let last = ids
-                .iter()
-                .filter_map(|id| kickoffs.get(id.0.as_str()).copied())
-                .max();
-            contest_state(first, last, now) == ContestState::Finished
-        });
-        contest_week
+                .filter_map(|id| self.games.iter().find(|g| g.gsis_game_id == id.0))
+                .cloned()
+                .collect::<Vec<_>>();
+            if games.len() != ids.len() {
+                continue;
+            }
+            if !slate_locked(&games, now) {
+                continue;
+            }
+            let Some(week) = live::slate_tuple(&games).map(|(_, week, _)| week) else {
+                continue;
+            };
+            candidates.push((*contest, week, games));
+        }
+        if candidates.is_empty() {
+            return Ok(OfficialResults::default());
+        }
+
+        let weeks = candidates
+            .iter()
+            .map(|(_, week, _)| *week)
+            .collect::<HashSet<_>>();
+        let mut stats =
+            crate::scoring::service::week_stats(&state.nfl, Season(state.config.season), weeks)
+                .await?;
+
+        let mut contest_week = HashMap::new();
+        for (contest, week, games) in candidates {
+            let Some(week_stats) = stats.get(&week) else {
+                continue;
+            };
+            if live::official_complete_for_slate(&games, week_stats) {
+                contest_week.insert(contest, week);
+            }
+        }
+        stats.retain(|week, _| contest_week.values().any(|w| w == week));
+        Ok(OfficialResults {
+            contest_week,
+            stats,
+        })
     }
 
     /// Each scheduled game's Eastern kickoff, keyed by gsis id.

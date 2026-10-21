@@ -21,6 +21,7 @@ use crate::entries::store as entries_store;
 use crate::fantasy_teams::{self, FantasyTeamId, MaybeTeam};
 use crate::leagues::CurrentLeague;
 use crate::live::ContestScores;
+use crate::scoring::service as scoring_service;
 use crate::standings::service as standings_service;
 use crate::{AppError, AppState};
 
@@ -44,7 +45,9 @@ pub async fn index(
 
     let contests = schedule.slate_contests(&store::all(state.db.reader()).await?);
     let contest_weeks = schedule.contest_weeks();
-    let teams = standings_service::scored_teams(&state, league.id, &contest_weeks).await?;
+    let stats =
+        scoring_service::week_stats(&state.nfl, season, contest_weeks.values().copied()).await?;
+    let teams = standings_service::scored_teams(&state, league.id, &contest_weeks, &stats).await?;
 
     let mut rows = service::contest_list(&contests, &teams, now);
 
