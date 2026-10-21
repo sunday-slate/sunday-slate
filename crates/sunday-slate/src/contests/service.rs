@@ -1135,11 +1135,11 @@ pub async fn details_for_league(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use std::sync::Arc;
 
     use super::*;
-    use crate::entries::Lineup;
+    use crate::entries::{Lineup, NflPlayerId};
     use crate::live::{LiveContestSnapshot, LiveGameState};
     use crate::tests::TestApp;
     use crate::tests::factories::{self, TeamOptions};
@@ -1178,6 +1178,271 @@ mod tests {
             away_score: None,
         }
     }
+    /// Seed complete NFL stats for every supplied 2025 REG week-1 matchup:
+    /// both matchup-correct player sides and exactly one defense row per
+    /// side/game. Stats only — never NFL players, teams, schedule rows,
+    /// contests, lineups, or snapshots.
+    async fn seed_official_gate_stats(app: &TestApp, games: &[Game]) {
+        let mut players: Vec<PlayerWeekStats> = Vec::new();
+        let mut defenses: Vec<TeamWeekStats> = Vec::new();
+        for game in games {
+            for (team, opponent, yards, sacks) in [
+                (game.home_team, game.away_team, 100, 2),
+                (game.away_team, game.home_team, 50, 3),
+            ] {
+                let id = format!("{}-{}", game.gsis_game_id, team.as_str());
+                players.push(PlayerWeekStats {
+                    season: game.season,
+                    week: game.week,
+                    season_type: game.season_type,
+                    team,
+                    opponent: Some(opponent),
+                    ..factories::rb_stats(&id, game.week.0, yards)
+                });
+                defenses.push(TeamWeekStats {
+                    season: game.season,
+                    week: game.week,
+                    season_type: game.season_type,
+                    gsis_game_id: game.gsis_game_id.clone(),
+                    sacks,
+                    ..factories::scoreless_defense_stats(
+                        team.as_str(),
+                        opponent.as_str(),
+                        game.week.0,
+                    )
+                });
+            }
+        }
+        app.nfl
+            .seed_week_stats_for_test(Season(2025), &players, &defenses)
+            .await
+            .unwrap();
+    }
+
+    #[sqlx::test]
+    async fn official_gate_admits_only_ready_contests_in_a_shared_week(pool: SqlitePool) {
+        let now = datetime!(2025-09-07 22:00 UTC);
+        let kickoff = datetime!(2025-09-07 17:00 UTC);
+        let app = TestApp::from_pool_at(pool, now).await;
+        let ready = factories::game_at("2025_01_BUF_KC", 1, kickoff);
+        let other = Game {
+            home_team: TeamAbbr::NYG,
+            away_team: TeamAbbr::DAL,
+            ..factories::game_at("2025_01_DAL_NYG", 1, kickoff)
+        };
+
+        seed_official_gate_stats(&app, std::slice::from_ref(&ready)).await;
+
+        let slates = SeasonSlates {
+            games: vec![ready, other],
+            slates: HashMap::from([
+                (
+                    ContestId(1),
+                    vec![crate::contests::NflGameId("2025_01_BUF_KC".into())],
+                ),
+                (
+                    ContestId(2),
+                    vec![crate::contests::NflGameId("2025_01_DAL_NYG".into())],
+                ),
+            ]),
+        };
+        let results = slates
+            .official_contest_weeks(&app.state, &HashSet::from([ContestId(1), ContestId(2)]))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            results.contest_week,
+            HashMap::from([(ContestId(1), Week(1))])
+        );
+        assert_eq!(
+            results.stats.keys().copied().collect::<HashSet<_>>(),
+            HashSet::from([Week(1)])
+        );
+        let week_stats = &results.stats[&Week(1)];
+        assert_eq!(
+            week_stats
+                .players
+                .get(&NflPlayerId("2025_01_BUF_KC-KC".into()))
+                .map(|p| p.rushing_yards),
+            Some(100)
+        );
+        assert_eq!(
+            week_stats
+                .players
+                .get(&NflPlayerId("2025_01_BUF_KC-BUF".into()))
+                .map(|p| p.rushing_yards),
+            Some(50)
+        );
+        assert_eq!(
+            week_stats
+                .defenses
+                .get(&TeamAbbr::KC)
+                .map(|d| (d.sacks, d.gsis_game_id.clone())),
+            Some((2, "2025_01_BUF_KC".to_string()))
+        );
+        assert_eq!(
+            week_stats
+                .defenses
+                .get(&TeamAbbr::BUF)
+                .map(|d| (d.sacks, d.gsis_game_id.clone())),
+            Some((3, "2025_01_BUF_KC".to_string()))
+        );
+
+        let results = slates
+            .official_contest_weeks(&app.state, &HashSet::from([ContestId(2)]))
+            .await
+            .unwrap();
+        assert!(results.contest_week.is_empty());
+        assert!(results.stats.is_empty());
+    }
+
+    #[sqlx::test]
+    async fn official_gate_scores_only_wanted_contests(pool: SqlitePool) {
+        let now = datetime!(2025-09-07 22:00 UTC);
+        let kickoff = datetime!(2025-09-07 17:00 UTC);
+        let app = TestApp::from_pool_at(pool, now).await;
+        let ready = factories::game_at("2025_01_BUF_KC", 1, kickoff);
+        let other = Game {
+            home_team: TeamAbbr::NYG,
+            away_team: TeamAbbr::DAL,
+            ..factories::game_at("2025_01_DAL_NYG", 1, kickoff)
+        };
+
+        let games: Vec<Game> = vec![ready, other];
+        seed_official_gate_stats(&app, &games).await;
+
+        let slates = SeasonSlates {
+            games,
+            slates: HashMap::from([
+                (
+                    ContestId(1),
+                    vec![crate::contests::NflGameId("2025_01_BUF_KC".into())],
+                ),
+                (
+                    ContestId(2),
+                    vec![crate::contests::NflGameId("2025_01_DAL_NYG".into())],
+                ),
+            ]),
+        };
+        let results = slates
+            .official_contest_weeks(&app.state, &HashSet::from([ContestId(2)]))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            results.contest_week,
+            HashMap::from([(ContestId(2), Week(1))])
+        );
+        assert_eq!(
+            results.stats.keys().copied().collect::<HashSet<_>>(),
+            HashSet::from([Week(1)])
+        );
+        let week_stats = &results.stats[&Week(1)];
+        assert_eq!(
+            week_stats
+                .players
+                .get(&NflPlayerId("2025_01_DAL_NYG-NYG".into()))
+                .map(|p| p.rushing_yards),
+            Some(100)
+        );
+        assert_eq!(
+            week_stats
+                .defenses
+                .get(&TeamAbbr::NYG)
+                .map(|d| d.gsis_game_id.clone()),
+            Some("2025_01_DAL_NYG".to_string())
+        );
+
+        let results = slates
+            .official_contest_weeks(&app.state, &HashSet::from([ContestId(99)]))
+            .await
+            .unwrap();
+        assert!(results.contest_week.is_empty());
+        assert!(results.stats.is_empty());
+    }
+
+    #[sqlx::test]
+    async fn official_gate_accepts_dev_feed_contests_without_a_snapshot(pool: SqlitePool) {
+        let now = datetime!(2025-09-07 22:00 UTC);
+        let kickoff = datetime!(2025-09-07 17:00 UTC);
+        let app = TestApp::from_pool_at_with_live_dev_feed(pool, now, true).await;
+        let ready = factories::game_at("2025_01_BUF_KC", 1, kickoff);
+
+        seed_official_gate_stats(&app, std::slice::from_ref(&ready)).await;
+
+        let slates = SeasonSlates {
+            games: vec![ready],
+            slates: HashMap::from([(
+                ContestId(1),
+                vec![crate::contests::NflGameId("2025_01_BUF_KC".into())],
+            )]),
+        };
+        assert!(app.state.live.snapshot(ContestId(1)).is_none());
+        let results = slates
+            .official_contest_weeks(&app.state, &HashSet::from([ContestId(1)]))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            results.contest_week,
+            HashMap::from([(ContestId(1), Week(1))])
+        );
+        assert_eq!(
+            results.stats.keys().copied().collect::<HashSet<_>>(),
+            HashSet::from([Week(1)])
+        );
+        let week_stats = &results.stats[&Week(1)];
+        assert_eq!(
+            week_stats
+                .players
+                .get(&NflPlayerId("2025_01_BUF_KC-KC".into()))
+                .map(|p| p.rushing_yards),
+            Some(100)
+        );
+        assert_eq!(
+            week_stats
+                .defenses
+                .get(&TeamAbbr::KC)
+                .map(|d| (d.sacks, d.gsis_game_id.clone())),
+            Some((2, "2025_01_BUF_KC".to_string()))
+        );
+    }
+
+    #[sqlx::test]
+    async fn official_gate_rejects_partially_resolved_slates(pool: SqlitePool) {
+        let now = datetime!(2025-09-07 22:00 UTC);
+        let kickoff = datetime!(2025-09-07 17:00 UTC);
+        let app = TestApp::from_pool_at(pool, now).await;
+        let ready = factories::game_at("2025_01_BUF_KC", 1, kickoff);
+        let other = Game {
+            home_team: TeamAbbr::NYG,
+            away_team: TeamAbbr::DAL,
+            ..factories::game_at("2025_01_DAL_NYG", 1, kickoff)
+        };
+
+        let matchups: Vec<Game> = vec![ready.clone(), other];
+        seed_official_gate_stats(&app, &matchups).await;
+
+        let slates = SeasonSlates {
+            games: vec![ready],
+            slates: HashMap::from([(
+                ContestId(1),
+                vec![
+                    crate::contests::NflGameId("2025_01_BUF_KC".into()),
+                    crate::contests::NflGameId("2025_01_DAL_NYG".into()),
+                ],
+            )]),
+        };
+        let results = slates
+            .official_contest_weeks(&app.state, &HashSet::from([ContestId(1)]))
+            .await
+            .unwrap();
+
+        assert!(results.contest_week.is_empty());
+        assert!(results.stats.is_empty());
+    }
+
     #[test]
     fn slate_contests_drop_unresolvable_games_but_keep_undated_known_games() {
         let schedule = SeasonSlates {

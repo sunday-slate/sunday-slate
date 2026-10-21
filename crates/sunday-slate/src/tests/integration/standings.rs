@@ -398,12 +398,9 @@ async fn dev_feed_snapshot_keeps_the_standings_official_gate_closed(pool: Sqlite
 
     let now = datetime!(2025-09-07 22:00 UTC);
     let kickoff = now - time::Duration::hours(5); // 17:00 UTC, same shape as the fixture above
-    let app = crate::tests::test_app::TestApp::from_pool_at_with_live_dev_feed(
-        pool.clone(),
-        now,
-        true,
-    )
-    .await;
+    let app =
+        crate::tests::test_app::TestApp::from_pool_at_with_live_dev_feed(pool.clone(), now, true)
+            .await;
     // Two teams, contest "Week 1" with game 2025_01_BUF_KC at kickoff,
     // full_entry 00-A (team A) / 00-B (team B) — identical setup to
     // final_contest_joins_the_standings_before_day_rollover, and the same
@@ -504,8 +501,12 @@ async fn dev_feed_snapshot_keeps_the_standings_official_gate_closed(pool: Sqlite
             row.total.is_none(),
             "{} must stay unscored while the dev feed owns the snapshot: rank={} total={} wins={}",
             row.name,
-            row.rank.map(|r| r.to_string()).unwrap_or_else(|| "-".into()),
-            row.total.map(|t| t.to_string()).unwrap_or_else(|| "-".into()),
+            row.rank
+                .map(|r| r.to_string())
+                .unwrap_or_else(|| "-".into()),
+            row.total
+                .map(|t| t.to_string())
+                .unwrap_or_else(|| "-".into()),
             row.wins,
         );
     }
