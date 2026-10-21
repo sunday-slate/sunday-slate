@@ -77,6 +77,9 @@ impl SeasonSlates {
     /// not locked (nothing has kicked off), whose games the schedule lost, or
     /// whose stats have not arrived, instead of scoring them false zeros —
     /// the same exclusions `live::load_contest_scores` applies.
+    /// While the dev live feed owns a registered snapshot for the contest, it
+    /// stays provisional — the same override `live::load_contest_scores`
+    /// applies before its official check.
     pub async fn official_contest_weeks(
         &self,
         state: &AppState,
@@ -94,6 +97,9 @@ impl SeasonSlates {
                 continue;
             }
             if !slate_locked(&games, now) {
+                continue;
+            }
+            if state.config.live_dev_feed && state.live.snapshot(*contest).is_some() {
                 continue;
             }
             let Some(week) = live::slate_tuple(&games).map(|(_, week, _)| week) else {

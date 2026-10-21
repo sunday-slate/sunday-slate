@@ -326,7 +326,15 @@ pub async fn show(
     // lineup and the draft editor, so other viewers get none of it.
     let open = match edit_team_id {
         Some(team_id) => {
-            let slate_contests = slates.slate_contests(&contests);
+            // A contest whose official stats have landed is no longer open: its season
+            // row owns it now, and the day-based `ContestState` would keep it here until
+            // Eastern midnight. Narrow to the undecided contests only — the same set the
+            // season list above just excluded.
+            let slate_contests = slates
+                .slate_contests(&contests)
+                .into_iter()
+                .filter(|c| !results.contest_week.contains_key(&c.id))
+                .collect::<Vec<_>>();
             let entry_ids =
                 entries_store::entry_ids_for_team(state.db.reader(), FantasyTeamId(team_id))
                     .await?;

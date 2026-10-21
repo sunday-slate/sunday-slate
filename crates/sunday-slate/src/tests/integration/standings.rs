@@ -380,6 +380,143 @@ async fn final_contest_joins_the_standings_before_day_rollover(pool: SqlitePool)
         !team_html.contains("No scored contests yet."),
         "empty state gone once official stats land: {team_html}"
     );
+    assert_eq!(
+        team_html.matches("Week 1").count(),
+        1,
+        "the officially scored contest must appear exactly once on the owner's page — its season row, not an open row: {team_html}"
+    );
+}
+
+/// The dev live feed owns a registered snapshot for a locked slate: the
+/// standings gate must keep the contest out — the same provisional override
+/// `live::load_contest_scores` applies before its official check. The
+/// contest page deliberately shows replay scores while the flag is on.
+#[sqlx::test]
+async fn dev_feed_snapshot_keeps_the_standings_official_gate_closed(pool: SqlitePool) {
+    use crate::contests::ContestId;
+    use std::sync::Arc;
+
+    let now = datetime!(2025-09-07 22:00 UTC);
+    let kickoff = now - time::Duration::hours(5); // 17:00 UTC, same shape as the fixture above
+    let app = crate::tests::test_app::TestApp::from_pool_at_with_live_dev_feed(
+        pool.clone(),
+        now,
+        true,
+    )
+    .await;
+    // Two teams, contest "Week 1" with game 2025_01_BUF_KC at kickoff,
+    // full_entry 00-A (team A) / 00-B (team B) — identical setup to
+    // final_contest_joins_the_standings_before_day_rollover, and the same
+    // official-complete stat seeding (100yd=13.00 / 200yd=23.00).
+    let league = factories::bare_league(&pool, None).await;
+    let a = factories::team(
+        &pool,
+        TeamOptions {
+            league: Some(league.clone()),
+            name: Some("Gridiron Giants".into()),
+            owner_name: Some("Mike".into()),
+            ..Default::default()
+        },
+    )
+    .await;
+    let b = factories::team(
+        &pool,
+        TeamOptions {
+            league: Some(league),
+            name: Some("Turf Titans".into()),
+            owner_name: Some("Sara".into()),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    let wk1 = factories::contest_with_games(&pool, "Week 1", &["2025_01_BUF_KC"]).await;
+    factories::full_entry(&pool, wk1, a.team.id, "00-A").await;
+    factories::full_entry(&pool, wk1, b.team.id, "00-B").await;
+
+    let game = factories::game_at("2025_01_BUF_KC", 1, kickoff);
+    app.nfl
+        .seed_for_test(&[], std::slice::from_ref(&game))
+        .await
+        .unwrap();
+    // Official-complete: 100yd = 13.00 for team A, 200yd = 23.00 for team B
+    // (contest_details.rs pattern — every player row tagged with its
+    // opponent, BUF defense pinned to the slate game's gsis id).
+    let buf_player = PlayerWeekStats {
+        gsis_id: "00-BUF".into(),
+        team: TeamAbbr::BUF,
+        opponent: Some(TeamAbbr::KC),
+        ..factories::player_stats("00-BUF", 1)
+    };
+    let buf_defense = TeamWeekStats {
+        gsis_game_id: "2025_01_BUF_KC".into(),
+        ..factories::scoreless_defense_stats("BUF", "KC", 1)
+    };
+    app.nfl
+        .seed_week_stats_for_test(
+            Season(2025),
+            &[
+                PlayerWeekStats {
+                    opponent: Some(TeamAbbr::BUF),
+                    ..factories::rb_stats("00-A", 1, 100)
+                },
+                PlayerWeekStats {
+                    opponent: Some(TeamAbbr::BUF),
+                    ..factories::rb_stats("00-B", 1, 200)
+                },
+                buf_player,
+            ],
+            &[
+                factories::scoreless_defense_stats("KC", "BUF", 1),
+                buf_defense,
+            ],
+        )
+        .await
+        .unwrap();
+
+    // Run the dev feed once so the snapshot registers for this locked contest
+    // (kickoff is 5 wall-clock hours before `now`, inside the feed's 12-hour
+    // recovery window). Drain it like dev_feed.rs's own test does: tick 1ms
+    // instead of the 3s default, so `run()` settles instead of sleeping
+    // DEV_TICKS×3s of wall clock.
+    let contest_id = ContestId(wk1);
+    let mut config = (*app.state.config).clone();
+    config.live_dev_feed_tick_ms = 1;
+    let state = crate::AppState {
+        config: Arc::new(config),
+        ..app.state.clone()
+    };
+    crate::live::dev_feed::run(state.clone()).await;
+
+    // The dev feed's own test (live/dev_feed.rs:883) proves a finished game
+    // publishes phase Final and real finals — with that snapshot registered,
+    // the gate must still refuse to admit:
+    assert!(
+        state.live.snapshot(contest_id).is_some(),
+        "the dev feed must have registered the snapshot for this locked contest"
+    );
+    let rows = crate::standings::service::standings_for_league(&app.state(), a.league.id)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 2);
+    for row in rows {
+        assert!(
+            row.total.is_none(),
+            "{} must stay unscored while the dev feed owns the snapshot: rank={} total={} wins={}",
+            row.name,
+            row.rank.map(|r| r.to_string()).unwrap_or_else(|| "-".into()),
+            row.total.map(|t| t.to_string()).unwrap_or_else(|| "-".into()),
+            row.wins,
+        );
+    }
+    // And the owner page keeps the empty state (the dev feed's own Live row,
+    // not a season row).
+    app.login_as(&a.owner).await;
+    let team_html = app.get(&format!("/teams/{}", a.team.id)).await.text();
+    assert!(
+        team_html.contains("No scored contests yet."),
+        "dev-feed-owned contest stays out of the season list: {team_html}"
+    );
 }
 
 /// The pending window: the contest is over, but the slate's official stats
