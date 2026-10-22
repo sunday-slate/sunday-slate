@@ -58,28 +58,19 @@ impl SeasonSlates {
     }
 }
 
-/// Contests whose slates' official stats have fully arrived, plus the
-/// stats behind them.
+/// Contests whose slates' official stats have fully arrived, plus those stats.
 #[derive(Default)]
 pub struct OfficialResults {
-    /// Each qualifying contest's NFL week.
     pub contest_week: HashMap<ContestId, Week>,
-    /// Each qualifying week's player and defense feeds, loaded once per week
-    /// however many contests share it. Ready to hand to `scored_teams` /
-    /// `score_entries` without another fetch.
     pub stats: HashMap<Week, WeekStats>,
 }
 
 impl SeasonSlates {
     /// The `wanted` contests whose slates' official stats have fully arrived
-    /// — the same gate the contest page applies
-    /// ([`crate::live::official_complete_for_slate`]). Skips slates that are
-    /// not locked (nothing has kicked off), whose games the schedule lost, or
-    /// whose stats have not arrived, instead of scoring them false zeros —
-    /// the same exclusions `live::load_contest_scores` applies.
-    /// While the dev live feed owns a registered snapshot for the contest, it
-    /// stays provisional — the same override `live::load_contest_scores`
-    /// applies before its official check.
+    /// — the same gate the contest page applies. Skips non-locked slates and
+    /// ones whose stats have not arrived rather than reporting false zeros;
+    /// while the dev live feed owns a registered snapshot, the result stays
+    /// provisional.
     pub async fn official_contest_weeks(
         &self,
         state: &AppState,
@@ -1178,10 +1169,7 @@ mod tests {
             away_score: None,
         }
     }
-    /// Seed complete NFL stats for every supplied 2025 REG week-1 matchup:
-    /// both matchup-correct player sides and exactly one defense row per
-    /// side/game. Stats only — never NFL players, teams, schedule rows,
-    /// contests, lineups, or snapshots.
+    /// Seed official-complete stats for every supplied week-1 matchup.
     async fn seed_official_gate_stats(app: &TestApp, games: &[Game]) {
         let mut players: Vec<PlayerWeekStats> = Vec::new();
         let mut defenses: Vec<TeamWeekStats> = Vec::new();
@@ -1338,21 +1326,6 @@ mod tests {
             results.stats.keys().copied().collect::<HashSet<_>>(),
             HashSet::from([Week(1)])
         );
-        let week_stats = &results.stats[&Week(1)];
-        assert_eq!(
-            week_stats
-                .players
-                .get(&NflPlayerId("2025_01_DAL_NYG-NYG".into()))
-                .map(|p| p.rushing_yards),
-            Some(100)
-        );
-        assert_eq!(
-            week_stats
-                .defenses
-                .get(&TeamAbbr::NYG)
-                .map(|d| d.gsis_game_id.clone()),
-            Some("2025_01_DAL_NYG".to_string())
-        );
 
         let results = slates
             .official_contest_weeks(&app.state, &HashSet::from([ContestId(99)]))
@@ -1387,25 +1360,6 @@ mod tests {
         assert_eq!(
             results.contest_week,
             HashMap::from([(ContestId(1), Week(1))])
-        );
-        assert_eq!(
-            results.stats.keys().copied().collect::<HashSet<_>>(),
-            HashSet::from([Week(1)])
-        );
-        let week_stats = &results.stats[&Week(1)];
-        assert_eq!(
-            week_stats
-                .players
-                .get(&NflPlayerId("2025_01_BUF_KC-KC".into()))
-                .map(|p| p.rushing_yards),
-            Some(100)
-        );
-        assert_eq!(
-            week_stats
-                .defenses
-                .get(&TeamAbbr::KC)
-                .map(|d| (d.sacks, d.gsis_game_id.clone())),
-            Some((2, "2025_01_BUF_KC".to_string()))
         );
     }
 

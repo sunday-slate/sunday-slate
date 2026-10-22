@@ -295,12 +295,8 @@ pub async fn show(
     let edit_team_id = viewer_team.map(|t| t.id).filter(|id| *id == team_id);
     let now = state.now_eastern();
 
-    // Officially-decided contests only, narrowed to this team's: a contest
-    // joins the season list exactly when its slate's official stats have fully
-    // arrived — the same trigger that crowns the contest list's winner. A live
-    // contest is deliberately absent: its partial score never belonged in a
-    // total that only final scores move (the open-contests section above owns
-    // the live row). The standings page draws its scores from the same helper.
+    // Officially-decided contests only, narrowed to this team's. A live
+    // contest stays out: the open-contests section above owns the live row.
     let season = Season(state.config.season);
     let slates = SeasonSlates::load(state.db.reader(), &state.nfl, season).await?;
     let contests = contests_store::all(state.db.reader()).await?;
@@ -326,10 +322,7 @@ pub async fn show(
     // lineup and the draft editor, so other viewers get none of it.
     let open = match edit_team_id {
         Some(team_id) => {
-            // A contest whose official stats have landed is no longer open: its season
-            // row owns it now, and the day-based `ContestState` would keep it here until
-            // Eastern midnight. Narrow to the undecided contests only — the same set the
-            // season list above just excluded.
+            // A contest whose official stats have landed is no longer open.
             let slate_contests = slates
                 .slate_contests(&contests)
                 .into_iter()

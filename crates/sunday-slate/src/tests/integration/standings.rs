@@ -121,12 +121,7 @@ async fn ranks_teams_by_top_scores(pool: SqlitePool) {
                     opponent: Some(TeamAbbr::KC),
                     ..factories::player_stats("00-BUF", 2)
                 },
-                // Week 3's rows carry no opponent and no BUF-side rows, so
-                // the official gate holds the live contest out of the
-                // standings until its slate's stats arrive — matching the
-                // "Final · awaiting official stats" state the contest list
-                // shows for the same contest.
-                factories::rb_stats("00-A", 3, 300),
+                factories::rb_stats("00-A", 3, 300), // no opponent: stays unscored
             ],
             &[
                 factories::scoreless_defense_stats("KC", "BUF", 1),
@@ -262,15 +257,10 @@ async fn pre_week_one_lists_every_team_without_scores_or_ranks(pool: SqlitePool)
     }
 }
 
-/// The reported bug: a contest that finished this evening joined the
-/// standings only after the next calendar day, because the old day-rollover
-/// gate classified the slate from Eastern dates. The standings now use the
-/// contest page's official-stats gate, so 6pm ET on game day — kickoff 1pm
-/// ET, stats synced — the totals and wins are already there.
+/// A contest finished this evening joins the standings the same evening.
 #[sqlx::test]
 async fn final_contest_joins_the_standings_before_day_rollover(pool: SqlitePool) {
-    // 6pm ET Sunday: the 1pm ET game is hours past kickoff, but the old
-    // day-rollover gate still saw the slate's kickoff date as "today".
+    // 6pm ET Sunday, slate kicked off 1pm ET, official stats already synced.
     let app = TestApp::from_pool_at(pool.clone(), datetime!(2025-09-07 22:00 UTC)).await;
     let league = factories::bare_league(&pool, None).await;
     let a = factories::team(
@@ -309,9 +299,7 @@ async fn final_contest_joins_the_standings_before_day_rollover(pool: SqlitePool)
         )
         .await
         .unwrap();
-    // Official-complete: 100yd = 13.00 for team A, 200yd = 23.00 for team B
-    // (contest_details.rs pattern — every player row tagged with its
-    // opponent, BUF defense pinned to the slate game's gsis id).
+    // Official-complete seeding: 100yd = 13.00 for A, 200yd = 23.00 for B.
     let buf_player = PlayerWeekStats {
         gsis_id: "00-BUF".into(),
         team: TeamAbbr::BUF,
@@ -387,24 +375,17 @@ async fn final_contest_joins_the_standings_before_day_rollover(pool: SqlitePool)
     );
 }
 
-/// The dev live feed owns a registered snapshot for a locked slate: the
-/// standings gate must keep the contest out — the same provisional override
-/// `live::load_contest_scores` applies before its official check. The
-/// contest page deliberately shows replay scores while the flag is on.
+/// A dev-feed snapshot keeps the standings gate closed.
 #[sqlx::test]
 async fn dev_feed_snapshot_keeps_the_standings_official_gate_closed(pool: SqlitePool) {
     use crate::contests::ContestId;
     use std::sync::Arc;
 
     let now = datetime!(2025-09-07 22:00 UTC);
-    let kickoff = now - time::Duration::hours(5); // 17:00 UTC, same shape as the fixture above
+    let kickoff = now - time::Duration::hours(5);
     let app =
         crate::tests::test_app::TestApp::from_pool_at_with_live_dev_feed(pool.clone(), now, true)
             .await;
-    // Two teams, contest "Week 1" with game 2025_01_BUF_KC at kickoff,
-    // full_entry 00-A (team A) / 00-B (team B) — identical setup to
-    // final_contest_joins_the_standings_before_day_rollover, and the same
-    // official-complete stat seeding (100yd=13.00 / 200yd=23.00).
     let league = factories::bare_league(&pool, None).await;
     let a = factories::team(
         &pool,
@@ -436,9 +417,7 @@ async fn dev_feed_snapshot_keeps_the_standings_official_gate_closed(pool: Sqlite
         .seed_for_test(&[], std::slice::from_ref(&game))
         .await
         .unwrap();
-    // Official-complete: 100yd = 13.00 for team A, 200yd = 23.00 for team B
-    // (contest_details.rs pattern — every player row tagged with its
-    // opponent, BUF defense pinned to the slate game's gsis id).
+    // Official-complete seeding: 100yd = 13.00 for A, 200yd = 23.00 for B.
     let buf_player = PlayerWeekStats {
         gsis_id: "00-BUF".into(),
         team: TeamAbbr::BUF,
@@ -471,11 +450,8 @@ async fn dev_feed_snapshot_keeps_the_standings_official_gate_closed(pool: Sqlite
         .await
         .unwrap();
 
-    // Run the dev feed once so the snapshot registers for this locked contest
-    // (kickoff is 5 wall-clock hours before `now`, inside the feed's 12-hour
-    // recovery window). Drain it like dev_feed.rs's own test does: tick 1ms
-    // instead of the 3s default, so `run()` settles instead of sleeping
-    // DEV_TICKS×3s of wall clock.
+    // Run the dev feed once (1ms tick so `run()` settles) to register the
+    // snapshot for this locked contest.
     let contest_id = ContestId(wk1);
     let mut config = (*app.state.config).clone();
     config.live_dev_feed_tick_ms = 1;
@@ -485,9 +461,6 @@ async fn dev_feed_snapshot_keeps_the_standings_official_gate_closed(pool: Sqlite
     };
     crate::live::dev_feed::run(state.clone()).await;
 
-    // The dev feed's own test (live/dev_feed.rs:883) proves a finished game
-    // publishes phase Final and real finals — with that snapshot registered,
-    // the gate must still refuse to admit:
     assert!(
         state.live.snapshot(contest_id).is_some(),
         "the dev feed must have registered the snapshot for this locked contest"
@@ -510,8 +483,7 @@ async fn dev_feed_snapshot_keeps_the_standings_official_gate_closed(pool: Sqlite
             row.wins,
         );
     }
-    // And the owner page keeps the empty state (the dev feed's own Live row,
-    // not a season row).
+    // The owner page keeps the empty state.
     app.login_as(&a.owner).await;
     let team_html = app.get(&format!("/teams/{}", a.team.id)).await.text();
     assert!(
@@ -520,10 +492,7 @@ async fn dev_feed_snapshot_keeps_the_standings_official_gate_closed(pool: Sqlite
     );
 }
 
-/// The pending window: the contest is over, but the slate's official stats
-/// have not fully arrived (no opponent tags, no BUF rows — what a partial
-/// nflverse sync yields). The standings must not score the lineup a false
-/// zero; the contest stays out until the gate admits it.
+/// A contest awaiting official stats stays unscored, not a false zero.
 #[sqlx::test]
 async fn a_contest_awaiting_official_stats_stays_out_of_the_standings(pool: SqlitePool) {
     // Well past the slate's last kickoff, but the stats are incomplete.
@@ -565,8 +534,7 @@ async fn a_contest_awaiting_official_stats_stays_out_of_the_standings(pool: Sqli
         )
         .await
         .unwrap();
-    // Opponent-less player rows and only the KC defense: the official gate
-    // rejects the slate.
+    // Opponent-less rows and KC-only defense: the gate rejects the slate.
     app.nfl
         .seed_week_stats_for_test(
             Season(2025),

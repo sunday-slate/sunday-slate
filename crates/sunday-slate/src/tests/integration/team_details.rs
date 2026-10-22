@@ -65,10 +65,7 @@ async fn member_views_another_teams_season(pool: SqlitePool) {
         .await
         .unwrap();
     // Week 1: 100yd = 13.0. Week 2: 50yd = 5.0. Week 3: 200yd = 23.0.
-    // Each week carries the BUF-side rows the official gate needs: every
-    // player row tagged with its opponent, plus a BUF defense row pinned to
-    // that game's gsis id (the defense factory builds "2025_{week:02}_
-    // {opponent}_{team}", which does not match `2025_0X_BUF_KC` on its own).
+    // Each week also carries the BUF-side rows the official gate needs.
     let buf_player = |week: u8| PlayerWeekStats {
         gsis_id: "00-BUF".into(),
         team: TeamAbbr::BUF,
@@ -441,9 +438,7 @@ async fn other_members_see_no_open_contests_section(pool: SqlitePool) {
 }
 
 /// A contest whose slate's official stats have not arrived scores nothing,
-/// rather than the false 0.00 an empty stat set used to produce. The window
-/// between the final whistle and the nflverse sync: the same gate the
-/// contest page applies, so the season list and the standings agree with it.
+/// rather than the false 0.00 an empty stat set used to produce.
 #[sqlx::test]
 async fn finished_contest_with_unsynced_stats_scores_nothing(pool: SqlitePool) {
     // Two days past the slate's only kickoff: finished, and no week stats
@@ -478,9 +473,8 @@ async fn finished_contest_with_unsynced_stats_scores_nothing(pool: SqlitePool) {
 
 #[sqlx::test]
 async fn finished_contests_with_partial_stat_feeds_remain_unscored(pool: SqlitePool) {
-    // The official gate needs both feeds with opponent-correct rows for every
-    // slate game: a player-only week and a defense-only week each stay out of
-    // the season list, exactly as the contest page keeps them unpromoted.
+    // The gate needs both feeds: a player-only week and a defense-only week
+    // each stay unscored.
     let app = TestApp::from_pool_at(pool.clone(), datetime!(2025-09-16 17:00 UTC)).await;
     let owner = factories::team(
         &pool,

@@ -1,6 +1,5 @@
 //! Assemble the standings: fetch each fantasy team's entries, resolve the
-//! officially-decided contests to NFL weeks, load those weeks' stats, score,
-//! rank.
+//! officially-decided contests, load their stats, score, rank.
 
 use std::collections::{HashMap, HashSet};
 
@@ -13,9 +12,7 @@ use crate::{AppError, AppState};
 use nfl_data::{Season, Week};
 
 /// Every fantasy team in a league, scored against the supplied contest weeks
-/// using their already-loaded stats. A contest absent from the map is
-/// skipped, so a fantasy team with only unscored entries stays visible with
-/// no scores. The contest list and the standings build on this.
+/// with their already-loaded stats. A contest absent from the map is skipped.
 pub async fn scored_teams(
     state: &AppState,
     league_id: i64,
@@ -48,7 +45,7 @@ pub async fn scored_teams(
         .collect())
 }
 
-/// One league's ranked standings over its officially-decided contests.
+/// One league's ranked standings.
 pub async fn standings_for_league(
     state: &AppState,
     league_id: i64,
