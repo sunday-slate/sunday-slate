@@ -9,6 +9,7 @@ use crate::standings::service::standings_for_league;
 use crate::tests::factories::{self, TeamOptions};
 use crate::tests::test_app::TestApp;
 use crate::tests::utils::list_item_containing;
+use nfl_data::{PlayerWeekStats, TeamAbbr, TeamWeekStats};
 
 #[sqlx::test]
 async fn ranks_teams_by_top_scores(pool: SqlitePool) {
@@ -75,6 +76,17 @@ async fn ranks_teams_by_top_scores(pool: SqlitePool) {
     factories::full_entry(&pool, wk1, b.team.id, "00-B").await;
     factories::full_entry(&pool, wk_unresolved, c.team.id, "00-C").await;
 
+    let buf_player = PlayerWeekStats {
+        gsis_id: "00-BUF".into(),
+        team: TeamAbbr::BUF,
+        opponent: Some(TeamAbbr::KC),
+        ..factories::player_stats("00-BUF", 1)
+    };
+    let buf_defense = TeamWeekStats {
+        gsis_game_id: "2025_01_BUF_KC".into(),
+        ..factories::scoreless_defense_stats("BUF", "KC", 1)
+    };
+
     app.nfl
         .seed_for_test(
             &[],
@@ -90,15 +102,36 @@ async fn ranks_teams_by_top_scores(pool: SqlitePool) {
         .seed_week_stats_for_test(
             Season(2025),
             &[
-                factories::rb_stats("00-A", 1, 100),
-                factories::rb_stats("00-B", 1, 200),
-                factories::rb_stats("00-A", 2, 50),
-                factories::rb_stats("00-A", 3, 300),
+                PlayerWeekStats {
+                    opponent: Some(TeamAbbr::BUF),
+                    ..factories::rb_stats("00-A", 1, 100)
+                },
+                PlayerWeekStats {
+                    opponent: Some(TeamAbbr::BUF),
+                    ..factories::rb_stats("00-B", 1, 200)
+                },
+                buf_player.clone(),
+                PlayerWeekStats {
+                    opponent: Some(TeamAbbr::BUF),
+                    ..factories::rb_stats("00-A", 2, 50)
+                },
+                PlayerWeekStats {
+                    gsis_id: "00-BUF".into(),
+                    team: TeamAbbr::BUF,
+                    opponent: Some(TeamAbbr::KC),
+                    ..factories::player_stats("00-BUF", 2)
+                },
+                factories::rb_stats("00-A", 3, 300), // no opponent: stays unscored
             ],
             &[
                 factories::scoreless_defense_stats("KC", "BUF", 1),
                 factories::scoreless_defense_stats("KC", "BUF", 2),
                 factories::scoreless_defense_stats("KC", "BUF", 3),
+                buf_defense.clone(),
+                TeamWeekStats {
+                    gsis_game_id: "2025_02_BUF_KC".into(),
+                    ..factories::scoreless_defense_stats("BUF", "KC", 2)
+                },
             ],
         )
         .await
@@ -221,5 +254,327 @@ async fn pre_week_one_lists_every_team_without_scores_or_ranks(pool: SqlitePool)
         assert!(row.rank.is_none(), "{} has no rank", row.name);
         assert!(row.total.is_none(), "{} has no total", row.name);
         assert_eq!(row.wins, 0, "{} has no wins", row.name);
+    }
+}
+
+/// A contest finished this evening joins the standings the same evening.
+#[sqlx::test]
+async fn final_contest_joins_the_standings_before_day_rollover(pool: SqlitePool) {
+    // 6pm ET Sunday, slate kicked off 1pm ET, official stats already synced.
+    let app = TestApp::from_pool_at(pool.clone(), datetime!(2025-09-07 22:00 UTC)).await;
+    let league = factories::bare_league(&pool, None).await;
+    let a = factories::team(
+        &pool,
+        TeamOptions {
+            league: Some(league.clone()),
+            name: Some("Gridiron Giants".into()),
+            owner_name: Some("Mike".into()),
+            ..Default::default()
+        },
+    )
+    .await;
+    let b = factories::team(
+        &pool,
+        TeamOptions {
+            league: Some(league),
+            name: Some("Turf Titans".into()),
+            owner_name: Some("Sara".into()),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    let wk1 = factories::contest_with_games(&pool, "Week 1", &["2025_01_BUF_KC"]).await;
+    factories::full_entry(&pool, wk1, a.team.id, "00-A").await;
+    factories::full_entry(&pool, wk1, b.team.id, "00-B").await;
+
+    app.nfl
+        .seed_for_test(
+            &[],
+            &[factories::game_at(
+                "2025_01_BUF_KC",
+                1,
+                datetime!(2025-09-07 17:00 UTC),
+            )],
+        )
+        .await
+        .unwrap();
+    // Official-complete seeding: 100yd = 13.00 for A, 200yd = 23.00 for B.
+    let buf_player = PlayerWeekStats {
+        gsis_id: "00-BUF".into(),
+        team: TeamAbbr::BUF,
+        opponent: Some(TeamAbbr::KC),
+        ..factories::player_stats("00-BUF", 1)
+    };
+    let buf_defense = TeamWeekStats {
+        gsis_game_id: "2025_01_BUF_KC".into(),
+        ..factories::scoreless_defense_stats("BUF", "KC", 1)
+    };
+    app.nfl
+        .seed_week_stats_for_test(
+            Season(2025),
+            &[
+                PlayerWeekStats {
+                    opponent: Some(TeamAbbr::BUF),
+                    ..factories::rb_stats("00-A", 1, 100)
+                },
+                PlayerWeekStats {
+                    opponent: Some(TeamAbbr::BUF),
+                    ..factories::rb_stats("00-B", 1, 200)
+                },
+                buf_player,
+            ],
+            &[
+                factories::scoreless_defense_stats("KC", "BUF", 1),
+                buf_defense,
+            ],
+        )
+        .await
+        .unwrap();
+
+    app.login_as(&a.owner).await;
+    let resp = app.get("/standings").await;
+    resp.assert_status_ok();
+    let html = resp.text();
+    let titans = html.find("Turf Titans").expect("titans present");
+    let giants = html.find("Gridiron Giants").expect("giants present");
+    assert!(
+        titans < giants,
+        "Turf Titans (23.00) ranks above Gridiron Giants (13.00): {html}"
+    );
+    assert!(html.contains("23.00"), "titans total shown: {html}");
+    assert!(html.contains("13.00"), "giants total shown: {html}");
+
+    let rows = standings_for_league(&app.state(), a.league.id)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].name, "Turf Titans");
+    assert_eq!(rows[0].total, Some(23.0));
+    assert_eq!(rows[0].rank, Some(1));
+    assert_eq!(rows[0].wins, 1, "top score wins the contest");
+    assert_eq!(rows[1].name, "Gridiron Giants");
+    assert_eq!(rows[1].total, Some(13.0));
+    assert_eq!(rows[1].rank, Some(2));
+    assert_eq!(rows[1].wins, 0);
+
+    // Same evening, the team page drops its empty state and shows the score.
+    let team_html = app.get(&format!("/teams/{}", a.team.id)).await.text();
+    assert!(
+        team_html.contains("13.00"),
+        "team page shows the evening's score: {team_html}"
+    );
+    assert!(
+        !team_html.contains("No scored contests yet."),
+        "empty state gone once official stats land: {team_html}"
+    );
+    assert_eq!(
+        team_html.matches("Week 1").count(),
+        1,
+        "the officially scored contest must appear exactly once on the owner's page — its season row, not an open row: {team_html}"
+    );
+}
+
+/// A dev-feed snapshot keeps the standings gate closed.
+#[sqlx::test]
+async fn dev_feed_snapshot_keeps_the_standings_official_gate_closed(pool: SqlitePool) {
+    use crate::contests::ContestId;
+    use std::sync::Arc;
+
+    let now = datetime!(2025-09-07 22:00 UTC);
+    let kickoff = now - time::Duration::hours(5);
+    let app =
+        crate::tests::test_app::TestApp::from_pool_at_with_live_dev_feed(pool.clone(), now, true)
+            .await;
+    let league = factories::bare_league(&pool, None).await;
+    let a = factories::team(
+        &pool,
+        TeamOptions {
+            league: Some(league.clone()),
+            name: Some("Gridiron Giants".into()),
+            owner_name: Some("Mike".into()),
+            ..Default::default()
+        },
+    )
+    .await;
+    let b = factories::team(
+        &pool,
+        TeamOptions {
+            league: Some(league),
+            name: Some("Turf Titans".into()),
+            owner_name: Some("Sara".into()),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    let wk1 = factories::contest_with_games(&pool, "Week 1", &["2025_01_BUF_KC"]).await;
+    factories::full_entry(&pool, wk1, a.team.id, "00-A").await;
+    factories::full_entry(&pool, wk1, b.team.id, "00-B").await;
+
+    let game = factories::game_at("2025_01_BUF_KC", 1, kickoff);
+    app.nfl
+        .seed_for_test(&[], std::slice::from_ref(&game))
+        .await
+        .unwrap();
+    // Official-complete seeding: 100yd = 13.00 for A, 200yd = 23.00 for B.
+    let buf_player = PlayerWeekStats {
+        gsis_id: "00-BUF".into(),
+        team: TeamAbbr::BUF,
+        opponent: Some(TeamAbbr::KC),
+        ..factories::player_stats("00-BUF", 1)
+    };
+    let buf_defense = TeamWeekStats {
+        gsis_game_id: "2025_01_BUF_KC".into(),
+        ..factories::scoreless_defense_stats("BUF", "KC", 1)
+    };
+    app.nfl
+        .seed_week_stats_for_test(
+            Season(2025),
+            &[
+                PlayerWeekStats {
+                    opponent: Some(TeamAbbr::BUF),
+                    ..factories::rb_stats("00-A", 1, 100)
+                },
+                PlayerWeekStats {
+                    opponent: Some(TeamAbbr::BUF),
+                    ..factories::rb_stats("00-B", 1, 200)
+                },
+                buf_player,
+            ],
+            &[
+                factories::scoreless_defense_stats("KC", "BUF", 1),
+                buf_defense,
+            ],
+        )
+        .await
+        .unwrap();
+
+    // Run the dev feed once (1ms tick so `run()` settles) to register the
+    // snapshot for this locked contest.
+    let contest_id = ContestId(wk1);
+    let mut config = (*app.state.config).clone();
+    config.live_dev_feed_tick_ms = 1;
+    let state = crate::AppState {
+        config: Arc::new(config),
+        ..app.state.clone()
+    };
+    crate::live::dev_feed::run(state.clone()).await;
+
+    assert!(
+        state.live.snapshot(contest_id).is_some(),
+        "the dev feed must have registered the snapshot for this locked contest"
+    );
+    let rows = crate::standings::service::standings_for_league(&app.state(), a.league.id)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 2);
+    for row in rows {
+        assert!(
+            row.total.is_none(),
+            "{} must stay unscored while the dev feed owns the snapshot: rank={} total={} wins={}",
+            row.name,
+            row.rank
+                .map(|r| r.to_string())
+                .unwrap_or_else(|| "-".into()),
+            row.total
+                .map(|t| t.to_string())
+                .unwrap_or_else(|| "-".into()),
+            row.wins,
+        );
+    }
+    // The owner page keeps the empty state.
+    app.login_as(&a.owner).await;
+    let team_html = app.get(&format!("/teams/{}", a.team.id)).await.text();
+    assert!(
+        team_html.contains("No scored contests yet."),
+        "dev-feed-owned contest stays out of the season list: {team_html}"
+    );
+}
+
+/// A contest awaiting official stats stays unscored, not a false zero.
+#[sqlx::test]
+async fn a_contest_awaiting_official_stats_stays_out_of_the_standings(pool: SqlitePool) {
+    // Well past the slate's last kickoff, but the stats are incomplete.
+    let app = TestApp::from_pool_at(pool.clone(), datetime!(2025-09-08 20:00 UTC)).await;
+    let league = factories::bare_league(&pool, None).await;
+    let a = factories::team(
+        &pool,
+        TeamOptions {
+            league: Some(league.clone()),
+            name: Some("Gridiron Giants".into()),
+            owner_name: Some("Mike".into()),
+            ..Default::default()
+        },
+    )
+    .await;
+    let b = factories::team(
+        &pool,
+        TeamOptions {
+            league: Some(league),
+            name: Some("Turf Titans".into()),
+            owner_name: Some("Sara".into()),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    let wk1 = factories::contest_with_games(&pool, "Week 1", &["2025_01_BUF_KC"]).await;
+    factories::full_entry(&pool, wk1, a.team.id, "00-A").await;
+    factories::full_entry(&pool, wk1, b.team.id, "00-B").await;
+
+    app.nfl
+        .seed_for_test(
+            &[],
+            &[factories::game_at(
+                "2025_01_BUF_KC",
+                1,
+                datetime!(2025-09-07 17:00 UTC),
+            )],
+        )
+        .await
+        .unwrap();
+    // Opponent-less rows and KC-only defense: the gate rejects the slate.
+    app.nfl
+        .seed_week_stats_for_test(
+            Season(2025),
+            &[
+                factories::rb_stats("00-A", 1, 100),
+                factories::rb_stats("00-B", 1, 200),
+            ],
+            &[factories::scoreless_defense_stats("KC", "BUF", 1)],
+        )
+        .await
+        .unwrap();
+
+    app.login_as(&a.owner).await;
+    let resp = app.get("/standings").await;
+    resp.assert_status_ok();
+    let html = resp.text();
+    assert!(
+        html.contains("Gridiron Giants"),
+        "both teams listed: {html}"
+    );
+    assert!(html.contains("Turf Titans"), "both teams listed: {html}");
+    assert!(
+        !html.contains("23.00") && !html.contains("18.00"),
+        "no totals while stats are pending: {html}"
+    );
+
+    let rows = standings_for_league(&app.state(), a.league.id)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 2);
+    for row in rows {
+        assert!(
+            row.total.is_none(),
+            "{} has no total while stats are pending",
+            row.name
+        );
+        assert!(
+            row.rank.is_none(),
+            "{} has no rank while stats are pending",
+            row.name
+        );
     }
 }

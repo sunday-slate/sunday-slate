@@ -8,6 +8,7 @@ use time::macros::datetime;
 use crate::tests::factories::{self, TeamOptions};
 use crate::tests::test_app::TestApp;
 use crate::tests::utils::list_item_containing;
+use nfl_data::{PlayerWeekStats, TeamAbbr, TeamWeekStats};
 
 #[sqlx::test]
 async fn member_views_another_teams_season(pool: SqlitePool) {
@@ -64,18 +65,50 @@ async fn member_views_another_teams_season(pool: SqlitePool) {
         .await
         .unwrap();
     // Week 1: 100yd = 13.0. Week 2: 50yd = 5.0. Week 3: 200yd = 23.0.
+    // Each week also carries the BUF-side rows the official gate needs.
+    let buf_player = |week: u8| PlayerWeekStats {
+        gsis_id: "00-BUF".into(),
+        team: TeamAbbr::BUF,
+        opponent: Some(TeamAbbr::KC),
+        ..factories::player_stats("00-BUF", week)
+    };
+    let buf_defense = TeamWeekStats {
+        gsis_game_id: "2025_01_BUF_KC".into(),
+        ..factories::scoreless_defense_stats("BUF", "KC", 1)
+    };
     app.nfl
         .seed_week_stats_for_test(
             Season(2025),
             &[
-                factories::rb_stats("00-A", 1, 100),
-                factories::rb_stats("00-A", 2, 50),
-                factories::rb_stats("00-A", 3, 200),
+                PlayerWeekStats {
+                    opponent: Some(TeamAbbr::BUF),
+                    ..factories::rb_stats("00-A", 1, 100)
+                },
+                PlayerWeekStats {
+                    opponent: Some(TeamAbbr::BUF),
+                    ..factories::rb_stats("00-A", 2, 50)
+                },
+                PlayerWeekStats {
+                    opponent: Some(TeamAbbr::BUF),
+                    ..factories::rb_stats("00-A", 3, 200)
+                },
+                buf_player(1),
+                buf_player(2),
+                buf_player(3),
             ],
             &[
                 factories::scoreless_defense_stats("KC", "BUF", 1),
                 factories::scoreless_defense_stats("KC", "BUF", 2),
                 factories::scoreless_defense_stats("KC", "BUF", 3),
+                buf_defense.clone(),
+                TeamWeekStats {
+                    gsis_game_id: "2025_02_BUF_KC".into(),
+                    ..factories::scoreless_defense_stats("BUF", "KC", 2)
+                },
+                TeamWeekStats {
+                    gsis_game_id: "2025_03_BUF_KC".into(),
+                    ..factories::scoreless_defense_stats("BUF", "KC", 3)
+                },
             ],
         )
         .await
@@ -404,9 +437,8 @@ async fn other_members_see_no_open_contests_section(pool: SqlitePool) {
     );
 }
 
-/// A contest that has finished but whose week nflverse has not synced yet
-/// scores nothing, rather than the false 0.00 an empty stat set used to
-/// produce. The Monday-morning window between kickoff and the sync.
+/// A contest whose slate's official stats have not arrived scores nothing,
+/// rather than the false 0.00 an empty stat set used to produce.
 #[sqlx::test]
 async fn finished_contest_with_unsynced_stats_scores_nothing(pool: SqlitePool) {
     // Two days past the slate's only kickoff: finished, and no week stats
@@ -441,6 +473,8 @@ async fn finished_contest_with_unsynced_stats_scores_nothing(pool: SqlitePool) {
 
 #[sqlx::test]
 async fn finished_contests_with_partial_stat_feeds_remain_unscored(pool: SqlitePool) {
+    // The gate needs both feeds: a player-only week and a defense-only week
+    // each stay unscored.
     let app = TestApp::from_pool_at(pool.clone(), datetime!(2025-09-16 17:00 UTC)).await;
     let owner = factories::team(
         &pool,
