@@ -46,6 +46,14 @@ impl Score {
     }
 }
 
+/// Season-to-date fantasy pace: average fantasy points per game, and the
+/// games that produced it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PointsPerGame {
+    pub avg_points: f64,
+    pub games_played: u32,
+}
+
 fn line(stat: &'static str, quantity: f64, points: f64) -> ScoreLine {
     ScoreLine {
         stat,

@@ -19,7 +19,7 @@ use crate::fantasy_teams::FantasyTeamId;
 use crate::player_salaries::model::{DfsPosition, NflPlayerSalary};
 use crate::player_salaries::store as salary_store;
 use crate::scoring::format_thousands;
-use crate::scoring::service::season_averages;
+use crate::scoring::service::{season_averages, SeasonAverages};
 use crate::{AppError, AppState};
 
 /// Remaining budget and the per-open-slot average. Negative remaining = over
@@ -312,11 +312,7 @@ pub async fn choices(
         Vec::new()
     };
     let avatars = crate::avatars::for_lineup(&state.db, &player_refs, &team_refs).await?;
-    let (names, averages) = if player_ids.is_empty() {
-        (HashMap::new(), HashMap::new())
-    } else {
-        player_profiles(state, &player_ids, ctx.week).await?
-    };
+    let (names, averages) = player_profiles(state, &player_ids, ctx.week).await?;
 
     let mut out: Vec<SlotChoice> = if slot == RosterSlot::Def {
         ctx.pool
@@ -334,6 +330,7 @@ pub async fn choices(
                         avatars.teams.get(team.as_str()),
                         &ctx.slate,
                         Some(row.salary),
+                        averages.dsts.get(&team).copied(),
                     ),
                     key: SlotValue::Defense(team),
                 }
@@ -366,7 +363,7 @@ pub async fn choices(
                         Some(row.team_abbr.clone()),
                         &ctx.slate,
                         Some(row.salary),
-                        averages.get(gsis.as_ref()).copied(),
+                        averages.players.get(&gsis).copied(),
                     ),
                     key: SlotValue::Player(gsis),
                 }
@@ -574,13 +571,20 @@ fn validate_pick(
     }
 }
 
-/// Names and season pace for a set of ids.
+/// Names and season pace for a set of ids. The identify call is only
+/// worthwhile when ids exist; `season_averages` runs always — its
+/// accumulating loop handles empty input, and defense choices need `dsts`
+/// even when no player has been picked yet.
 async fn player_profiles(
     state: &AppState,
     ids: &[NflPlayerId],
     week: Week,
-) -> Result<(HashMap<String, PlayerIdentity>, HashMap<String, (f64, u32)>), AppError> {
-    let names = state.nfl.identify(ids).await?;
+) -> Result<(HashMap<String, PlayerIdentity>, SeasonAverages), AppError> {
+    let names = if ids.is_empty() {
+        HashMap::new()
+    } else {
+        state.nfl.identify(ids).await?
+    };
     let averages = season_averages(&state.nfl, Season(state.config.season), ids, week).await?;
     Ok((names, averages))
 }
@@ -662,7 +666,7 @@ fn build_slot_row(
     draft: &DraftEntry,
     slot: RosterSlot,
     names: &HashMap<String, PlayerIdentity>,
-    averages: &HashMap<String, (f64, u32)>,
+    averages: &SeasonAverages,
     salaries: &SlateSalaries,
     slate_teams: &HashMap<&str, &str>,
     avatars: &Avatars,
@@ -692,11 +696,11 @@ fn build_slot_row(
                 team,
                 slate,
                 salary,
-                averages.get(id.as_ref()).copied(),
+                averages.players.get(id).copied(),
             )
         }
         Some(SlotValue::Defense(t)) => {
-            PickInfo::defense(t, avatars.teams.get(t.as_str()), slate, salary)
+            PickInfo::defense(t, avatars.teams.get(t.as_str()), slate, salary, averages.dsts.get(t).copied())
         }
         None => PickInfo::empty(),
     };

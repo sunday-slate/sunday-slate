@@ -192,11 +192,12 @@ mod tests {
     use crate::entries::service::PickInfo;
     use crate::entries::{RosterSlot, SlotValue};
     use crate::injuries::InjuryDesignation;
+    use crate::scoring::PointsPerGame;
     use nfl_data::TeamAbbr;
     use strum::IntoEnumIterator;
 
     /// A named pick priced at `salary`, kicking off at 1:00pm.
-    fn player_info(name: &str, salary: i64, pace: Option<(f64, u32)>) -> PickInfo {
+    fn player_info(name: &str, salary: i64, pace: Option<PointsPerGame>) -> PickInfo {
         let mut info = PickInfo::player(
             name.into(),
             None,
@@ -307,7 +308,7 @@ mod tests {
                     slot,
                     label: slot.position_label(),
                     value,
-                    info: player_info(&format!("Player {slot}"), 6_800, Some((15.5, 3))),
+                    info: player_info(&format!("Player {slot}"), 6_800, Some(PointsPerGame { avg_points: 15.5, games_played: 3 })),
                     injury: None,
                 }
             })
@@ -334,7 +335,7 @@ mod tests {
                     is_picked: true,
                     over_cap: false,
                     injury: None,
-                    info: player_info("Quinn Back", 8_000, Some((20.5, 2))),
+                    info: player_info("Quinn Back", 8_000, Some(PointsPerGame { avg_points: 20.5, games_played: 2 })),
                 },
                 SlotChoice {
                     key: SlotValue::Player(NflPlayerId("00-Q2".into())),
@@ -362,7 +363,7 @@ mod tests {
                 is_picked: false,
                 over_cap: true,
                 injury: None,
-                info: player_info("Quinn Back", 8_000, Some((20.5, 2))),
+                info: player_info("Quinn Back", 8_000, Some(PointsPerGame { avg_points: 20.5, games_played: 2 })),
             }],
         }
         .render()
@@ -375,7 +376,7 @@ mod tests {
 
     #[test]
     fn picks_renders_the_def_slot() {
-        let mut info = PickInfo::defense(&TeamAbbr::KC, None, &[], Some(4_000));
+        let mut info = PickInfo::defense(&TeamAbbr::KC, None, &[], Some(4_000), None);
         info.kickoff = Some("1:00pm".into());
         PickView {
             chrome: Chrome::focused("Select DEF", "/contests/1/draft-entry"),
@@ -434,7 +435,7 @@ mod tests {
         for row in &mut page.slots {
             if row.slot == RosterSlot::Qb {
                 row.value = Some(SlotValue::Player(NflPlayerId("00-Q".into())));
-                row.info = player_info("Quinn Back", 8_000, Some((20.5, 2)));
+                row.info = player_info("Quinn Back", 8_000, Some(PointsPerGame { avg_points: 20.5, games_played: 2 }));
             }
         }
         let html = EditorView {
@@ -472,7 +473,7 @@ mod tests {
                     is_picked: true,
                     over_cap: false,
                     injury: None,
-                    info: player_info("Quinn Back", 8_000, Some((20.5, 2))),
+                    info: player_info("Quinn Back", 8_000, Some(PointsPerGame { avg_points: 20.5, games_played: 2 })),
                 },
                 SlotChoice {
                     key: SlotValue::Player(NflPlayerId("00-Q2".into())),

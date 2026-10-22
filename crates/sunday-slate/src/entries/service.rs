@@ -20,7 +20,8 @@ use crate::injuries::InjuryDesignation;
 use crate::live::{self, ContestScores, Coverage, LiveContestSnapshot};
 use crate::media::Media;
 use crate::scoring::service as scoring_service;
-use crate::scoring::{self, Score, WeekStats};
+use crate::scoring::service::SeasonAverages;
+use crate::scoring::{self, PointsPerGame, Score, WeekStats};
 use crate::{AppError, AppState, User};
 use time::OffsetDateTime;
 
@@ -213,14 +214,14 @@ pub struct PickInfo {
 }
 
 impl PickInfo {
-    /// A player pick. `pace` is its season-to-date `(FPPG, games played)`.
+    /// A player pick. `pace` is its season-to-date FPPG and games played.
     pub(crate) fn player(
         name: String,
         headshot: Option<&Media>,
         team: Option<String>,
         slate: &[Game],
         salary: Option<i64>,
-        pace: Option<(f64, u32)>,
+        pace: Option<PointsPerGame>,
     ) -> Self {
         PickInfo {
             name,
@@ -232,8 +233,8 @@ impl PickInfo {
             kickoff: team.as_deref().and_then(|t| team_kickoff(slate, t)),
             team,
             salary,
-            fppg: pace.map(|(f, _)| f),
-            played: pace.map(|(_, n)| n),
+            fppg: pace.map(|p| p.avg_points),
+            played: pace.map(|p| p.games_played),
         }
     }
 
@@ -243,6 +244,7 @@ impl PickInfo {
         logo: Option<&Media>,
         slate: &[Game],
         salary: Option<i64>,
+        pace: Option<PointsPerGame>,
     ) -> Self {
         PickInfo {
             name: format!("{} D/ST", team.as_str()),
@@ -253,8 +255,8 @@ impl PickInfo {
             kickoff: team_kickoff(slate, team.as_str()),
             team: Some(team.as_str().to_owned()),
             salary,
-            fppg: None,
-            played: None,
+            fppg: pace.map(|p| p.avg_points),
+            played: pace.map(|p| p.games_played),
         }
     }
 
@@ -821,7 +823,7 @@ pub fn build_preview(
     names: &HashMap<String, PlayerIdentity>,
     slate: &[Game],
     salaries: &SlateSalaries,
-    averages: &HashMap<String, (f64, u32)>,
+    averages: &SeasonAverages,
     headshots: &HashMap<String, Media>,
     defense_logo: Option<&Media>,
 ) -> (Vec<PreviewRow>, i64) {
@@ -838,7 +840,7 @@ pub fn build_preview(
                     known.and_then(|k| k.team.as_ref().map(|t| t.as_str().to_owned())),
                     slate,
                     salaries.players.get(id).copied(),
-                    averages.get(id.as_ref()).copied(),
+                    averages.players.get(id).copied(),
                 ),
             }
         })
@@ -851,6 +853,7 @@ pub fn build_preview(
             defense_logo,
             slate,
             salaries.defenses.get(&lineup.def).copied(),
+            averages.dsts.get(&lineup.def).copied(),
         ),
     });
 
@@ -1594,7 +1597,7 @@ mod tests {
     #[test]
     fn abbreviated_name_preserves_defense_rows() {
         let team = TeamAbbr::KC;
-        let info = PickInfo::defense(&team, None, &[], None);
+        let info = PickInfo::defense(&team, None, &[], None, None);
         assert!(info.is_dst());
         assert_eq!(info.abbreviated_name(), "KC D/ST");
 
@@ -1611,13 +1614,30 @@ mod tests {
 
     #[test]
     fn preview_rows_carry_salary_and_schedule_never_scores() {
-        let f = Fixture::default();
+        let averages = SeasonAverages {
+            players: [(
+                NflPlayerId("00-RB1".into()),
+                PointsPerGame {
+                    avg_points: 11.0,
+                    games_played: 2,
+                },
+            )]
+            .into(),
+            dsts: [(
+                TeamAbbr::KC,
+                PointsPerGame {
+                    avg_points: 6.5,
+                    games_played: 2,
+                },
+            )]
+            .into(),
+        };
         let (rows, spent) = build_preview(
             &lineup(),
-            &f.names,
+            &names(),
             &slate(),
-            &f.salaries,
-            &HashMap::new(),
+            &SlateSalaries::default(),
+            &averages,
             &HashMap::new(),
             None,
         );
@@ -1633,6 +1653,17 @@ mod tests {
                 assert_eq!(g.home_score, None);
             }
         }
+        // Season pace flows to both position groups.
+        let rb1 = rows
+            .iter()
+            .find(|r| r.slot == RosterSlot::Rb1.position_label())
+            .expect("RB1 row");
+        assert_eq!(rb1.info.fppg, Some(11.0));
+        assert_eq!(rb1.info.played, Some(2));
+        let def = &rows[8];
+        assert_eq!(def.slot, RosterSlot::Def.position_label());
+        assert_eq!(def.info.fppg, Some(6.5));
+        assert_eq!(def.info.played, Some(2));
     }
 
     #[test]
