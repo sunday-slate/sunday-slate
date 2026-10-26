@@ -20,23 +20,27 @@
           pkgs = nixpkgs.legacyPackages.${system};
         in {
           default = pkgs.mkShell {
-            packages = with pkgs; [
-              rustup
-              pkg-config
-              sqlite
-              sqlx-cli
-              tailwindcss_4
-              just
-              bacon
-              cargo-deny
-              cargo-machete
-              cargo-outdated
-              cargo-edit
-              rust-analyzer
-              typos-lsp
-              uv # for datasette. replace with datasette pkg and update justfile call when upstream fixed
-              python3Packages.mkdocs-material # docs previewer/build, see justfile 'docs' recipes
-            ];
+            packages = with pkgs;
+              [
+                rustup
+                pkg-config
+                sqlite
+                sqlx-cli
+                tailwindcss_4
+                just
+                bacon
+                cargo-deny
+                cargo-machete
+                cargo-outdated
+                cargo-edit
+                rust-analyzer
+                typos-lsp
+                uv # for datasette. replace with datasette pkg and update justfile call when upstream fixed
+                python3Packages.mkdocs-material # docs previewer/build, see justfile 'docs' recipes
+              ]
+              # .cargo/config.toml links with `-fuse-ld=mold` on Linux; mold is
+              # Linux-only, so keep it out of the darwin shell.
+              ++ nixpkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ mold ];
           };
         }
       );
