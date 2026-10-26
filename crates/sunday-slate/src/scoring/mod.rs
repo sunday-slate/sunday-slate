@@ -46,8 +46,7 @@ impl Score {
     }
 }
 
-/// Season-to-date fantasy pace: average fantasy points per game, and the
-/// games that produced it.
+/// Season-to-date FPPG
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PointsPerGame {
     pub avg_points: f64,

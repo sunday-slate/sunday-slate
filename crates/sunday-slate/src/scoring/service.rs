@@ -9,18 +9,7 @@ use crate::contests::ContestId;
 use crate::entries::{FantasyTeamEntry, NflPlayerId};
 use crate::scoring::{self, PointsPerGame, WeekStats};
 
-/// Season-to-date FPPG and games played, keyed per position group: each
-/// gsis id in `ids` under `players`, and every team's defense under `dsts`.
-/// Both cover the weeks before `before`. Empty before week 2.
-///
-/// Every prior week's stat line is scored with the contest's own rules
-/// ([`score_player`]: half-point receptions, yardage bonuses, and the rest;
-/// [`score_defense`]: sacks, picks, safeties, and points-allowed tiers), so
-/// the displayed pace and contest scoring agree. A line is scored on its
-/// own week — the 300+ passing yards and 100+ rushing/receiving bonuses are
-/// per-game, and so are the points-allowed tiers, so they must be applied
-/// before averaging, never to a summed season line. Games counted are the
-/// cached stat rows, matching the old upstream convention.
+/// Season-to-date FPPG and games played for both NFL Players and Team D/ST
 #[derive(Debug, Default)]
 pub struct SeasonAverages {
     pub players: HashMap<NflPlayerId, PointsPerGame>,
@@ -81,14 +70,7 @@ pub async fn season_averages(
     })
 }
 
-/// Load each distinct week's stats at most once, keyed for lineup scoring.
-/// Duplicate weeks are queried once even when the week is omitted from the
-/// result.
-///
-/// A week is included only when both its player and defense feeds have rows.
-/// If either feed is missing — not played yet, or played but not yet synced —
-/// the week gets no entry, so `score_entries` skips it instead of scoring every
-/// lineup a false zero.
+/// Load all fantasy stats for completed weeks.
 pub async fn week_stats(
     nfl: &NflData,
     season: Season,

@@ -571,10 +571,7 @@ fn validate_pick(
     }
 }
 
-/// Names and season pace for a set of ids. The identify call is only
-/// worthwhile when ids exist; `season_averages` runs always — its
-/// accumulating loop handles empty input, and defense choices need `dsts`
-/// even when no player has been picked yet.
+/// Names and season average FPPG for given player ids
 async fn player_profiles(
     state: &AppState,
     ids: &[NflPlayerId],
