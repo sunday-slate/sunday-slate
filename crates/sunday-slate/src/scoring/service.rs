@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use nfl_data::{NflData, NflDataError, Season, Week, TeamAbbr};
+use nfl_data::{NflData, NflDataError, Season, TeamAbbr, Week};
 
 use crate::contests::ContestId;
 use crate::entries::{FantasyTeamEntry, NflPlayerId};

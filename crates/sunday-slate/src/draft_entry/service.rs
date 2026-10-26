@@ -19,7 +19,7 @@ use crate::fantasy_teams::FantasyTeamId;
 use crate::player_salaries::model::{DfsPosition, NflPlayerSalary};
 use crate::player_salaries::store as salary_store;
 use crate::scoring::format_thousands;
-use crate::scoring::service::{season_averages, SeasonAverages};
+use crate::scoring::service::{SeasonAverages, season_averages};
 use crate::{AppError, AppState};
 
 /// Remaining budget and the per-open-slot average. Negative remaining = over
@@ -699,9 +699,13 @@ fn build_slot_row(
                 averages.players.get(id).copied(),
             )
         }
-        Some(SlotValue::Defense(t)) => {
-            PickInfo::defense(t, avatars.teams.get(t.as_str()), slate, salary, averages.dsts.get(t).copied())
-        }
+        Some(SlotValue::Defense(t)) => PickInfo::defense(
+            t,
+            avatars.teams.get(t.as_str()),
+            slate,
+            salary,
+            averages.dsts.get(t).copied(),
+        ),
         None => PickInfo::empty(),
     };
     EditorSlotRow {
