@@ -11,25 +11,6 @@ pub struct PlayerLink {
 }
 
 impl Store {
-    /// The linked GSIS id for one FanDuel id, when linked.
-    pub(crate) async fn by_fd_id(
-        &self,
-        fd_player_id: u32,
-    ) -> Result<Option<PlayerLink>, SalaryError> {
-        let row = sqlx::query!(
-            r#"SELECT fd_player_id AS "fd_player_id: u32",
-                      gsis_player_id AS "gsis_player_id: String"
-               FROM player_links WHERE fd_player_id = ?"#,
-            fd_player_id,
-        )
-        .fetch_optional(&self.pool)
-        .await?;
-        Ok(row.map(|row| PlayerLink {
-            fd_player_id: row.fd_player_id,
-            gsis_player_id: row.gsis_player_id,
-        }))
-    }
-
     /// Every persisted link as a FanDuel-id → GSIS-id map.
     pub(crate) async fn links(&self) -> Result<HashMap<u32, String>, SalaryError> {
         let rows = sqlx::query!(
@@ -94,7 +75,7 @@ mod tests {
     #[tokio::test]
     async fn links_round_trip_through_the_store() {
         let store = store().await;
-        assert!(store.by_fd_id(166092).await.unwrap().is_none());
+        assert!(store.links().await.unwrap().is_empty());
 
         store
             .save_links(&[
@@ -110,9 +91,13 @@ mod tests {
             .await
             .unwrap();
 
-        let link = store.by_fd_id(166092).await.unwrap().expect("hit");
-        assert_eq!(link.gsis_player_id, "00-0036355");
-        assert_eq!(store.links().await.unwrap().len(), 2);
+        assert_eq!(
+            store.links().await.unwrap(),
+            HashMap::from([
+                (166092, "00-0036355".to_owned()),
+                (12543, "00-0045678".to_owned()),
+            ])
+        );
         assert_eq!(
             store.gsis_ids().await.unwrap(),
             vec!["00-0036355".to_owned(), "00-0045678".to_owned()]
@@ -120,33 +105,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn upsert_moves_the_fd_id_under_the_gsis_key() {
+    async fn saving_the_same_link_twice_is_idempotent() {
         let store = store().await;
-        store
-            .save_links(&[PlayerLink {
-                fd_player_id: 111,
-                gsis_player_id: "00-x".into(),
-            }])
-            .await
-            .unwrap();
-        store
-            .save_links(&[PlayerLink {
-                fd_player_id: 222,
-                gsis_player_id: "00-x".into(),
-            }])
-            .await
-            .unwrap();
-
-        assert!(store.by_fd_id(111).await.unwrap().is_none());
-        assert_eq!(
-            store
-                .by_fd_id(222)
-                .await
-                .unwrap()
-                .expect("moved")
-                .gsis_player_id,
-            "00-x"
-        );
+        let link = PlayerLink {
+            fd_player_id: 166092,
+            gsis_player_id: "00-0036355".into(),
+        };
+        store.save_links(&[link.clone()]).await.unwrap();
+        store.save_links(&[link]).await.unwrap();
         assert_eq!(store.links().await.unwrap().len(), 1);
     }
 
@@ -155,35 +121,5 @@ mod tests {
         let store = store().await;
         store.save_links(&[]).await.unwrap();
         assert!(store.links().await.unwrap().is_empty());
-    }
-
-    #[tokio::test]
-    async fn updated_at_touches_on_update() {
-        let store = store().await;
-        store
-            .save_links(&[PlayerLink {
-                fd_player_id: 1,
-                gsis_player_id: "00-a".into(),
-            }])
-            .await
-            .unwrap();
-
-        store
-            .save_links(&[PlayerLink {
-                fd_player_id: 2,
-                gsis_player_id: "00-a".into(),
-            }])
-            .await
-            .unwrap();
-        assert!(store.by_fd_id(1).await.unwrap().is_none());
-        assert_eq!(
-            store
-                .by_fd_id(2)
-                .await
-                .unwrap()
-                .expect("moved")
-                .gsis_player_id,
-            "00-a"
-        );
     }
 }
