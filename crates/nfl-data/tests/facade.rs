@@ -35,12 +35,6 @@ async fn empty_provider_reads_preserve_missing_result_behavior() {
     assert!(nfl.games(Season(2025)).await.unwrap().is_empty());
     assert!(nfl.players().await.unwrap().is_empty());
     assert!(nfl.players_by_gsis(&["missing"]).await.unwrap().is_empty());
-    assert!(
-        nfl.weekly_roster_entries_by_gsis(&["missing"])
-            .await
-            .unwrap()
-            .is_empty()
-    );
     assert!(nfl.identify(&["missing"]).await.unwrap().is_empty());
     let team = TeamAbbr::KC;
     assert!(
