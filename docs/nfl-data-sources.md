@@ -17,12 +17,12 @@ The nflverse provider stores its rebuildable, disposable source cache in
 `storage/nflverse-cache.db`. Sunday Slate's managed players, teams, contests,
 salaries, and identifier links remain in `storage/sunday-slate.db`. Original
 FanDuel salary uploads are retained separately in the durable
-`storage/fanduel-data.db` source archive. Back it up alongside
-`storage/sunday-slate.db`; deleting or rebuilding the nflverse cache does not
-change the FanDuel archive. `nfl-data` additionally owns the durable
-`storage/nfl-data.db`, which currently holds the persisted FanDuel→GSIS player
-links; back it up alongside `sunday-slate.db` and `fanduel-data.db`, and note
-that rebuilding the nflverse cache never touches it.
+`storage/fanduel-data.db` source archive; deleting or rebuilding the nflverse
+cache does not change the FanDuel archive. `nfl-data` owns the durable
+`storage/nfl-data.db`, which holds the persisted FanDuel→GSIS player links; it
+is created and migrated on startup or by `just db-migrate`, and rebuilding the
+nflverse cache never touches it. Back up `fanduel-data.db` and `nfl-data.db`
+alongside `sunday-slate.db`; only the nflverse cache is disposable.
 
 For Rust consumers, `nfl-data` retains canonical read operations and re-exports shared model types, live contracts, and time helpers from `nfl-model`. Provider synchronization operations and status types remain private to the crate; callers use its lifecycle methods and opaque `DataRevision` instead. Its distinct `NflDataConfig` takes default values from `NflverseDataConfig` so cache settings stay aligned.
 
@@ -34,17 +34,12 @@ just db-migrate
 just nfl-sync --earliest-season 2025
 ```
 
-The new cache uses a single baseline migration. Do not point it at an existing
-`nfl-data.db`, copy that database over the new path, or run the new migrations
-against it. Leave the old database untouched and fetch a fresh cache instead.
-Only the new provider cache may be removed and recreated; never delete the
-application database to refresh NFL data. SQLx preparation and the database
-browser now use `NFLVERSE_DATABASE_URL` and `storage/nflverse-cache.db`.
+The new cache uses a single baseline migration; no legacy-cache conversion is
+supported. Only the provider cache may be removed and recreated; never delete
+the application database to refresh NFL data. SQLx preparation and the database
+browser use `NFLVERSE_DATABASE_URL` and `storage/nflverse-cache.db`.
 
 ## Application Settings
-
-These TOML keys replace the former `nfl_database_url`, `nfl_github_token`, and
-`nfl_sync_interval_secs`. Legacy names have no aliases and are no longer used.
 
 | TOML key | Environment variable | Default |
 | --- | --- | --- |
