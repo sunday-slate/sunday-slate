@@ -19,7 +19,10 @@ salaries, and identifier links remain in `storage/sunday-slate.db`. Original
 FanDuel salary uploads are retained separately in the durable
 `storage/fanduel-data.db` source archive. Back it up alongside
 `storage/sunday-slate.db`; deleting or rebuilding the nflverse cache does not
-change the FanDuel archive.
+change the FanDuel archive. `nfl-data` additionally owns the durable
+`storage/nfl-data.db`, which currently holds the persisted FanDuel→GSIS player
+links; back it up alongside `sunday-slate.db` and `fanduel-data.db`, and note
+that rebuilding the nflverse cache never touches it.
 
 For Rust consumers, `nfl-data` retains canonical read operations and re-exports shared model types, live contracts, and time helpers from `nfl-model`. Provider synchronization operations and status types remain private to the crate; callers use its lifecycle methods and opaque `DataRevision` instead. Its distinct `NflDataConfig` takes default values from `NflverseDataConfig` so cache settings stay aligned.
 
@@ -47,6 +50,7 @@ These TOML keys replace the former `nfl_database_url`, `nfl_github_token`, and
 | --- | --- | --- |
 | `nflverse_database_url` | `SUNDAY_SLATE__NFLVERSE_DATABASE_URL` | `sqlite://./storage/nflverse-cache.db` |
 | `fanduel_database_url` | `SUNDAY_SLATE__FANDUEL_DATABASE_URL` | `sqlite://./storage/fanduel-data.db` |
+| `nfl_data_database_url` | `SUNDAY_SLATE__NFL_DATA_DATABASE_URL` | `sqlite://./storage/nfl-data.db` |
 | `nflverse_github_token` | `SUNDAY_SLATE__NFLVERSE_GITHUB_TOKEN` | Unset (public GitHub access) |
 | `nflverse_sync_interval_secs` | `SUNDAY_SLATE__NFLVERSE_SYNC_INTERVAL_SECS` | `0` (manual only) |
 

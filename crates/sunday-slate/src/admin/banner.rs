@@ -47,7 +47,7 @@ pub async fn pending(
         // Nag only from the Monday of the contest's game week: reminding
         // earlier is noise — slates and salaries firm up in the days right
         // before the week.
-        if first > now && now.date() >= crate::contests::service::nfl_week_monday(first.date()) {
+        if first > now && now.date() >= nfl_model::nfl_week_monday(first.date()) {
             candidates.push(Candidate {
                 first,
                 games,

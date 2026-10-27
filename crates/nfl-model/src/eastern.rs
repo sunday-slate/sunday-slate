@@ -1,5 +1,18 @@
 use time::{Date, Month, OffsetDateTime, UtcOffset, Weekday};
 
+/// The Monday opening the NFL week that holds `kickoff`. Tue–Sun kickoffs
+/// (Thursday openers, Saturday playoff slates, Sunday main slates) belong to
+/// the week of the preceding Monday; a Monday kickoff is that week's finale
+/// (Monday Night Football), so it belongs to the week that opened seven days
+/// earlier.
+pub fn nfl_week_monday(kickoff: Date) -> Date {
+    let days_into_week = match kickoff.weekday().number_days_from_monday() {
+        0 => 7,
+        n => i64::from(n),
+    };
+    kickoff - time::Duration::days(days_into_week)
+}
+
 /// US Eastern offset for a date under post-2007 DST rules (second Sunday of
 /// March through first Sunday of November). Correct for every season this
 /// crate is configured to fetch; no NFL game kicks off inside the 2 AM
@@ -44,6 +57,36 @@ pub(crate) fn nth_weekday(year: i32, month: Month, weekday: Weekday, n: u8) -> D
             }
         }
         date = date.next_day().expect("date within month range");
+    }
+}
+
+#[cfg(test)]
+mod week_monday_tests {
+    use super::*;
+    use time::macros::date;
+
+    #[test]
+    fn nfl_week_opens_on_monday() {
+        // Sunday slate: the Monday six days earlier.
+        assert_eq!(
+            nfl_week_monday(date!(2025 - 09 - 07)),
+            date!(2025 - 09 - 01)
+        );
+        // Thursday opener: the Monday three days earlier.
+        assert_eq!(
+            nfl_week_monday(date!(2025 - 11 - 27)),
+            date!(2025 - 11 - 24)
+        );
+        // A Saturday opener (playoff weekend): the Monday five days earlier.
+        assert_eq!(
+            nfl_week_monday(date!(2026 - 01 - 10)),
+            date!(2026 - 01 - 05)
+        );
+        // A Monday game is the prior week's finale: the Monday before.
+        assert_eq!(
+            nfl_week_monday(date!(2025 - 09 - 08)),
+            date!(2025 - 09 - 01)
+        );
     }
 }
 

@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT fd_player_id AS \"fd_player_id: u32\",\n                      gsis_player_id AS \"gsis_player_id: String\"\n               FROM player_links",
+  "describe": {
+    "columns": [
+      {
+        "name": "fd_player_id: u32",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "player_links",
+            "name": "fd_player_id"
+          }
+        }
+      },
+      {
+        "name": "gsis_player_id: String",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "player_links",
+            "name": "gsis_player_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "cea2eabb6dd7261d6dbc00961ced250be5ecae12f8a7daa44a89cd2da6765f83"
+}

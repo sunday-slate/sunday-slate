@@ -63,6 +63,7 @@ async fn mock_nfl_setup(
     let nfl = NflData::connect(NflDataConfig {
         database_url: "sqlite::memory:".into(),
         fanduel_database_url: "sqlite::memory:".into(),
+        store_database_url: "sqlite::memory:".into(),
         github_api_base: server.uri(),
         refresh_interval,
         ..Default::default()

@@ -42,6 +42,7 @@ async fn resolve_matches_fanduel_2025() {
     let nfl = NflData::connect(NflDataConfig {
         database_url: format!("sqlite://{nfl_db}"),
         fanduel_database_url: "sqlite::memory:".into(),
+        store_database_url: "sqlite::memory:".into(),
         ..Default::default()
     })
     .await

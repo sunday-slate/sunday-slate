@@ -72,6 +72,7 @@ async fn seeded_records_preserve_identity_and_prefer_players() {
     let config = NflDataConfig {
         database_url: "sqlite::memory:".into(),
         fanduel_database_url: "sqlite::memory:".into(),
+        store_database_url: "sqlite::memory:".into(),
         ..Default::default()
     };
     let nfl = NflData::connect(config).await.unwrap();

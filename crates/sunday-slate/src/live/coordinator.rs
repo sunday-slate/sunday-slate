@@ -1080,6 +1080,7 @@ mod tests {
         let nfl = nfl_data::NflData::connect(nfl_data::NflDataConfig {
             database_url: format!("sqlite://{}/cache.db", dir.path().display()),
             fanduel_database_url: "sqlite::memory:".into(),
+            store_database_url: "sqlite::memory:".into(),
             github_api_base: server.uri(),
             refresh_interval: None,
             ..Default::default()

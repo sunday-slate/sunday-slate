@@ -229,9 +229,8 @@ pub fn default_season_week(
             g.season == configured_season
                 && g.kickoff.is_some_and(|kickoff| {
                     kickoff > now
-                        && crate::contests::service::nfl_week_monday(
-                            nfl_data::to_eastern(kickoff).date(),
-                        ) >= week_start
+                        && nfl_model::nfl_week_monday(nfl_data::to_eastern(kickoff).date())
+                            >= week_start
                 })
         })
         .collect::<Vec<_>>();

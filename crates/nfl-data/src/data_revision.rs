@@ -80,6 +80,7 @@ mod tests {
         let nfl = crate::NflData::connect(NflDataConfig {
             database_url: "sqlite::memory:".into(),
             fanduel_database_url: "sqlite::memory:".into(),
+            store_database_url: "sqlite::memory:".into(),
             earliest_season: 2025,
             github_token: Some(Secret::new("sentinel")),
             github_api_base: server.uri(),
@@ -108,6 +109,7 @@ mod tests {
         let config = NflDataConfig {
             database_url: "sqlite::memory:".into(),
             fanduel_database_url: "sqlite::memory:".into(),
+            store_database_url: "sqlite::memory:".into(),
             refresh_interval: None,
             ..Default::default()
         };

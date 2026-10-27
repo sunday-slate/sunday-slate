@@ -101,6 +101,7 @@ async fn full_season_scores_match_fanduel() {
     let nfl = NflData::connect(NflDataConfig {
         database_url: format!("sqlite://{nfl_db}"),
         fanduel_database_url: "sqlite::memory:".into(),
+        store_database_url: "sqlite::memory:".into(),
         ..Default::default()
     })
     .await

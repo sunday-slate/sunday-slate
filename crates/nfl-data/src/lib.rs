@@ -1,6 +1,8 @@
 mod config;
 mod data_revision;
 mod identity;
+mod salaries;
+mod store;
 #[cfg(test)]
 mod test;
 mod web;
@@ -28,6 +30,9 @@ pub use nflverse_data::{
     Dataset, DatasetFreshness, DatasetReport, DatasetStatus, NflverseDataError as NflDataError,
     RefreshStatus, SyncReport,
 };
+pub use salaries::{SalaryError, SalaryWeekOverview};
+pub use store::PlayerLink;
+pub use web::AdminConfig;
 pub use web::router as admin_router;
 
 pub struct WeeklySummary {
@@ -42,11 +47,14 @@ pub enum NflDataConnectError {
     Nflverse(#[source] NflDataError),
     #[error("FanDuel provider startup failed: {0}")]
     Fanduel(#[source] FanduelDataError),
+    #[error("NFL data store startup failed: {0}")]
+    Store(#[source] SalaryError),
 }
 
 pub struct NflData {
     provider: NflverseData,
     fanduel: fanduel_data::FanduelData,
+    store: store::Store,
     refresh_interval: Option<std::time::Duration>,
 }
 
@@ -120,6 +128,103 @@ impl NflData {
         Ok(summaries)
     }
 
+    /// Validate the typed CSV's schedule, persist it, and (re)apply persisted
+    /// player links. CSV parsing, source save, and omitted-row upsert behavior
+    /// are the source store's; link persistence only writes successful links.
+    pub async fn import_salary_csv(
+        &self,
+        season_week: SeasonWeek,
+        csv_data: &[u8],
+    ) -> Result<SalaryWeekOverview, SalaryError> {
+        let source = self.parse_fanduel_csv(season_week, csv_data)?;
+        let games = self.games(season_week.season).await?;
+        salaries::resolve_slate_games(&games, &season_week, &salaries::salary_matchups(&source))
+            .map_err(|_| SalaryError::Schedule)?;
+        self.save_fanduel_salaries(&source).await?;
+        self.reconcile_salary_week(season_week, None).await?;
+        self.salary_week_overview(season_week).await
+    }
+
+    /// Read the stored week's overview: every source row plus the player IDs
+    /// still lacking a persisted link. DST rows are never unmatched.
+    pub async fn salary_week_overview(
+        &self,
+        season_week: SeasonWeek,
+    ) -> Result<SalaryWeekOverview, SalaryError> {
+        let salaries = self.fanduel.salaried_players_for(season_week).await?;
+        let salary_count = salaries.len();
+
+        let links = self.store.links().await?;
+        let unmatched = salaries
+            .into_iter()
+            .filter(|salaried_player| match &salaried_player.player {
+                Some(player) => !links.contains_key(&player.id),
+                None => false,
+            })
+            .collect();
+
+        Ok(SalaryWeekOverview {
+            season_week,
+            salary_count,
+            unmatched,
+        })
+    }
+
+    /// Confirm an explicit player link for one source row and re-reconcile the
+    /// whole stored week. The source row must exist in the requested week.
+    pub async fn resolve_salary_player(
+        &self,
+        season_week: SeasonWeek,
+        fd_player_id: u32,
+        gsis_player_id: &str,
+    ) -> Result<SalaryWeekOverview, SalaryError> {
+        let source = self.fanduel.salaried_players_for(season_week).await?;
+        if !source.iter().any(|salary| {
+            salary
+                .player
+                .as_ref()
+                .is_some_and(|player| player.id == fd_player_id)
+        }) {
+            return Err(SalaryError::Schedule);
+        }
+        self.reconcile_salary_week(season_week, Some((fd_player_id, gsis_player_id)))
+            .await?;
+        self.salary_week_overview(season_week).await
+    }
+
+    /// The persisted link for one FanDuel player id, when linked.
+    pub async fn player_link_by_fd_id(
+        &self,
+        fd_player_id: u32,
+    ) -> Result<Option<PlayerLink>, SalaryError> {
+        self.store.by_fd_id(fd_player_id).await
+    }
+
+    /// Persisted GSIS ids, deduplicated and sorted. Sourced from links only.
+    pub async fn reconciled_gsis_ids(&self) -> Result<Vec<String>, SalaryError> {
+        self.store.gsis_ids().await
+    }
+
+    /// Per-week source counts with per-week unresolved counts, across every
+    /// stored week. DST entries are never unresolved.
+    pub async fn salary_week_summaries(&self) -> Result<Vec<WeeklySummary>, SalaryError> {
+        let link_ids = self.store.links().await?;
+        let matched_ids: Vec<u32> = link_ids.keys().copied().collect();
+        let salary_counts = self.fanduel.weekly_salary_counts().await?;
+        let unmatched_counts = self.fanduel.weekly_unmatched_counts(&matched_ids).await?;
+
+        let summaries = salary_counts
+            .into_iter()
+            .map(|(season_week, salary_count)| WeeklySummary {
+                season_week,
+                salary_count,
+                unmatched_count: unmatched_counts.get(&season_week).copied().unwrap_or(0),
+            })
+            .collect();
+
+        Ok(summaries)
+    }
+
     /// Opens both provider databases and runs their migrations.
     pub async fn connect(config: NflDataConfig) -> Result<Self, NflDataConnectError> {
         let refresh_interval = config
@@ -134,9 +239,13 @@ impl NflData {
             fanduel_data::FanduelData::connect(&config.fanduel_database_url).await
         }
         .map_err(NflDataConnectError::Fanduel)?;
+        let store = store::Store::open(&config.store_database_url)
+            .await
+            .map_err(NflDataConnectError::Store)?;
         Ok(Self {
             provider,
             fanduel,
+            store,
             refresh_interval,
         })
     }
@@ -151,9 +260,13 @@ impl NflData {
         let fanduel = fanduel_data::FanduelData::in_memory()
             .await
             .map_err(NflDataConnectError::Fanduel)?;
+        let store = store::Store::in_memory()
+            .await
+            .map_err(NflDataConnectError::Store)?;
         Ok(Self {
             provider,
             fanduel,
+            store,
             refresh_interval: None,
         })
     }

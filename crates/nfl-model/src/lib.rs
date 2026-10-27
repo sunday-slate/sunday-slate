@@ -5,7 +5,7 @@ pub mod live;
 mod model;
 mod models;
 
-pub use eastern::{eastern_offset, to_eastern};
+pub use eastern::{eastern_offset, nfl_week_monday, to_eastern};
 pub use live::{
     EspnPlayerId, InjuryDesignation, InjuryEntry, InjuryProvider, InjuryReport, LiveGame,
     LiveGamePhase, LiveGameSnapshot, LivePlayerStats, LiveProviderError, LiveScoreProvider,
