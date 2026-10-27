@@ -1,7 +1,7 @@
 use axum::http::StatusCode;
 
 use super::salary_fixture::{
-    admin_state, salary_upload_form, seed_representative_slate, REPRESENTATIVE_CSV,
+    REPRESENTATIVE_CSV, admin_state, salary_upload_form, seed_representative_slate,
 };
 
 fn regular_week_2025(week: u8) -> crate::SeasonWeek {
@@ -45,7 +45,10 @@ async fn import_rejects_unscheduled_matchup_without_poisoning_corrected_upload()
         corrected.header("location").to_str().unwrap(),
         "/nfl-data-admin/salary-imports/2025001"
     );
-    assert_eq!(state.nfl.salaried_players_for(week1).await.unwrap().len(), 4);
+    assert_eq!(
+        state.nfl.salaried_players_for(week1).await.unwrap().len(),
+        4
+    );
     let links = state.nfl.store.links().await.unwrap();
     assert_eq!(links.get(&62239).map(String::as_str), Some("00-1"));
     assert_eq!(links.get(&80796).map(String::as_str), Some("00-2"));
@@ -67,7 +70,10 @@ async fn import_rejects_unscheduled_matchup_without_poisoning_corrected_upload()
         .multipart(salary_upload_form(1, REPRESENTATIVE_CSV))
         .await
         .assert_status(StatusCode::SEE_OTHER);
-    assert_eq!(state.nfl.salaried_players_for(week1).await.unwrap().len(), 4);
+    assert_eq!(
+        state.nfl.salaried_players_for(week1).await.unwrap().len(),
+        4
+    );
     assert_eq!(
         state.nfl.store.links().await.unwrap(),
         links,

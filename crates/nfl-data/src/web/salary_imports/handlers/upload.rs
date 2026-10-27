@@ -1,9 +1,9 @@
-use crate::web::{salary_imports, AdminState};
 use crate::web::salary_imports::SalaryAdminError;
+use crate::web::{AdminState, salary_imports};
+use crate::{SalaryError, SalaryWeekOverview, salaries};
 use axum::extract::{Multipart, State};
 use axum::response::{IntoResponse, Redirect};
 use nfl_model::SeasonWeek;
-use crate::{salaries, SalaryError, SalaryWeekOverview};
 
 struct SalaryUpload {
     season_week: crate::SeasonWeek,
@@ -119,7 +119,7 @@ async fn import_salary_csv(
         .map_err(|_| SalaryError::Schedule)?;
     state.nfl.save_fanduel_salaries(&source).await?;
     state.nfl.reconcile_salary_week(season_week).await?;
-    salary_imports::salary_week_overview(&state, season_week).await
+    salary_imports::salary_week_overview(state, season_week).await
 }
 
 #[cfg(test)]

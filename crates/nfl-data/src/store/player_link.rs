@@ -113,7 +113,7 @@ mod tests {
             fd_player_id: 166092,
             gsis_player_id: "00-0036355".into(),
         };
-        store.save_links(&[link.clone()]).await.unwrap();
+        store.save_links(std::slice::from_ref(&link)).await.unwrap();
         store.save_links(&[link]).await.unwrap();
         assert_eq!(store.links().await.unwrap().len(), 1);
     }

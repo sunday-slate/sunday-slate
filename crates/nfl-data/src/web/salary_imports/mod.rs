@@ -1,11 +1,11 @@
 pub(crate) mod error;
 pub(crate) mod handlers;
 
+use crate::web::AdminState;
+use crate::{SalaryError, SalaryWeekOverview};
 pub(crate) use error::SalaryAdminError;
 pub use handlers::router;
 use nfl_model::SeasonWeek;
-use crate::{SalaryError, SalaryWeekOverview};
-use crate::web::AdminState;
 
 /// Every source row for the week plus the player IDs lacking a link.
 async fn salary_week_overview(

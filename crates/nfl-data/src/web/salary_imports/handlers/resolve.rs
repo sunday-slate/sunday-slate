@@ -1,10 +1,10 @@
-use crate::web::{salary_imports, AdminState};
 use crate::web::salary_imports::SalaryAdminError;
+use crate::web::{AdminState, salary_imports};
+use crate::{PlayerLink, SalaryError, SalaryWeekOverview};
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Redirect};
-use serde::Deserialize;
 use nfl_model::SeasonWeek;
-use crate::{PlayerLink, SalaryError, SalaryWeekOverview};
+use serde::Deserialize;
 
 #[derive(Deserialize)]
 pub struct ResolveForm {
@@ -52,13 +52,15 @@ async fn resolve_salary_player(
     }) {
         return Err(SalaryError::Schedule);
     }
-    state.nfl.store
+    state
+        .nfl
+        .store
         .save_links(&[PlayerLink {
             fd_player_id,
             gsis_player_id: gsis_player_id.to_owned(),
         }])
         .await?;
-    salary_imports::salary_week_overview(&state, season_week).await
+    salary_imports::salary_week_overview(state, season_week).await
 }
 
 #[cfg(test)]
@@ -110,10 +112,7 @@ mod tests {
             "/nfl-data-admin/salary-imports/2025001"
         );
         let links = state.nfl.store.links().await.unwrap();
-        assert_eq!(
-            links.get(&999).map(String::as_str),
-            Some("00-roster-only")
-        );
+        assert_eq!(links.get(&999).map(String::as_str), Some("00-roster-only"));
         let overview = crate::web::salary_imports::salary_week_overview(
             &crate::web::AdminState {
                 nfl: std::sync::Arc::clone(&state.nfl),

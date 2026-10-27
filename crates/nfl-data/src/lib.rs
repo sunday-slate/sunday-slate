@@ -184,7 +184,10 @@ impl NflData {
             .map(|id| id.as_ref())
             .filter(|id| !players.contains_key(*id))
             .collect();
-        let roster = self.provider.weekly_roster_entries_by_gsis(&unnamed).await?;
+        let roster = self
+            .provider
+            .weekly_roster_entries_by_gsis(&unnamed)
+            .await?;
         let named = players.into_iter().map(|(id, p)| {
             let identity = PlayerIdentity {
                 name: p.full_name,

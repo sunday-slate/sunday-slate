@@ -1,6 +1,6 @@
 use crate::salaries::SalaryWeekOverview;
-use crate::web::{salary_imports, AdminState};
 use crate::web::salary_imports::SalaryAdminError;
+use crate::web::{AdminState, salary_imports};
 use askama::Template;
 use axum::extract::{Path, State};
 use axum::response::Html;
