@@ -2,7 +2,8 @@ use std::{sync::Arc, time::Duration};
 
 use axum::{Router, http::StatusCode};
 use axum_test::TestServer;
-use nfl_data::{NflData, NflDataConfig, admin_router};
+use nfl_data::{AdminConfig, NflData, NflDataConfig, admin_router};
+use nfl_model::Season;
 use sqlx::Connection;
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
@@ -27,8 +28,9 @@ async fn server() -> (TestServer, MockServer) {
             .await;
     }
     let nfl = NflData::connect(NflDataConfig {
-        database_url: "sqlite::memory:".into(),
+        nflverse_database_url: "sqlite::memory:".into(),
         fanduel_database_url: "sqlite::memory:".into(),
+        reconciliation_database_url: "sqlite::memory:".into(),
         github_api_base: upstream.uri(),
         refresh_interval: None,
         ..Default::default()
@@ -36,7 +38,16 @@ async fn server() -> (TestServer, MockServer) {
     .await
     .unwrap();
     (
-        TestServer::new(Router::new().nest("/nfl-data-admin", admin_router::<()>(Arc::new(nfl)))),
+        TestServer::new(Router::new().nest(
+            "/nfl-data-admin",
+            admin_router::<()>(
+                Arc::new(nfl),
+                AdminConfig {
+                    season: Season(2025),
+                    now_override: None,
+                },
+            ),
+        )),
         upstream,
     )
 }
@@ -73,8 +84,9 @@ async fn nflverse_setup_errors_are_generic_500_responses() {
     let cache = tempfile::tempdir().unwrap();
     let database_url = format!("sqlite://{}/cache.db", cache.path().display());
     let nfl = NflData::connect(NflDataConfig {
-        database_url: database_url.clone(),
+        nflverse_database_url: database_url.clone(),
         fanduel_database_url: "sqlite::memory:".into(),
+        reconciliation_database_url: "sqlite::memory:".into(),
         github_api_base: upstream.uri(),
         refresh_interval: None,
         ..Default::default()
@@ -88,8 +100,16 @@ async fn nflverse_setup_errors_are_generic_500_responses() {
         .execute(&mut connection)
         .await
         .unwrap();
-    let server =
-        TestServer::new(Router::new().nest("/nfl-data-admin", admin_router::<()>(Arc::new(nfl))));
+    let server = TestServer::new(Router::new().nest(
+        "/nfl-data-admin",
+        admin_router::<()>(
+            Arc::new(nfl),
+            AdminConfig {
+                season: Season(2025),
+                now_override: None,
+            },
+        ),
+    ));
     for response in [
         server.get("/nfl-data-admin/nflverse").await,
         server.post("/nfl-data-admin/nflverse").await,
@@ -126,8 +146,9 @@ async fn nflverse_post_and_scheduled_refresh_are_single_flight() {
     let interval = Duration::from_millis(60);
     let nfl = Arc::new(
         NflData::connect(NflDataConfig {
-            database_url: "sqlite::memory:".into(),
+            nflverse_database_url: "sqlite::memory:".into(),
             fanduel_database_url: "sqlite::memory:".into(),
+            reconciliation_database_url: "sqlite::memory:".into(),
             github_api_base: upstream.uri(),
             refresh_interval: Some(interval),
             ..Default::default()
@@ -135,9 +156,16 @@ async fn nflverse_post_and_scheduled_refresh_are_single_flight() {
         .await
         .unwrap(),
     );
-    let server = TestServer::new(
-        Router::new().nest("/nfl-data-admin", admin_router::<()>(Arc::clone(&nfl))),
-    );
+    let server = TestServer::new(Router::new().nest(
+        "/nfl-data-admin",
+        admin_router::<()>(
+            Arc::clone(&nfl),
+            AdminConfig {
+                season: Season(2025),
+                now_override: None,
+            },
+        ),
+    ));
     nfl.start_background_tasks();
 
     let started = server.post("/nfl-data-admin/nflverse").await;

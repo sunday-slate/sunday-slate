@@ -47,6 +47,7 @@ These TOML keys replace the former `nfl_database_url`, `nfl_github_token`, and
 | --- | --- | --- |
 | `nflverse_database_url` | `SUNDAY_SLATE__NFLVERSE_DATABASE_URL` | `sqlite://./storage/nflverse-cache.db` |
 | `fanduel_database_url` | `SUNDAY_SLATE__FANDUEL_DATABASE_URL` | `sqlite://./storage/fanduel-data.db` |
+| `nfl_data_database_url` | `SUNDAY_SLATE__NFL_DATA_DATABASE_URL` | `sqlite://./storage/nfl-data.db` |
 | `nflverse_github_token` | `SUNDAY_SLATE__NFLVERSE_GITHUB_TOKEN` | Unset (public GitHub access) |
 | `nflverse_sync_interval_secs` | `SUNDAY_SLATE__NFLVERSE_SYNC_INTERVAL_SECS` | `0` (manual only) |
 
@@ -67,8 +68,29 @@ monotonic version.
 
 The nflverse database is a rebuildable cache and may be recreated from source.
 The FanDuel database is durable source data and belongs in routine backups with
-the Sunday Slate database. Keep all three stores separate; do not remove the
-FanDuel archive when rebuilding the nflverse cache.
+the Sunday Slate database. `storage/nfl-data.db` additionally holds the
+persisted FanDuel→GSIS player links (the reconciliation store); it is durable
+admin state and belongs in routine backups too. Keep all stores separate; do
+not remove the FanDuel archive when rebuilding the nflverse cache.
+
+## Player Link Transfer
+
+Migrating an existing deployment's confirmed player links out of the Sunday
+Slate database into the reconciliation store is a one-time command:
+
+```sh
+cargo run -p nfl-data --bin migrate-salary-links \
+  --source sqlite://./storage/sunday-slate.db \
+  --destination sqlite://./storage/nfl-data.db
+```
+
+The source opens read-only and is never modified; the destination is created
+and migrated if missing. The transfer is idempotent — links already present
+with the same FD id are counted, not re-copied — and rejects a source and
+destination that resolve to the same file (including hard links and symlinks
+to the same inode). Preserve the legacy `fd_player_id` column (run the transfer
+before upgrading Sunday Slate past its `remove_salary_reconciliation`
+migration); a source without that column fails with a clear error.
 
 ## Command-Line Refresh
 

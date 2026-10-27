@@ -1,0 +1,31 @@
+{% extends "admin/layout.html" %}
+{% block content %}
+<div class="mx-auto max-w-2xl">
+  <section class="mb-5 rounded-box border border-base-300 bg-base-100 p-4">
+    <p class="text-xs font-semibold uppercase tracking-wide text-base-content/60">Unmatched FanDuel player</p>
+    <h1 class="mt-1 text-2xl font-bold">{{ source_name }}</h1>
+    <p class="mt-1 text-sm text-base-content/70">{{ team }} · {{ position }} · ${{ salary }}</p>
+  </section>
+
+  {% if let Some(player) = suggestion %}
+  <section class="mb-5 rounded-box border border-primary/30 bg-primary/5 p-4">
+    <p class="mb-2 text-sm">Looks like <span class="font-semibold">{{ player.label }}</span> for {{ team }}.</p>
+    <form method="post" action="/salary-imports/{{ week }}/players/{{ fd_player_id }}/resolve">
+      <input type="hidden" name="gsis_player_id" value="{{ player.gsis_id }}">
+      <button class="btn btn-primary btn-sm" type="submit">Confirm suggestion</button>
+    </form>
+  </section>
+  {% endif %}
+
+  <form method="get" action="/salary-imports/{{ week }}/players/{{ fd_player_id }}" class="mb-4 flex gap-2">
+    {% if results.widened %}<input type="hidden" name="scope" value="all">{% endif %}
+    <input class="input input-bordered flex-1" name="q" value="{{ query }}" placeholder="Filter {{ team }} players…"
+           hx-get="/salary-imports/{{ week }}/players/{{ fd_player_id }}/search"
+           hx-trigger="focus once, input changed delay:300ms"
+           hx-include="closest form"
+           hx-target="#candidate-results" hx-swap="innerHTML" autocomplete="off">
+    <button class="btn btn-outline" type="submit">Search</button>
+  </form>
+  <div id="candidate-results">{% include "admin/salary_imports/_results.html" %}</div>
+</div>
+{% endblock %}

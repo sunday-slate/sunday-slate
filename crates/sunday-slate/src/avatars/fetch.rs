@@ -70,15 +70,12 @@ async fn fetch_missing_with<F>(
 where
     F: Fn(&str) -> String,
 {
-    let players = player_store::missing_headshots(state.db.reader()).await?;
+    let missing_ids = crate::avatars::missing_player_headshot_ids(state).await?;
     let teams = team_store::missing_logos(state.db.reader()).await?;
-    let total = players.len() + teams.len();
+    let total = missing_ids.len() + teams.len();
     let mut report = FetchReport::default();
     publish(progress, total, &report);
-    let player_ids: Vec<&str> = players
-        .iter()
-        .map(|player| player.gsis_player_id.as_str())
-        .collect();
+    let player_ids: Vec<&str> = missing_ids.iter().map(String::as_str).collect();
     let identities = if player_ids.is_empty() {
         std::collections::HashMap::new()
     } else {
@@ -86,8 +83,8 @@ where
     };
     let client = reqwest::Client::new();
 
-    for player in players {
-        let Some(identity) = identities.get(&player.gsis_player_id) else {
+    for gsis_player_id in &missing_ids {
+        let Some(identity) = identities.get(gsis_player_id) else {
             report.skipped += 1;
             publish(progress, total, &report);
             continue;
@@ -101,7 +98,7 @@ where
             Ok(image) => image,
             Err(error) => {
                 warn!(
-                    gsis_player_id = %player.gsis_player_id,
+                    gsis_player_id = %gsis_player_id,
                     url,
                     %error,
                     "failed to fetch player headshot"
@@ -111,18 +108,20 @@ where
                 continue;
             }
         };
-        let path = format!("headshots/{}.png", player.gsis_player_id);
+        let path = format!("headshots/{}.png", gsis_player_id);
         if let Err(error) = state
             .db
             .write_tx(async |conn| -> Result<(), AppError> {
+                let local_player =
+                    player_store::upsert_for_gsis_conn(&mut *conn, gsis_player_id).await?;
                 let media_id = save_avatar(conn, state, &path, &processed).await?;
-                player_store::set_headshot_media_id(&mut *conn, player.id, media_id).await?;
+                player_store::set_headshot_media_id(&mut *conn, local_player.id, media_id).await?;
                 Ok(())
             })
             .await
         {
             warn!(
-                gsis_player_id = %player.gsis_player_id,
+                gsis_player_id = %gsis_player_id,
                 %error,
                 "failed to save player headshot"
             );
@@ -313,13 +312,12 @@ mod tests {
     async fn add_player(
         app: &TestApp,
         gsis_id: &str,
-        fd_id: u32,
         headshot_url: Option<&str>,
         seed_identity: bool,
     ) {
-        player_store::upsert(&app.pool, gsis_id, fd_id)
+        player_store::upsert_for_gsis(&app.pool, gsis_id)
             .await
-            .expect("crosswalk");
+            .expect("local player");
         if seed_identity {
             app.nfl
                 .seed_for_test(
@@ -373,7 +371,6 @@ mod tests {
         add_player(
             &app,
             "00-FETCH",
-            700001,
             Some(&format!("{}/player.png", server.uri())),
             true,
         )
@@ -408,10 +405,9 @@ mod tests {
                 ..
             }
         ));
-        let player = player_store::by_fd_id(&app.pool, 700001)
+        let player = player_store::upsert_for_gsis(&app.pool, "00-FETCH")
             .await
-            .expect("player")
-            .expect("crosswalk");
+            .expect("local player");
         let player_media = media_store::get(&app.pool, player.headshot_media_id.expect("headshot"))
             .await
             .expect("media")
@@ -450,7 +446,6 @@ mod tests {
         add_player(
             &app,
             "00-ORPHAN",
-            700002,
             Some(&format!("{}/player.png", server.uri())),
             true,
         )
@@ -469,10 +464,9 @@ mod tests {
 
         assert_eq!(report.players_fetched, 1);
         assert_eq!(report.failed, 0);
-        let player = player_store::by_fd_id(&app.pool, 700002)
+        let player = player_store::upsert_for_gsis(&app.pool, "00-ORPHAN")
             .await
-            .expect("player")
-            .expect("crosswalk");
+            .expect("local player");
         assert_eq!(player.headshot_media_id, Some(orphan));
         let media = media_store::get(&app.pool, orphan)
             .await
@@ -501,7 +495,6 @@ mod tests {
         add_player(
             &app,
             "00-FAIL",
-            700003,
             Some(&format!("{}/player.png", server.uri())),
             true,
         )
@@ -529,10 +522,9 @@ mod tests {
                 ..
             }
         ));
-        let player = player_store::by_fd_id(&app.pool, 700003)
+        let player = player_store::upsert_for_gsis(&app.pool, "00-FAIL")
             .await
-            .expect("player")
-            .expect("crosswalk");
+            .expect("local player");
         assert!(player.headshot_media_id.is_none());
         let team_media_id: Option<i64> =
             sqlx::query_scalar("SELECT logo_media_id FROM nfl_teams WHERE abbr = 'KC'")
@@ -565,7 +557,6 @@ mod tests {
         add_player(
             &app,
             "00-OVERSIZED",
-            700004,
             Some(&format!("{}/player.png", server.uri())),
             true,
         )
@@ -588,10 +579,9 @@ mod tests {
                 skipped: 0,
             }
         );
-        let player = player_store::by_fd_id(&app.pool, 700004)
+        let player = player_store::upsert_for_gsis(&app.pool, "00-OVERSIZED")
             .await
-            .expect("player")
-            .expect("crosswalk");
+            .expect("local player");
         assert!(player.headshot_media_id.is_none());
         let team_media_id: Option<i64> =
             sqlx::query_scalar("SELECT logo_media_id FROM nfl_teams WHERE abbr = 'KC'")
@@ -615,8 +605,8 @@ mod tests {
     #[tokio::test]
     async fn fetch_missing_counts_absent_and_no_source_identities() {
         let app = TestApp::new().await;
-        add_player(&app, "00-NO-SOURCE", 700005, None, true).await;
-        add_player(&app, "00-ABSENT", 700006, None, false).await;
+        add_player(&app, "00-NO-SOURCE", None, true).await;
+        add_player(&app, "00-ABSENT", None, false).await;
         link_teams(&app.pool, None).await;
 
         let (progress, _hold) = test_progress(&app);
@@ -646,7 +636,6 @@ mod tests {
         add_player(
             &app,
             "00-SAVEFAIL",
-            700007,
             Some(&format!("{}/player.png", server.uri())),
             true,
         )
@@ -673,10 +662,9 @@ mod tests {
                 skipped: 0,
             }
         );
-        let player = player_store::by_fd_id(&app.pool, 700007)
+        let player = player_store::upsert_for_gsis(&app.pool, "00-SAVEFAIL")
             .await
-            .expect("player")
-            .expect("crosswalk");
+            .expect("local player");
         assert!(player.headshot_media_id.is_none());
     }
 
@@ -687,7 +675,6 @@ mod tests {
         add_player(
             &app,
             "00-LINKED",
-            700008,
             Some("http://127.0.0.1:1/player.png"),
             true,
         )
@@ -717,7 +704,7 @@ mod tests {
     async fn start_fetch_runs_in_the_background_and_records_the_report() {
         let app = TestApp::new().await;
         link_teams(&app.pool, None).await;
-        add_player(&app, "00-NOSRC", 700012, None, true).await;
+        add_player(&app, "00-NOSRC", None, true).await;
 
         let state = app.state();
         assert!(start_fetch(&state));

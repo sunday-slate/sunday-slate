@@ -1,6 +1,8 @@
 mod config;
 mod data_revision;
 mod identity;
+mod reconciliation;
+mod salaries;
 #[cfg(test)]
 mod test;
 mod web;
@@ -28,6 +30,11 @@ pub use nflverse_data::{
     Dataset, DatasetFreshness, DatasetReport, DatasetStatus, NflverseDataError as NflDataError,
     RefreshStatus, SyncReport,
 };
+pub use reconciliation::PlayerLink;
+pub use reconciliation::migration::{LinkMigrationReport, migrate_salary_links};
+pub use salaries::ReconciledSalary;
+pub use salaries::SalaryError;
+pub use web::AdminConfig;
 pub use web::router as admin_router;
 
 pub struct WeeklySummary {
@@ -42,11 +49,14 @@ pub enum NflDataConnectError {
     Nflverse(#[source] NflDataError),
     #[error("FanDuel provider startup failed: {0}")]
     Fanduel(#[source] FanduelDataError),
+    #[error("NFL reconciliation startup failed: {0}")]
+    Reconciliation(#[source] SalaryError),
 }
 
 pub struct NflData {
     provider: NflverseData,
     fanduel: fanduel_data::FanduelData,
+    reconciliation: reconciliation::Store,
     refresh_interval: Option<std::time::Duration>,
 }
 
@@ -134,9 +144,13 @@ impl NflData {
             fanduel_data::FanduelData::connect(&config.fanduel_database_url).await
         }
         .map_err(NflDataConnectError::Fanduel)?;
+        let reconciliation = reconciliation::Store::open(&config.reconciliation_database_url)
+            .await
+            .map_err(NflDataConnectError::Reconciliation)?;
         Ok(Self {
             provider,
             fanduel,
+            reconciliation,
             refresh_interval,
         })
     }
@@ -151,9 +165,13 @@ impl NflData {
         let fanduel = fanduel_data::FanduelData::in_memory()
             .await
             .map_err(NflDataConnectError::Fanduel)?;
+        let reconciliation = reconciliation::Store::in_memory()
+            .await
+            .map_err(NflDataConnectError::Reconciliation)?;
         Ok(Self {
             provider,
             fanduel,
+            reconciliation,
             refresh_interval: None,
         })
     }

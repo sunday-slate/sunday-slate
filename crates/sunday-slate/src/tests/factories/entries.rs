@@ -195,3 +195,68 @@ pub async fn full_entry(pool: &SqlitePool, contest_id: i64, team_id: i64, rb1: &
     .unwrap();
     entry_id
 }
+
+/// One salary source row to seed through the production CSV import, plus the
+/// GSIS identity to confirm for it (skip `gsis_id` for DST rows).
+pub struct TestSalary<'a> {
+    pub fd_id: u32,
+    pub gsis_id: Option<&'a str>,
+    pub team: TeamAbbr,
+    pub position: nfl_model::DfsPosition,
+    pub salary: u32,
+}
+
+/// Seed salaries for one game through the real production APIs: the caller
+/// seeds the schedule and identities first (this helper must not call
+/// `seed_for_test` again — its inserts are not upserts). Builds a full-week
+/// CSV from synthetic unique names, imports it with `import_salary_csv`, and
+/// confirms each supplied non-DST GSIS link with `resolve_salary_player`.
+///
+/// Callers assign stable unique FD IDs and may rerun the helper with a new
+/// salary amount to update the source price without duplicating nflverse seeds.
+pub async fn seed_salaries(nfl: &nfl_data::NflData, game: &Game, rows: &[TestSalary<'_>]) {
+    use nfl_model::SeasonWeek;
+
+    let season_week = SeasonWeek {
+        season: game.season,
+        season_type: game.season_type,
+        week: game.week,
+    };
+
+    let matchup = format!("{}@{}", game.away_team.as_str(), game.home_team.as_str());
+    let mut csv = String::from(
+        "Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,Injury Indicator,Injury Details\n",
+    );
+    for row in rows {
+        let opponent = if row.team == game.away_team {
+            game.home_team.as_str()
+        } else {
+            game.away_team.as_str()
+        };
+        let first = format!("Fixture{}", row.fd_id);
+        let last = format!("Player{}", row.fd_id);
+        let position: String = String::from(row.position);
+        csv.push_str(&format!(
+            "\"1-{fd}\",\"{position}\",\"{first}\",\"\",\"{last}\",\"0\",\"0\",\"{salary}\",\"{matchup}\",\"{team}\",\"{opponent}\",\"\",\"\"\n",
+            fd = row.fd_id,
+            position = position,
+            first = first,
+            last = last,
+            salary = row.salary,
+            matchup = matchup,
+            team = row.team.as_str(),
+            opponent = opponent,
+        ));
+    }
+
+    nfl.import_salary_csv(season_week, csv.as_bytes())
+        .await
+        .expect("seed_salaries import");
+
+    for row in rows {
+        let Some(gsis_id) = row.gsis_id else { continue };
+        nfl.resolve_salary_player(season_week, row.fd_id, gsis_id)
+            .await
+            .expect("seed_salaries resolve");
+    }
+}

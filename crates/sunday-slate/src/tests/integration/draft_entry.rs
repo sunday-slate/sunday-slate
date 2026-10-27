@@ -2,7 +2,7 @@
 //! save → entry, and discard from the fresh and committed-editor states.
 
 use axum::http::StatusCode;
-use nfl_data::Game;
+use nfl_data::{DfsPosition, Game};
 use sqlx::SqlitePool;
 use time::OffsetDateTime;
 use time::macros::datetime;
@@ -37,35 +37,6 @@ fn scheduled_game() -> Game {
 async fn open_contest(pool: &SqlitePool, app: &TestApp) -> (GeneratedTeam, i64, String) {
     let fixture = factories::team(pool, TeamOptions::default()).await;
     let contest = factories::contest_with_games(pool, "Week 1", &[SLATE_GAME]).await;
-    for (gsis, position) in [
-        ("00-Q", "QB"),
-        ("00-R1", "RB"),
-        ("00-R2", "RB"),
-        ("00-W1", "WR"),
-        ("00-W2", "WR"),
-        ("00-W3", "WR"),
-        ("00-T", "TE"),
-        ("00-F", "RB"),
-    ] {
-        sqlx::query(
-            "INSERT INTO nfl_player_salaries (gsis_game_id, gsis_player_id, team_abbr, dfs_position, salary)
-             VALUES (?1, ?2, 'KC', ?3, 5000)",
-        )
-        .bind(SLATE_GAME)
-        .bind(gsis)
-        .bind(position)
-        .execute(pool)
-        .await
-        .unwrap();
-    }
-    sqlx::query(
-        "INSERT INTO nfl_player_salaries (gsis_game_id, gsis_player_id, team_abbr, dfs_position, salary)
-         VALUES (?1, NULL, 'KC', 'DST', 5000)",
-    )
-    .bind(SLATE_GAME)
-    .execute(pool)
-    .await
-    .unwrap();
     let players = [
         factories::player("00-Q", "Jaxon Smith-Njigba"),
         factories::player("00-R1", "Alpha Runner"),
@@ -77,10 +48,82 @@ async fn open_contest(pool: &SqlitePool, app: &TestApp) -> (GeneratedTeam, i64, 
         factories::player("00-F", "Flex Runner"),
     ];
     let full_name = players[0].full_name.clone();
+    let g = scheduled_game();
     app.nfl
-        .seed_for_test(&players, &[scheduled_game()])
+        .seed_for_test(&players, std::slice::from_ref(&g))
         .await
         .unwrap();
+    let kc = "KC".parse().unwrap();
+    factories::seed_salaries(
+        &app.nfl,
+        &g,
+        &[
+            factories::TestSalary {
+                fd_id: 10,
+                gsis_id: Some("00-Q"),
+                team: kc,
+                position: DfsPosition::Qb,
+                salary: 5000,
+            },
+            factories::TestSalary {
+                fd_id: 11,
+                gsis_id: Some("00-R1"),
+                team: kc,
+                position: DfsPosition::Rb,
+                salary: 5000,
+            },
+            factories::TestSalary {
+                fd_id: 12,
+                gsis_id: Some("00-R2"),
+                team: kc,
+                position: DfsPosition::Rb,
+                salary: 5000,
+            },
+            factories::TestSalary {
+                fd_id: 13,
+                gsis_id: Some("00-W1"),
+                team: kc,
+                position: DfsPosition::Wr,
+                salary: 5000,
+            },
+            factories::TestSalary {
+                fd_id: 14,
+                gsis_id: Some("00-W2"),
+                team: kc,
+                position: DfsPosition::Wr,
+                salary: 5000,
+            },
+            factories::TestSalary {
+                fd_id: 15,
+                gsis_id: Some("00-W3"),
+                team: kc,
+                position: DfsPosition::Wr,
+                salary: 5000,
+            },
+            factories::TestSalary {
+                fd_id: 16,
+                gsis_id: Some("00-T"),
+                team: kc,
+                position: DfsPosition::Te,
+                salary: 5000,
+            },
+            factories::TestSalary {
+                fd_id: 17,
+                gsis_id: Some("00-F"),
+                team: kc,
+                position: DfsPosition::Rb,
+                salary: 5000,
+            },
+            factories::TestSalary {
+                fd_id: 20,
+                gsis_id: None,
+                team: kc,
+                position: DfsPosition::Dst,
+                salary: 5000,
+            },
+        ],
+    )
+    .await;
     (fixture, contest, full_name)
 }
 

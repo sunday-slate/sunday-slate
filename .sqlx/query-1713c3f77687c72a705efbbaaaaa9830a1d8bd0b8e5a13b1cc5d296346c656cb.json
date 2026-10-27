@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT gsis_player_id AS \"gsis_player_id!: String\"\n           FROM nfl_players WHERE headshot_media_id IS NOT NULL",
+  "describe": {
+    "columns": [
+      {
+        "name": "gsis_player_id!: String",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "nfl_players",
+            "name": "gsis_player_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "1713c3f77687c72a705efbbaaaaa9830a1d8bd0b8e5a13b1cc5d296346c656cb"
+}

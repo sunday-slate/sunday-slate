@@ -31,8 +31,9 @@ impl App {
 
         let nfl = Arc::new(
             nfl_data::NflData::connect(nfl_data::NflDataConfig {
-                database_url: config.nflverse_database_url.clone(),
+                nflverse_database_url: config.nflverse_database_url.clone(),
                 fanduel_database_url: config.fanduel_database_url.clone(),
+                reconciliation_database_url: config.nfl_data_database_url.clone(),
                 github_token: config.nflverse_github_token.clone(),
                 refresh_interval: config.nflverse_sync_interval(),
                 ..Default::default()
@@ -190,6 +191,8 @@ mod tests {
         let mut config = (*fixture.state.config).clone();
         config.database_url = format!("sqlite://{}/app.db", dir.path().display());
         config.nflverse_database_url = format!("sqlite://{}/nflverse.db", dir.path().display());
+        config.fanduel_database_url = format!("sqlite://{}/fanduel.db", dir.path().display());
+        config.nfl_data_database_url = format!("sqlite://{}/nfl-data.db", dir.path().display());
         config.media_dir = dir.path().join("media");
         config.nflverse_sync_interval_secs = 3600;
 
@@ -201,7 +204,13 @@ mod tests {
         .unwrap();
         let router = Router::new().nest(
             "/nfl-data-admin",
-            nfl_data::admin_router::<()>(Arc::clone(&app.state.nfl)),
+            nfl_data::admin_router::<()>(
+                Arc::clone(&app.state.nfl),
+                nfl_data::AdminConfig {
+                    season: nfl_data::Season(app.state.config.season),
+                    now_override: app.state.config.now_override,
+                },
+            ),
         );
         let server = TestServer::builder().build(router);
         let response = server.get("/nfl-data-admin/nflverse").await;

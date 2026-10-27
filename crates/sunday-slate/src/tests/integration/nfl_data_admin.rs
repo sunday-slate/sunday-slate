@@ -44,6 +44,86 @@ async fn admin_follows_tools_to_nflverse_without_a_league_or_team() {
 }
 
 #[tokio::test]
+async fn salary_imports_routes_require_admin_authorization() {
+    let (nfl, _server) = crate::tests::nfl::mocked_nfl().await;
+    let app = TestApp::new_with_nfl(nfl).await;
+
+    // Anonymous users are redirected to login on every salary route, both verbs.
+    for path in [
+        "/nfl-data-admin/salary-imports",
+        "/nfl-data-admin/salary-imports/2025001",
+        "/nfl-data-admin/salary-imports/2025001/players/999",
+        "/nfl-data-admin/salary-imports/2025001/players/999/search",
+    ] {
+        let resp = app.get(path).await;
+        assert!(resp.status_code().is_redirection(), "{path}");
+        assert!(
+            resp.header("location")
+                .to_str()
+                .unwrap()
+                .starts_with("/login"),
+            "{path}"
+        );
+    }
+    for path in [
+        "/nfl-data-admin/salary-imports",
+        "/nfl-data-admin/salary-imports/2025001/players/999/resolve",
+    ] {
+        let resp = app.post(path, "").await;
+        assert!(resp.status_code().is_redirection(), "{path}");
+        assert!(
+            resp.header("location")
+                .to_str()
+                .unwrap()
+                .starts_with("/login"),
+            "{path}"
+        );
+    }
+
+    // A signed-in non-admin gets 403 on the same routes.
+    let mut app = app;
+    app.clear_cookies();
+    let user = factories::user(&app.pool, UserOptions::default()).await;
+    app.login_as(&user.user).await;
+    for path in [
+        "/nfl-data-admin/salary-imports",
+        "/nfl-data-admin/salary-imports/2025001",
+        "/nfl-data-admin/salary-imports/2025001/players/999",
+        "/nfl-data-admin/salary-imports/2025001/players/999/search",
+    ] {
+        app.get(path).await.assert_status(StatusCode::FORBIDDEN);
+    }
+    for path in [
+        "/nfl-data-admin/salary-imports",
+        "/nfl-data-admin/salary-imports/2025001/players/999/resolve",
+    ] {
+        app.post(path, "")
+            .await
+            .assert_status(StatusCode::FORBIDDEN);
+    }
+
+    // A global admin with no league or team can open the workflow pages.
+    // (The player-resolution page 404s without an imported salary week; the
+    // full workflow with data is covered by nfl-data's handler tests.)
+    app.clear_cookies();
+    let admin = factories::user(
+        &app.pool,
+        UserOptions {
+            is_admin: true,
+            ..Default::default()
+        },
+    )
+    .await;
+    app.login_as(&admin.user).await;
+    app.get("/nfl-data-admin/salary-imports")
+        .await
+        .assert_status_ok();
+    app.get("/nfl-data-admin/salary-imports/2025001")
+        .await
+        .assert_status_ok();
+}
+
+#[tokio::test]
 async fn anonymous_and_non_admin_cannot_read_or_sync_nfl_data() {
     let (nfl, server) = crate::tests::nfl::mocked_nfl().await;
     let app = TestApp::new_with_nfl(nfl).await;
@@ -116,10 +196,15 @@ async fn old_sync_route_is_removed_and_other_tools_remain() {
         };
         response.assert_status(StatusCode::NOT_FOUND);
     }
+    // The old salary-imports path is gone with the module; the new one lives
+    // under the nfl-data-admin mount.
+    app.get("/admin/salary-imports")
+        .await
+        .assert_status(StatusCode::NOT_FOUND);
     let tools = app.get("/admin").await.text();
     for href in [
         "/admin/contests",
-        "/admin/salary-imports",
+        "/nfl-data-admin/salary-imports",
         "/admin/avatars",
         "/leagues/new",
     ] {

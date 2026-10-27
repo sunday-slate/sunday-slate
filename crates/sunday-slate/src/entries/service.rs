@@ -974,7 +974,8 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
         let avatars =
             crate::avatars::for_lineup(&state.db, &player_ids, &[entry.lineup.def.as_str()])
                 .await?;
-        let salaries = store::slate_salaries(reader, entry.contest.id).await?;
+        let reconciled = state.nfl.salaries_for_games(&slate).await?;
+        let salaries = SlateSalaries::from_reconciled(&reconciled);
         let averages = scoring_service::season_averages(&state.nfl, season, &ids, week).await?;
         let (rows, spent) = build_preview(
             &entry.lineup,
@@ -1012,7 +1013,8 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
             crate::avatars::for_lineup(&state.db, &player_ids, &[entry.lineup.def.as_str()])
                 .await?;
         let contest_entries = store::by_contest(reader, entry.contest.id, entry.league_id).await?;
-        let salaries = store::slate_salaries(reader, entry.contest.id).await?;
+        let reconciled = state.nfl.salaries_for_games(&slate).await?;
+        let salaries = SlateSalaries::from_reconciled(&reconciled);
 
         let ownership = compute_ownership(contest_entries.iter().map(|e| &e.lineup));
 

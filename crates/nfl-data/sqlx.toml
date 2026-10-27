@@ -1,0 +1,5 @@
+[common]
+database-url-var = "NFL_DATA_DATABASE_URL"
+
+[migrate]
+migrations-dir = "./migrations"

@@ -7,9 +7,9 @@ use axum::body::Body;
 use http::{Request, StatusCode};
 use http_body_util::BodyExt;
 use nfl_data::{
-    EspnPlayerId, Game, LiveGamePhase, LiveGameSnapshot, LivePlayerStats, LiveScoreboard,
-    LiveScoreboardGame, LiveTeamStats, PlayerWeekStats as NflPlayerWeekStats, ProviderOutcome,
-    ProviderResponse, Season, TeamAbbr, TeamWeekStats as NflTeamWeekStats,
+    DfsPosition, EspnPlayerId, Game, LiveGamePhase, LiveGameSnapshot, LivePlayerStats,
+    LiveScoreboard, LiveScoreboardGame, LiveTeamStats, PlayerWeekStats as NflPlayerWeekStats,
+    ProviderOutcome, ProviderResponse, Season, TeamAbbr, TeamWeekStats as NflTeamWeekStats,
 };
 use sqlx::SqlitePool;
 use time::OffsetDateTime;
@@ -318,7 +318,7 @@ async fn link_local_pick_media(app: &TestApp) -> String {
         .state
         .db
         .write_tx(async |conn| -> Result<_, crate::AppError> {
-            let player = player_store::upsert(&mut *conn, "00-A", 700010).await?;
+            let player = player_store::upsert_for_gsis_conn(&mut *conn, "00-A").await?;
             let media_id = media::save_png(
                 &mut *conn,
                 &app.state.config.media_dir,
@@ -762,10 +762,19 @@ async fn roster_only_pick_is_named_from_the_weekly_roster(pool: SqlitePool) {
 async fn expanded_row_shows_salary_ownership_and_breakdown(pool: SqlitePool) {
     let app = TestApp::from_pool_at(pool.clone(), KICKOFF).await;
     let (a, _b, entry_id) = setup(&pool, &app).await;
-    sqlx::query(
-        "INSERT INTO nfl_player_salaries (gsis_game_id, gsis_player_id, team_abbr, dfs_position, salary)
-         VALUES (?1, '00-A', 'KC', 'RB', 5700)",
-    ).bind(SLATE_GAME).execute(&pool).await.unwrap();
+    let g = factories::game(SLATE_GAME, 1);
+    factories::seed_salaries(
+        &app.nfl,
+        &g,
+        &[factories::TestSalary {
+            fd_id: 10,
+            gsis_id: Some("00-A"),
+            team: TeamAbbr::KC,
+            position: DfsPosition::Rb,
+            salary: 5700,
+        }],
+    )
+    .await;
 
     app.login_as(&a.owner).await;
     let body = app.get(&format!("/entries/{entry_id}")).await.text();

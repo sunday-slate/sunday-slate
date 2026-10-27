@@ -16,11 +16,7 @@ use nfl_data::{
     TeamWeekStats as NflTeamWeekStats, Week,
 };
 
-use crate::Db;
-use crate::admin::salary_imports as import;
-use crate::nfl_players::store as player_store;
 use crate::scoring;
-use crate::tests::utils::in_memory_pool;
 
 const SEASON: u16 = 2025;
 // Every FanDuel scoring category is now derived from nflverse: the D/ST ones
@@ -97,10 +93,10 @@ async fn full_season_scores_match_fanduel() {
     }
     let fixtures = format!("{manifest}/src/tests/fixtures/fanduel");
 
-    let db = Db::test(in_memory_pool().await);
     let nfl = NflData::connect(NflDataConfig {
-        database_url: format!("sqlite://{nfl_db}"),
+        nflverse_database_url: format!("sqlite://{nfl_db}"),
         fanduel_database_url: "sqlite::memory:".into(),
+        reconciliation_database_url: "sqlite::memory:".into(),
         ..Default::default()
     })
     .await
@@ -124,7 +120,7 @@ async fn full_season_scores_match_fanduel() {
             week: Week(week),
         };
         let bytes = std::fs::read(path).unwrap();
-        import::import_salary_csv(&db, &nfl, season_week, &bytes)
+        nfl.import_salary_csv(season_week, &bytes)
             .await
             .unwrap_or_else(|e| panic!("import {}: {e}", path.display()));
     }
@@ -169,10 +165,7 @@ async fn full_season_scores_match_fanduel() {
                 .find(|t| t.team.as_str() == team)
                 .map(|t| scoring::score_defense(t).total)
         } else {
-            match player_store::by_fd_id(db.reader(), fd_player_id)
-                .await
-                .unwrap()
-            {
+            match nfl.player_link_by_fd_id(fd_player_id).await.unwrap() {
                 None => None,
                 Some(x) => {
                     if let std::collections::hash_map::Entry::Vacant(e) = pstats.entry(week) {

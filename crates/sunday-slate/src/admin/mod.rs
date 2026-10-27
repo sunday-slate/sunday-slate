@@ -7,7 +7,6 @@
 pub mod avatars;
 pub mod banner;
 pub mod contests;
-pub mod salary_imports;
 
 use askama::Template;
 use axum::Router;
@@ -15,6 +14,9 @@ use axum::extract::Request;
 use axum::middleware::Next;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
+use std::sync::Arc;
+
+use nfl_data::{AdminConfig, Season};
 
 use crate::auth::AdminUser;
 use crate::chrome::Chrome;
@@ -57,7 +59,6 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/admin", get(index))
         .nest("/admin/avatars", avatars::router())
         .nest("/admin/contests", contests::router())
-        .nest("/admin/salary-imports", salary_imports::router())
         .route_layer(axum::middleware::from_fn_with_state(state, require_admin))
 }
 
@@ -66,7 +67,13 @@ pub(crate) fn nfl_data_router(state: AppState) -> Router<AppState> {
     Router::new()
         .nest(
             "/nfl-data-admin",
-            nfl_data::admin_router::<AppState>(std::sync::Arc::clone(&state.nfl)),
+            nfl_data::admin_router::<AppState>(
+                Arc::clone(&state.nfl),
+                AdminConfig {
+                    season: Season(state.config.season),
+                    now_override: state.config.now_override,
+                },
+            ),
         )
         .route_layer(axum::middleware::from_fn_with_state(state, require_admin))
 }
@@ -92,7 +99,7 @@ mod tests {
         let page = app.get("/admin").await;
         page.assert_status_ok();
         page.assert_text_contains("Admin Tools");
-        page.assert_text_contains("/admin/salary-imports");
+        page.assert_text_contains("/nfl-data-admin/salary-imports");
         page.assert_text_contains("/admin/avatars");
     }
 

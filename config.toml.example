@@ -26,6 +26,10 @@ season = 2026
 # this store is separate from the disposable nflverse cache.
 # fanduel_database_url = "sqlite://./storage/fanduel-data.db"
 
+# Durable reconciliation store: confirmed FanDuel→GSIS player links and the
+# salary import state. Back up with managed Sunday Slate data.
+# nfl_data_database_url = "sqlite://./storage/nfl-data.db"
+
 # Optional GitHub token for server-started /admin/nfl-sync runs.
 # Secret: prefer SUNDAY_SLATE__NFLVERSE_GITHUB_TOKEN from deployment secret storage;
 # never commit a token.

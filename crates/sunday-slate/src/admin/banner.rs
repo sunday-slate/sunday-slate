@@ -1,11 +1,11 @@
 //! The admin's pending-setup banner: the next contest that is not ready.
 
+use nfl_model::nfl_week_monday;
 use time::OffsetDateTime;
 
 use crate::contests::rule;
 use crate::contests::service::SeasonSlates;
 use crate::contests::{Contest, ContestId};
-use crate::player_salaries::store as player_salaries;
 use crate::{AppError, AppState};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,7 +47,7 @@ pub async fn pending(
         // Nag only from the Monday of the contest's game week: reminding
         // earlier is noise — slates and salaries firm up in the days right
         // before the week.
-        if first > now && now.date() >= crate::contests::service::nfl_week_monday(first.date()) {
+        if first > now && now.date() >= nfl_week_monday(first.date()) {
             candidates.push(Candidate {
                 first,
                 games,
@@ -60,8 +60,12 @@ pub async fn pending(
 
     for candidate in candidates {
         let contest = candidate.contest;
-        let needs_salaries =
-            !player_salaries::any_for_games(state.db.reader(), &candidate.games).await?;
+        let selected: Vec<nfl_data::Game> = candidate
+            .games
+            .iter()
+            .filter_map(|id| slates.games.iter().find(|g| g.gsis_game_id == *id).cloned())
+            .collect();
+        let needs_salaries = !state.nfl.has_salaries_for_games(&selected).await?;
         if candidate.needs_slate || needs_salaries {
             return Ok(Some(AdminBanner {
                 contest: contest.id,
@@ -117,6 +121,12 @@ mod tests {
     use sqlx::SqlitePool;
     use time::macros::datetime;
 
+    /// A minimal valid FanDuel CSV for the banner tests' game (BUF@KC).
+    const FACTORY_CSV: &str = r#""Id","Position","First Name","Nickname","Last Name","FPPG","Played","Salary","Game","Team","Opponent","Injury Indicator","Injury Details"
+"1-100","QB","Josh","","Allen","0","0","8000","BUF@KC","BUF","KC","",""
+"1-200","D","Buffalo","","Bills","0","0","4000","BUF@KC","BUF","KC","",""
+"#;
+
     /// Load the season and run `pending` at the app's clock.
     async fn card(app: &TestApp, pool: &SqlitePool) -> Option<AdminBanner> {
         let slates = SeasonSlates::load(pool, &app.nfl, Season(2025))
@@ -126,17 +136,6 @@ mod tests {
         pending(&app.state(), &slates, &contests, app.state().now())
             .await
             .unwrap()
-    }
-
-    async fn seed_salary(pool: &SqlitePool, game_id: &str) {
-        sqlx::query(
-            "INSERT INTO nfl_player_salaries (gsis_game_id, gsis_player_id, team_abbr, dfs_position, salary)
-             VALUES (?1, '00-A', 'BUF', 'RB', 7000)",
-        )
-        .bind(game_id)
-        .execute(pool)
-        .await
-        .unwrap();
     }
 
     #[sqlx::test]
@@ -160,7 +159,17 @@ mod tests {
         let g = factories::game_at("2025_01_BUF_KC", 1, datetime!(2025-09-07 17:00 UTC));
         app.nfl.seed_for_test(&[], &[g]).await.unwrap();
         factories::contest(&pool, "Week 1").await;
-        seed_salary(&pool, "2025_01_BUF_KC").await;
+        app.nfl
+            .import_salary_csv(
+                nfl_data::SeasonWeek {
+                    season: nfl_data::Season(2025),
+                    season_type: nfl_data::SeasonType::Reg,
+                    week: nfl_data::Week(1),
+                },
+                FACTORY_CSV.as_bytes(),
+            )
+            .await
+            .unwrap();
 
         let card = card(&app, &pool)
             .await
@@ -189,7 +198,17 @@ mod tests {
         let g = factories::game_at("2025_01_BUF_KC", 1, datetime!(2025-09-07 17:00 UTC));
         app.nfl.seed_for_test(&[], &[g]).await.unwrap();
         factories::contest_with_games(&pool, "Week 1", &["2025_01_BUF_KC"]).await;
-        seed_salary(&pool, "2025_01_BUF_KC").await;
+        app.nfl
+            .import_salary_csv(
+                nfl_data::SeasonWeek {
+                    season: nfl_data::Season(2025),
+                    season_type: nfl_data::SeasonType::Reg,
+                    week: nfl_data::Week(1),
+                },
+                FACTORY_CSV.as_bytes(),
+            )
+            .await
+            .unwrap();
 
         assert!(
             card(&app, &pool).await.is_none(),
@@ -263,7 +282,17 @@ mod tests {
 
         // Week 1 is the soonest contest and fully ready: published + salaried.
         factories::contest_with_games(&pool, "Week 1", &["2025_01_BUF_KC"]).await;
-        seed_salary(&pool, "2025_01_BUF_KC").await;
+        app.nfl
+            .import_salary_csv(
+                nfl_data::SeasonWeek {
+                    season: nfl_data::Season(2025),
+                    season_type: nfl_data::SeasonType::Reg,
+                    week: nfl_data::Week(1),
+                },
+                FACTORY_CSV.as_bytes(),
+            )
+            .await
+            .unwrap();
 
         // Week 2 kicks off later and is still unpublished.
         factories::contest(&pool, "Week 2").await;

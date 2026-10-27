@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use nfl_data::{Game, PlayerIdentity, Season, Week};
+use nfl_data::{DfsPosition, Game, PlayerIdentity, ReconciledSalary, Season, Week};
 use strum::IntoEnumIterator;
 
 use crate::avatars::Avatars;
@@ -16,8 +16,6 @@ use crate::entries::service::{PickInfo, SALARY_CAP};
 use crate::entries::store::{self as entries_store, SlateSalaries};
 use crate::entries::{EntryId, EntrySlot, Lineup, NflPlayerId, RosterSlot, SlotValue};
 use crate::fantasy_teams::FantasyTeamId;
-use crate::player_salaries::model::{DfsPosition, NflPlayerSalary};
-use crate::player_salaries::store as salary_store;
 use crate::scoring::format_thousands;
 use crate::scoring::service::{SeasonAverages, season_averages};
 use crate::{AppError, AppState};
@@ -185,7 +183,7 @@ pub async fn page(
     let seed = committed.and_then(|(_, lineup)| lineup);
     let draft = get_or_create_draft(state, contest_id, team_id, seed.as_ref()).await?;
 
-    let salaries = pool_salaries(&ctx.pool);
+    let salaries = SlateSalaries::from_reconciled(&ctx.pool);
     let ids = draft.filled_player_ids();
     let (names, averages) = player_profiles(state, &ids, ctx.week).await?;
     let player_ids: Vec<&str> = ids.iter().map(|id| id.as_ref()).collect();
@@ -200,11 +198,7 @@ pub async fn page(
     let slate_teams: HashMap<&str, &str> = ctx
         .pool
         .iter()
-        .filter_map(|r| {
-            r.gsis_player_id
-                .as_deref()
-                .map(|id| (id, r.team_abbr.as_str()))
-        })
+        .filter_map(|r| r.gsis_player_id.as_deref().map(|id| (id, r.team.as_str())))
         .collect();
 
     let slots: Vec<EditorSlotRow> = RosterSlot::iter()
@@ -264,7 +258,7 @@ pub async fn choices(
 
     // The budget this slot may spend: the cap minus what the *other* slots
     // hold. Swapping replaces the current occupant, so it doesn't count.
-    let salaries = pool_salaries(&ctx.pool);
+    let salaries = SlateSalaries::from_reconciled(&ctx.pool);
     let injuries_by_gsis = crate::live::slate_tuple(&ctx.slate)
         .and_then(|key| state.injuries.report(&key))
         .map(|report| report.by_gsis);
@@ -285,7 +279,7 @@ pub async fn choices(
     let mut player_rows = Vec::new();
     if slot != RosterSlot::Def {
         for row in &ctx.pool {
-            if !position_allowed(slot, row.dfs_position) {
+            if !position_allowed(slot, row.position) {
                 continue;
             }
             let Some(id) = row.gsis_player_id.as_deref() else {
@@ -304,7 +298,7 @@ pub async fn choices(
     let team_refs: Vec<&str> = if slot == RosterSlot::Def {
         ctx.pool
             .iter()
-            .map(|row| row.team_abbr.as_str())
+            .map(|row| row.team.as_str())
             .collect::<HashSet<_>>()
             .into_iter()
             .collect()
@@ -317,19 +311,19 @@ pub async fn choices(
     let mut out: Vec<SlotChoice> = if slot == RosterSlot::Def {
         ctx.pool
             .iter()
-            .filter(|r| r.dfs_position.is_defense())
+            .filter(|r| r.position.is_defense())
             .map(|row| {
-                let team = row.team_abbr.parse().unwrap();
+                let team = row.team;
                 SlotChoice {
                     position: "D/ST".into(),
                     is_picked: draft.def.as_ref() == Some(&team),
-                    over_cap: row.salary > budget,
+                    over_cap: i64::from(row.salary) > budget,
                     injury: None,
                     info: PickInfo::defense(
                         &team,
                         avatars.teams.get(team.as_str()),
                         &ctx.slate,
-                        Some(row.salary),
+                        Some(i64::from(row.salary)),
                         averages.dsts.get(&team).copied(),
                     ),
                     key: SlotValue::Defense(team),
@@ -348,9 +342,9 @@ pub async fn choices(
                 let gsis = player_ids[index].clone();
                 let identity = names.get(gsis.as_ref());
                 SlotChoice {
-                    position: String::from(row.dfs_position),
+                    position: String::from(row.position),
                     is_picked: same_slot.as_ref() == Some(&gsis),
-                    over_cap: row.salary > budget,
+                    over_cap: i64::from(row.salary) > budget,
                     injury: injuries_by_gsis
                         .as_ref()
                         .and_then(|map| map.get(&gsis))
@@ -360,9 +354,9 @@ pub async fn choices(
                             .map(|i| i.name.clone())
                             .unwrap_or_else(|| gsis.as_ref().to_string()),
                         avatars.players.get(gsis.as_ref()),
-                        Some(row.team_abbr.clone()),
+                        Some(row.team.as_str().to_owned()),
                         &ctx.slate,
-                        Some(row.salary),
+                        Some(i64::from(row.salary)),
                         averages.players.get(&gsis).copied(),
                     ),
                     key: SlotValue::Player(gsis),
@@ -459,7 +453,7 @@ pub async fn save(
     contest_id: ContestId,
 ) -> Result<EntryId, AppError> {
     let ctx = require_open(state, contest_id).await?;
-    let salaries = pool_salaries(&ctx.pool);
+    let salaries = SlateSalaries::from_reconciled(&ctx.pool);
     state
         .db
         .write_tx::<_, EntryId, AppError>(async move |conn| {
@@ -511,7 +505,7 @@ fn validate_pick(
     draft: &DraftEntry,
     slot: RosterSlot,
     value: &SlotValue,
-    pool: &[NflPlayerSalary],
+    pool: &[ReconciledSalary],
 ) -> Result<(), AppError> {
     match value {
         SlotValue::Defense(team) => {
@@ -524,7 +518,7 @@ fn validate_pick(
             }
             if !pool
                 .iter()
-                .any(|r| r.dfs_position.is_defense() && r.team_abbr == team.as_str())
+                .any(|r| r.position.is_defense() && r.team == *team)
             {
                 return Err(AppError::BadRequest(format!(
                     "{} is not on this slate.",
@@ -542,7 +536,7 @@ fn validate_pick(
             let position = pool
                 .iter()
                 .find(|r| r.gsis_player_id.as_deref() == Some(id.as_ref()))
-                .map(|r| r.dfs_position)
+                .map(|r| r.position)
                 .ok_or_else(|| {
                     AppError::BadRequest(format!("{} is not on this slate.", id.as_ref()))
                 })?;
@@ -594,7 +588,7 @@ struct SlateCtx {
     week: Week,
     locked: bool,
     /// Every priced player and defense on the contest's games.
-    pool: Vec<NflPlayerSalary>,
+    pool: Vec<ReconciledSalary>,
 }
 
 async fn slate_ctx(state: &AppState, contest_id: ContestId) -> Result<SlateCtx, AppError> {
@@ -603,8 +597,7 @@ async fn slate_ctx(state: &AppState, contest_id: ContestId) -> Result<SlateCtx, 
     let season_games = state.nfl.games(Season(state.config.season)).await?;
     let slate = resolve_games(&game_ids, &season_games);
     let week = slate_week(&slate).ok_or(AppError::NotFound)?;
-    let priced: Vec<&str> = game_ids.iter().map(String::as_str).collect();
-    let pool = salary_store::for_games(reader, &priced).await?;
+    let pool = state.nfl.salaries_for_games(&slate).await?;
     Ok(SlateCtx {
         locked: slate_locked(&slate, state.now()),
         slate,
@@ -620,20 +613,6 @@ async fn require_open(state: &AppState, contest_id: ContestId) -> Result<SlateCt
         return Err(AppError::Forbidden);
     }
     Ok(ctx)
-}
-
-/// The pool's prices keyed for cap math.
-fn pool_salaries(pool: &[NflPlayerSalary]) -> SlateSalaries {
-    let mut salaries = SlateSalaries::default();
-    for row in pool {
-        salaries.insert_row(
-            row.dfs_position.is_defense(),
-            row.gsis_player_id.clone().map(NflPlayerId),
-            row.team_abbr.parse().unwrap(),
-            row.salary,
-        );
-    }
-    salaries
 }
 
 /// Filled-slot count, remaining budget, and per-open average for a draft.
@@ -864,18 +843,17 @@ mod tests {
         }
     }
 
-    fn salary(gsis: &str, position: DfsPosition) -> NflPlayerSalary {
-        NflPlayerSalary {
-            id: 0,
+    fn salary(gsis: &str, position: DfsPosition) -> ReconciledSalary {
+        ReconciledSalary {
             gsis_game_id: "2025_01_BUF_KC".into(),
             gsis_player_id: Some(gsis.into()),
-            team_abbr: "KC".into(),
-            dfs_position: position,
+            team: TeamAbbr::KC,
+            position,
             salary: 5_000,
         }
     }
 
-    fn pool() -> Vec<NflPlayerSalary> {
+    fn pool() -> Vec<ReconciledSalary> {
         vec![
             salary("00-QB", DfsPosition::Qb),
             salary("00-RB", DfsPosition::Rb),
@@ -1047,17 +1025,26 @@ mod tests {
         let app = TestApp::from_pool(pool.clone()).await;
         let fixture = factories::team(&pool, TeamOptions::default()).await;
         let contest = factories::contest_with_games(&pool, "Week 1", &["2025_01_BUF_KC"]).await;
-        sqlx::query(
-            "INSERT INTO nfl_player_salaries (gsis_game_id, gsis_player_id, team_abbr, dfs_position, salary)
-             VALUES ('2025_01_BUF_KC', '00-Q', 'KC', 'QB', 60001)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        let g = factories::game("2025_01_BUF_KC", 1);
         app.nfl
-            .seed_for_test(&[], &[factories::game("2025_01_BUF_KC", 1)])
+            .seed_for_test(
+                &[factories::player("00-Q", "Quinn Back")],
+                std::slice::from_ref(&g),
+            )
             .await
             .unwrap();
+        factories::seed_salaries(
+            &app.nfl,
+            &g,
+            &[factories::TestSalary {
+                fd_id: 10,
+                gsis_id: Some("00-Q"),
+                team: TeamAbbr::KC,
+                position: DfsPosition::Qb,
+                salary: 60_001,
+            }],
+        )
+        .await;
 
         let team_id = FantasyTeamId(fixture.team.id);
         let contest_id = ContestId(contest);
@@ -1084,31 +1071,44 @@ mod tests {
         let app = TestApp::from_pool(pool.clone()).await;
         let fixture = factories::team(&pool, TeamOptions::default()).await;
         let contest = factories::contest_with_games(&pool, "Week 1", &["2025_01_BUF_KC"]).await;
-        for (gsis, position, salary) in [
-            ("00-Q", "QB", 8_000),
-            ("00-R1", "RB", 5_700),
-            ("00-R2", "RB", 5_500),
-        ] {
-            sqlx::query(
-                "INSERT INTO nfl_player_salaries (gsis_game_id, gsis_player_id, team_abbr, dfs_position, salary)
-                 VALUES ('2025_01_BUF_KC', ?1, 'KC', ?2, ?3)",
-            )
-            .bind(gsis)
-            .bind(position)
-            .bind(salary)
-            .execute(&pool)
-            .await
-            .unwrap();
-        }
+        let g = factories::game("2025_01_BUF_KC", 1);
         let players = [
             factories::player("00-Q", "Quinn Back"),
             factories::player("00-R1", "Alpha Runner"),
             factories::player("00-R2", "Beta Runner"),
         ];
         app.nfl
-            .seed_for_test(&players, &[factories::game("2025_01_BUF_KC", 1)])
+            .seed_for_test(&players, std::slice::from_ref(&g))
             .await
             .unwrap();
+        factories::seed_salaries(
+            &app.nfl,
+            &g,
+            &[
+                factories::TestSalary {
+                    fd_id: 10,
+                    gsis_id: Some("00-Q"),
+                    team: TeamAbbr::KC,
+                    position: DfsPosition::Qb,
+                    salary: 8_000,
+                },
+                factories::TestSalary {
+                    fd_id: 11,
+                    gsis_id: Some("00-R1"),
+                    team: TeamAbbr::KC,
+                    position: DfsPosition::Rb,
+                    salary: 5_700,
+                },
+                factories::TestSalary {
+                    fd_id: 12,
+                    gsis_id: Some("00-R2"),
+                    team: TeamAbbr::KC,
+                    position: DfsPosition::Rb,
+                    salary: 5_500,
+                },
+            ],
+        )
+        .await;
 
         let team_id = FantasyTeamId(fixture.team.id);
         let contest_id = ContestId(contest);

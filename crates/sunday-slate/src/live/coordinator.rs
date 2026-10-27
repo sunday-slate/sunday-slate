@@ -1078,8 +1078,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let server = wiremock::MockServer::start().await;
         let nfl = nfl_data::NflData::connect(nfl_data::NflDataConfig {
-            database_url: format!("sqlite://{}/cache.db", dir.path().display()),
+            nflverse_database_url: format!("sqlite://{}/cache.db", dir.path().display()),
             fanduel_database_url: "sqlite::memory:".into(),
+            reconciliation_database_url: "sqlite::memory:".into(),
             github_api_base: server.uri(),
             refresh_interval: None,
             ..Default::default()

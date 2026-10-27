@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT DISTINCT gsis_player_id AS \"gsis_player_id: String\"\n               FROM player_links ORDER BY gsis_player_id",
+  "describe": {
+    "columns": [
+      {
+        "name": "gsis_player_id: String",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "player_links",
+            "name": "gsis_player_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "3cf8ff0846bb012be8b400fb9b7ef48ddd8d267bfc41daf3463591fc8f4e38c3"
+}

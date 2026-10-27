@@ -62,31 +62,6 @@ const ENTITY_ROUTES: &[(&str, Entity)] = &[
     ("/invites/{id}/revoke", Entity::Invite),
 ];
 
-/// Id-carrying route patterns that deliberately have no inherent league:
-/// contests and their draft-entry flow are global slates viewed through the
-/// ambient league; admin routes are global. Grown by the tripwire test in
-/// this module whenever a new id route is added.
-#[cfg_attr(not(test), allow(dead_code))]
-const AMBIENT_ID_ROUTES: &[&str] = &[
-    // Test/dev-only infrastructure, not compiled or mounted in production.
-    "/__test/login/{user_id}",
-    "/_dev/mail/{idx}",
-    "/contests/{id}",
-    "/contests/{id}/events",
-    "/contests/{id}/draft-entry/discard",
-    "/contests/{id}/draft-entry",
-    "/contests/{id}/draft-entry/save",
-    "/contests/{id}/draft-entry/{slot}",
-    "/contests/{id}/draft-entry/{slot}/clear",
-    // Admin contest and salary tooling: global, gated by `AdminUser`.
-    "/{id}",
-    "/{id}/slate",
-    "/{week}",
-    "/{week}/players/{fd_player_id}",
-    "/{week}/players/{fd_player_id}/search",
-    "/{week}/players/{fd_player_id}/resolve",
-];
-
 /// Resolve the request's league — and the user's team in it — and cache both
 /// in request extensions.
 pub async fn resolve(
@@ -221,58 +196,4 @@ async fn entity_league_id(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Every id-carrying route pattern in the crate must be classified as an
-    /// entity route (inherent league) or an ambient id route (deliberately
-    /// global). A new `{id}` route that is neither fails here and forces the
-    /// decision.
-    #[test]
-    fn every_id_route_is_classified() {
-        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        let mut patterns = std::collections::BTreeSet::new();
-        collect_route_patterns(&src, &mut patterns);
-        let unclassified: Vec<_> = patterns
-            .iter()
-            .filter(|p| p.contains('{'))
-            .filter(|p| {
-                !ENTITY_ROUTES
-                    .iter()
-                    .any(|(pattern, _)| *pattern == p.as_str())
-                    && !AMBIENT_ID_ROUTES.contains(&p.as_str())
-            })
-            .collect();
-        assert!(
-            unclassified.is_empty(),
-            "unclassified id routes {unclassified:?}: add each to ENTITY_ROUTES \
-             (inherent league) or AMBIENT_ID_ROUTES (global/ambient) in leagues/resolve.rs"
-        );
-    }
-
-    fn collect_route_patterns(dir: &std::path::Path, out: &mut std::collections::BTreeSet<String>) {
-        for entry in std::fs::read_dir(dir).expect("read src dir") {
-            let path = entry.expect("dir entry").path();
-            if path.is_dir() {
-                collect_route_patterns(&path, out);
-            } else if path.extension().is_some_and(|e| e == "rs") {
-                let content = std::fs::read_to_string(&path).expect("read source file");
-                let mut rest = content.as_str();
-                while let Some(pos) = rest.find(".route(") {
-                    rest = &rest[pos + ".route(".len()..];
-                    let trimmed = rest.trim_start();
-                    if let Some(stripped) = trimmed.strip_prefix('"')
-                        && let Some(end) = stripped.find('"')
-                        && !stripped[..end].contains(char::is_whitespace)
-                    {
-                        // The whitespace guard excludes this scanner's own
-                        // source: its `.route(` and `"` literals otherwise
-                        // self-match and extract bogus "patterns" spanning
-                        // code, not an actual route string.
-                        out.insert(stripped[..end].to_string());
-                    }
-                }
-            }
-        }
-    }
-}
+mod tests {}

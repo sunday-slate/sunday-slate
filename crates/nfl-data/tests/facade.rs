@@ -70,8 +70,9 @@ async fn empty_provider_reads_preserve_missing_result_behavior() {
 #[tokio::test]
 async fn seeded_records_preserve_identity_and_prefer_players() {
     let config = NflDataConfig {
-        database_url: "sqlite::memory:".into(),
+        nflverse_database_url: "sqlite::memory:".into(),
         fanduel_database_url: "sqlite::memory:".into(),
+        reconciliation_database_url: "sqlite::memory:".into(),
         ..Default::default()
     };
     let nfl = NflData::connect(config).await.unwrap();

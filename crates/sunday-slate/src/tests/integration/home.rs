@@ -61,11 +61,11 @@ async fn admin_banner_rides_the_shell_for_admins_only(pool: SqlitePool) {
     assert!(!nflverse.text().contains("Primary league navigation"));
 
     // The admin pages the banner links to carry no banner of their own.
-    let imports = app.get("/admin/salary-imports").await;
+    let imports = app.get("/nfl-data-admin/salary-imports").await;
     imports.assert_status_ok();
     assert!(
         !imports.text().contains("Get Week 1 ready"),
-        "no banner under /admin: {}",
+        "no banner under nfl-data-admin: {}",
         imports.text()
     );
 

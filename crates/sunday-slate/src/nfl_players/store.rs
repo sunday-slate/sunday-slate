@@ -5,86 +5,69 @@ use sqlx::Sqlite;
 use crate::media::{Media, MediaId, store as media_store};
 use crate::nfl_players::model::NflPlayer;
 
-/// Look up a crosswalk row by the external salary-source player id.
-pub async fn by_fd_id<'e, E>(ex: E, fd_player_id: u32) -> Result<Option<NflPlayer>, sqlx::Error>
+/// Get-or-create the local player row for one GSIS identity. Media-only:
+/// reconciliation links live in nfl-data, not here. Idempotent on
+/// gsis_player_id; an existing row keeps its timestamps and headshot.
+pub async fn upsert_for_gsis<'e, E>(ex: E, gsis_player_id: &str) -> Result<NflPlayer, sqlx::Error>
 where
-    E: sqlx::Executor<'e, Database = Sqlite>,
+    E: sqlx::Executor<'e, Database = Sqlite> + Copy,
 {
+    sqlx::query("INSERT INTO nfl_players (gsis_player_id) VALUES (?1) ON CONFLICT (gsis_player_id) DO NOTHING")
+        .bind(gsis_player_id)
+        .execute(ex)
+        .await?;
     sqlx::query_as!(
         NflPlayer,
         r#"SELECT id AS "id!: i64",
                   gsis_player_id AS "gsis_player_id!: String",
-                  fd_player_id AS "fd_player_id: u32",
                   headshot_media_id AS "headshot_media_id?: MediaId"
-           FROM nfl_players WHERE fd_player_id = ?"#,
-        fd_player_id,
-    )
-    .fetch_optional(ex)
-    .await
-}
-
-pub async fn mapped_gsis_ids<'e, E>(ex: E) -> Result<HashSet<String>, sqlx::Error>
-where
-    E: sqlx::Executor<'e, Database = Sqlite>,
-{
-    let ids = sqlx::query_scalar!(
-        r#"SELECT gsis_player_id AS "gsis_player_id!: String"
-           FROM nfl_players WHERE fd_player_id IS NOT NULL"#,
-    )
-    .fetch_all(ex)
-    .await?;
-
-    Ok(ids.into_iter().collect())
-}
-
-pub async fn mapped_fd_ids<'e, E>(ex: E) -> Result<HashSet<u32>, sqlx::Error>
-where
-    E: sqlx::Executor<'e, Database = Sqlite>,
-{
-    let ids = sqlx::query_scalar!(
-        r#"SELECT fd_player_id AS "fd_player_id!: u32"
-           FROM nfl_players WHERE fd_player_id IS NOT NULL"#,
-    )
-    .fetch_all(ex)
-    .await?;
-
-    Ok(ids.into_iter().collect())
-}
-
-/// Lazily create the crosswalk row for a matched player. Idempotent on
-/// gsis_player_id: a second call with the same gsis backfills fd_player_id.
-pub async fn upsert<'e, E>(
-    ex: E,
-    gsis_player_id: &str,
-    fd_player_id: u32,
-) -> Result<NflPlayer, sqlx::Error>
-where
-    E: sqlx::Executor<'e, Database = Sqlite>,
-{
-    sqlx::query_as!(
-        NflPlayer,
-        r#"INSERT INTO nfl_players (gsis_player_id, fd_player_id) VALUES (?1, ?2)
-           ON CONFLICT (gsis_player_id) DO UPDATE SET fd_player_id = ?2
-           RETURNING id AS "id!: i64",
-                     gsis_player_id AS "gsis_player_id!: String",
-                     fd_player_id AS "fd_player_id: u32",
-                     headshot_media_id AS "headshot_media_id?: MediaId""#,
+           FROM nfl_players WHERE gsis_player_id = ?1"#,
         gsis_player_id,
-        fd_player_id,
     )
     .fetch_one(ex)
     .await
 }
 
+/// Same as `upsert_for_gsis` for a borrowed connection (no `Copy` needed).
+pub async fn upsert_for_gsis_conn(
+    conn: &mut sqlx::SqliteConnection,
+    gsis_player_id: &str,
+) -> Result<NflPlayer, sqlx::Error> {
+    let player_id: i64 = match sqlx::query_scalar::<_, i64>(
+        "INSERT INTO nfl_players (gsis_player_id) VALUES (?1) ON CONFLICT (gsis_player_id) DO NOTHING RETURNING id",
+    )
+    .bind(gsis_player_id)
+    .fetch_optional(&mut *conn)
+    .await?
+    {
+        Some(id) => id,
+        None => {
+            sqlx::query_scalar::<_, i64>("SELECT id FROM nfl_players WHERE gsis_player_id = ?1")
+                .bind(gsis_player_id)
+                .fetch_one(&mut *conn)
+                .await?
+        }
+    };
+
+    sqlx::query_as!(
+        NflPlayer,
+        r#"SELECT id AS "id!: i64",
+                  gsis_player_id AS "gsis_player_id!: String",
+                  headshot_media_id AS "headshot_media_id?: MediaId"
+           FROM nfl_players WHERE id = ?1"#,
+        player_id,
+    )
+    .fetch_one(&mut *conn)
+    .await
+}
 pub async fn missing_headshots<'e, E>(ex: E) -> Result<Vec<NflPlayer>, sqlx::Error>
 where
-    E: sqlx::Executor<'e, Database = Sqlite>,
+    E: sqlx::Executor<'e, Database = Sqlite> + Copy,
 {
     sqlx::query_as!(
         NflPlayer,
         r#"SELECT id AS "id!: i64",
                   gsis_player_id AS "gsis_player_id!: String",
-                  fd_player_id AS "fd_player_id: u32",
                   headshot_media_id AS "headshot_media_id?: MediaId"
            FROM nfl_players
            WHERE headshot_media_id IS NULL
@@ -112,15 +95,30 @@ where
     .map(|_| ())
 }
 
-/// Count of crosswalk players with no cached headshot.
-pub async fn count_missing_headshots<'e, E>(ex: E) -> Result<i64, sqlx::Error>
+/// GSIS ids of local player rows that have no headshot reference.
+pub(crate) async fn headshot_player_ids<'e, E>(ex: E) -> Result<HashSet<String>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = Sqlite>,
+{
+    let ids = sqlx::query_scalar!(
+        r#"SELECT gsis_player_id AS "gsis_player_id!: String"
+           FROM nfl_players WHERE headshot_media_id IS NULL"#,
+    )
+    .fetch_all(ex)
+    .await?;
+    Ok(ids.into_iter().collect())
+}
+
+/// GSIS ids of local player rows that HAVE a headshot reference.
+pub(crate) async fn headshot_ids_with_media<'e, E>(ex: E) -> Result<Vec<String>, sqlx::Error>
 where
     E: sqlx::Executor<'e, Database = Sqlite>,
 {
     sqlx::query_scalar!(
-        r#"SELECT COUNT(*) AS "count!: i64" FROM nfl_players WHERE headshot_media_id IS NULL"#
+        r#"SELECT gsis_player_id AS "gsis_player_id!: String"
+           FROM nfl_players WHERE headshot_media_id IS NOT NULL"#,
     )
-    .fetch_one(ex)
+    .fetch_all(ex)
     .await
 }
 
@@ -153,25 +151,20 @@ mod tests {
     use sqlx::SqlitePool;
 
     #[sqlx::test]
-    async fn upsert_then_lookup(pool: SqlitePool) {
-        assert!(by_fd_id(&pool, 166092).await.expect("miss").is_none());
-        let p = upsert(&pool, "00-0036355", 166092).await.expect("upsert");
+    async fn upsert_for_gsis_then_lookup(pool: SqlitePool) {
+        let p = upsert_for_gsis(&pool, "00-0036355").await.expect("upsert");
         assert_eq!(p.gsis_player_id, "00-0036355");
-        let found = by_fd_id(&pool, 166092).await.expect("hit").expect("some");
-        assert_eq!(found.id, p.id);
+        assert_eq!(p.headshot_media_id, None);
+        let again = upsert_for_gsis(&pool, "00-0036355")
+            .await
+            .expect("idempotent");
+        assert_eq!(again.id, p.id);
     }
 
     #[sqlx::test]
-    async fn upsert_backfills_fd_id_on_gsis_conflict(pool: SqlitePool) {
-        let first = upsert(&pool, "00-0036355", 111).await.expect("first");
-        let second = upsert(&pool, "00-0036355", 222).await.expect("second");
-        assert_eq!(first.id, second.id);
-        assert_eq!(second.fd_player_id, Some(222));
-    }
-    #[sqlx::test]
     async fn headshot_missing_and_batch_queries_follow_media_links(pool: SqlitePool) {
-        let linked = upsert(&pool, "00-LINKED", 333).await.expect("linked");
-        let missing = upsert(&pool, "00-MISSING", 444).await.expect("missing");
+        let linked = upsert_for_gsis(&pool, "00-LINKED").await.expect("linked");
+        let missing = upsert_for_gsis(&pool, "00-MISSING").await.expect("missing");
         let media_id = media_store::insert(&pool, "headshot.png", "image/png", 12, 256, 128)
             .await
             .expect("media");
@@ -194,7 +187,7 @@ mod tests {
         assert_eq!(rows["00-LINKED"].id, media_id);
         assert!(headshots_for(&pool, &[]).await.expect("empty").is_empty());
         assert_eq!(
-            upsert(&pool, "00-LINKED", 333)
+            upsert_for_gsis(&pool, "00-LINKED")
                 .await
                 .expect("preserve link")
                 .headshot_media_id,

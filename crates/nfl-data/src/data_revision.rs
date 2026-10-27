@@ -78,8 +78,9 @@ mod tests {
             .mount(&server)
             .await;
         let nfl = crate::NflData::connect(NflDataConfig {
-            database_url: "sqlite::memory:".into(),
+            nflverse_database_url: "sqlite::memory:".into(),
             fanduel_database_url: "sqlite::memory:".into(),
+            reconciliation_database_url: "sqlite::memory:".into(),
             earliest_season: 2025,
             github_token: Some(Secret::new("sentinel")),
             github_api_base: server.uri(),
@@ -106,8 +107,9 @@ mod tests {
     #[tokio::test]
     async fn seeding_preserves_bookkeeping_in_memory() {
         let config = NflDataConfig {
-            database_url: "sqlite::memory:".into(),
+            nflverse_database_url: "sqlite::memory:".into(),
             fanduel_database_url: "sqlite::memory:".into(),
+            reconciliation_database_url: "sqlite::memory:".into(),
             refresh_interval: None,
             ..Default::default()
         };

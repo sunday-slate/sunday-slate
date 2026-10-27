@@ -20,13 +20,19 @@ debug-embed = ["rust-embed/debug-embed"]
 
 [dependencies]
 askama = { workspace = true }
-axum = { workspace = true }
+axum = { workspace = true, features = ["multipart"] }
 axum-htmx = { workspace = true }
 mime_guess = { workspace = true }
 rust-embed = { workspace = true }
 sha2 = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true }
+urlencoding = "2"
 fanduel-data = { path = "../fanduel-data" }
 nflverse-data = { path = "../nflverse-data" }
 nfl-model = { path = "../nfl-model" }
