@@ -1,4 +1,4 @@
-use crate::web::AdminState;
+use crate::web::{salary_imports, AdminState};
 use crate::web::salary_imports::SalaryAdminError;
 use askama::Template;
 use axum::extract::{Path, Query, State};
@@ -73,7 +73,7 @@ pub(super) async fn unmatched_salary(
     season_week: &crate::SeasonWeek,
     fd_player_id: u32,
 ) -> Result<crate::SalariedPlayer, SalaryAdminError> {
-    let overview = state.nfl.salary_week_overview(*season_week).await?;
+    let overview = salary_imports::salary_week_overview(&state, *season_week).await?;
     overview
         .unmatched
         .into_iter()

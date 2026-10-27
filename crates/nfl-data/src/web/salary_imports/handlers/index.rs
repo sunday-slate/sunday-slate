@@ -7,6 +7,7 @@ use askama::Template;
 use axum::extract::State;
 use axum::response::Html;
 use nfl_model::SeasonWeek;
+use crate::{SalaryError, WeeklySummary};
 
 #[derive(Template)]
 #[template(
@@ -41,7 +42,19 @@ pub async fn index(State(state): State<AdminState>) -> Result<Html<String>, Sala
 async fn salary_week_summaries(
     state: &AdminState,
 ) -> Result<BTreeMap<SeasonWeek, SalaryCounts>, SalaryAdminError> {
-    let summaries = state.nfl.salary_week_summaries().await?;
+    let link_ids = state.nfl.store.links().await?;
+    let matched_ids: Vec<u32> = link_ids.keys().copied().collect();
+    let salary_counts = state.nfl.fanduel.weekly_salary_counts().await?;
+    let unmatched_counts = state.nfl.fanduel.weekly_unmatched_counts(&matched_ids).await?;
+
+    let summaries = salary_counts
+        .into_iter()
+        .map(|(season_week, salary_count)| WeeklySummary {
+            season_week,
+            salary_count,
+            unmatched_count: unmatched_counts.get(&season_week).copied().unwrap_or(0),
+        })
+        .collect();
 
     Ok(summaries
         .into_iter()

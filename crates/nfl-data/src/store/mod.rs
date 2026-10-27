@@ -11,7 +11,7 @@ pub use player_link::PlayerLink;
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
-/// One durable table of player links; single-connection pool.
+/// single-connection pool
 #[derive(Clone)]
 pub(crate) struct Store {
     pool: SqlitePool,

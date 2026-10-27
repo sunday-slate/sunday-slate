@@ -1,5 +1,5 @@
 use crate::salaries::SalaryWeekOverview;
-use crate::web::AdminState;
+use crate::web::{salary_imports, AdminState};
 use crate::web::salary_imports::SalaryAdminError;
 use askama::Template;
 use axum::extract::{Path, State};
@@ -69,7 +69,7 @@ pub async fn week(
     Path(encoded): Path<u32>,
 ) -> Result<Html<String>, SalaryAdminError> {
     let season_week = crate::SeasonWeek::decode(encoded).ok_or(SalaryAdminError::NotFound)?;
-    let overview = state.nfl.salary_week_overview(season_week).await?;
+    let overview = salary_imports::salary_week_overview(&state, season_week).await?;
     Ok(Html(WeekTemplate::new(overview).render()?))
 }
 

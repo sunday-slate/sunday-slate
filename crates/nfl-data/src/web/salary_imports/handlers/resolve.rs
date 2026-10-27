@@ -1,8 +1,10 @@
-use crate::web::AdminState;
+use crate::web::{salary_imports, AdminState};
 use crate::web::salary_imports::SalaryAdminError;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Redirect};
 use serde::Deserialize;
+use nfl_model::SeasonWeek;
+use crate::{PlayerLink, SalaryError, SalaryWeekOverview};
 
 #[derive(Deserialize)]
 pub struct ResolveForm {
@@ -25,14 +27,38 @@ pub async fn resolve(
             "unknown GSIS player ID".into(),
         ));
     }
-    state
-        .nfl
-        .resolve_salary_player(season_week, fd_player_id, &form.gsis_player_id)
+    resolve_salary_player(&state, season_week, fd_player_id, &form.gsis_player_id)
         .await
         .map_err(|e| SalaryAdminError::BadRequest(e.to_string()))?;
     Ok(Redirect::to(&format!(
         "/nfl-data-admin/salary-imports/{encoded}"
     )))
+}
+
+/// Confirm the link for one source row in the requested week; the link
+/// applies globally. Other rows are left to their own resolution.
+async fn resolve_salary_player(
+    state: &AdminState,
+    season_week: SeasonWeek,
+    fd_player_id: u32,
+    gsis_player_id: &str,
+) -> Result<SalaryWeekOverview, SalaryError> {
+    let source = state.nfl.fanduel.salaried_players_for(season_week).await?;
+    if !source.iter().any(|salary| {
+        salary
+            .player
+            .as_ref()
+            .is_some_and(|player| player.id == fd_player_id)
+    }) {
+        return Err(SalaryError::Schedule);
+    }
+    state.nfl.store
+        .save_links(&[PlayerLink {
+            fd_player_id,
+            gsis_player_id: gsis_player_id.to_owned(),
+        }])
+        .await?;
+    salary_imports::salary_week_overview(&state, season_week).await
 }
 
 #[cfg(test)]

@@ -1,7 +1,9 @@
-use crate::web::AdminState;
+use crate::web::{salary_imports, AdminState};
 use crate::web::salary_imports::SalaryAdminError;
 use axum::extract::{Multipart, State};
 use axum::response::{IntoResponse, Redirect};
+use nfl_model::SeasonWeek;
+use crate::{salaries, SalaryError, SalaryWeekOverview};
 
 struct SalaryUpload {
     season_week: crate::SeasonWeek,
@@ -13,9 +15,7 @@ pub async fn upload(
     mp: Multipart,
 ) -> Result<impl IntoResponse, SalaryAdminError> {
     let SalaryUpload { season_week, csv } = read_upload(mp).await?;
-    state
-        .nfl
-        .import_salary_csv(season_week, &csv)
+    import_salary_csv(&state, season_week, &csv)
         .await
         .map_err(|e| SalaryAdminError::BadRequest(e.to_string()))?;
     Ok(Redirect::to(&format!(
@@ -105,6 +105,21 @@ async fn read_upload(mut mp: Multipart) -> Result<SalaryUpload, SalaryAdminError
         week: crate::Week(week),
     };
     Ok(SalaryUpload { season_week, csv })
+}
+
+/// Validate the slate, persist the CSV, and apply persisted links.
+async fn import_salary_csv(
+    state: &AdminState,
+    season_week: SeasonWeek,
+    csv_data: &[u8],
+) -> Result<SalaryWeekOverview, SalaryError> {
+    let source = state.nfl.parse_fanduel_csv(season_week, csv_data)?;
+    let games = state.nfl.games(season_week.season).await?;
+    salaries::resolve_slate_games(&games, &season_week, &salaries::salary_matchups(&source))
+        .map_err(|_| SalaryError::Schedule)?;
+    state.nfl.save_fanduel_salaries(&source).await?;
+    state.nfl.reconcile_salary_week(season_week).await?;
+    salary_imports::salary_week_overview(&state, season_week).await
 }
 
 #[cfg(test)]
