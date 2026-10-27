@@ -14,12 +14,13 @@ Not required for Sunday Slate, but useful on gameday. The app considers Nflverse
 ## Fresh Cache Setup
 
 The nflverse provider stores its rebuildable, disposable source cache in
-`storage/nflverse-cache.db`. Sunday Slate's managed players, teams, contests,
-salaries, and identifier links remain in `storage/sunday-slate.db`. Original
-FanDuel salary uploads are retained separately in the durable
-`storage/fanduel-data.db` source archive. Back it up alongside
-`storage/sunday-slate.db`; deleting or rebuilding the nflverse cache does not
-change the FanDuel archive.
+`storage/nflverse-cache.db`. Sunday Slate's managed players, teams, and
+contests remain in `storage/sunday-slate.db` — salaries and identifier links
+no longer live there. Original FanDuel salary uploads are retained in the
+durable `storage/fanduel-data.db` source archive, and confirmed
+FanDuel-to-GSIS player links live in the durable reconciliation store
+`storage/nfl-data.db`. Back up both alongside `storage/sunday-slate.db`;
+deleting or rebuilding the nflverse cache does not change either.
 
 For Rust consumers, `nfl-data` retains canonical read operations and re-exports shared model types, live contracts, and time helpers from `nfl-model`. Provider synchronization operations and status types remain private to the crate; callers use its lifecycle methods and opaque `DataRevision` instead. Its distinct `NflDataConfig` takes default values from `NflverseDataConfig` so cache settings stay aligned.
 
@@ -79,9 +80,9 @@ Migrating an existing deployment's confirmed player links out of the Sunday
 Slate database into the reconciliation store is a one-time command:
 
 ```sh
-cargo run -p nfl-data --bin migrate-salary-links \
-  --source sqlite://./storage/sunday-slate.db \
-  --destination sqlite://./storage/nfl-data.db
+cargo run -p nfl-data --bin migrate-salary-links -- \
+  --source sqlite:///absolute/path/sunday-slate.db \
+  --destination sqlite:///absolute/path/nfl-data.db
 ```
 
 The source opens read-only and is never modified; the destination is created
