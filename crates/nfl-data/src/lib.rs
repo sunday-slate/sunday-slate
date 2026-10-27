@@ -141,7 +141,7 @@ impl NflData {
         salaries::resolve_slate_games(&games, &season_week, &salaries::salary_matchups(&source))
             .map_err(|_| SalaryError::Schedule)?;
         self.save_fanduel_salaries(&source).await?;
-        self.reconcile_salary_week(season_week, None).await?;
+        self.reconcile_salary_week(season_week).await?;
         self.salary_week_overview(season_week).await
     }
 
@@ -170,8 +170,10 @@ impl NflData {
         })
     }
 
-    /// Confirm an explicit player link for one source row and re-reconcile the
-    /// whole stored week. The source row must exist in the requested week.
+    /// Confirm an explicit player link for one source row. The source row must
+    /// exist in the requested week. Confirming never matches other rows: the
+    /// persisted link applies to every stored week on its own, and each week's
+    /// remaining rows keep waiting for their own confirmation or re-import.
     pub async fn resolve_salary_player(
         &self,
         season_week: SeasonWeek,
@@ -187,7 +189,11 @@ impl NflData {
         }) {
             return Err(SalaryError::Schedule);
         }
-        self.reconcile_salary_week(season_week, Some((fd_player_id, gsis_player_id)))
+        self.store
+            .save_links(&[PlayerLink {
+                fd_player_id,
+                gsis_player_id: gsis_player_id.to_owned(),
+            }])
             .await?;
         self.salary_week_overview(season_week).await
     }

@@ -171,13 +171,12 @@ pub(crate) fn salary_matchups(source: &[SalariedPlayer]) -> BTreeSet<(String, St
 
 impl NflData {
     /// Match every stored source row for the week and apply successful links
-    /// in one store transaction. Never writes salaries. Precedence: the
-    /// explicit selection > a persisted link > `PlayerIndex` > `RosterIndex`.
-    /// A `None` match simply contributes no link; its FanDuel record remains.
+    /// in one store transaction. Never writes salaries. Precedence: a
+    /// persisted link > `PlayerIndex` > `RosterIndex`. A `None` match simply
+    /// contributes no link; its FanDuel record remains.
     pub(crate) async fn reconcile_salary_week(
         &self,
         season_week: SeasonWeek,
-        resolved_player: Option<(u32, &str)>,
     ) -> Result<(), SalaryError> {
         let source = self.fanduel.salaried_players_for(season_week).await?;
         let matchups = salary_matchups(&source);
@@ -228,11 +227,7 @@ impl NflData {
             } else {
                 let player = salary.player.as_ref().ok_or(SalaryError::Schedule)?;
                 let fd_id = player.id;
-                if let Some((resolved_fd_id, resolved_gsis_id)) = resolved_player
-                    && resolved_fd_id == fd_id
-                {
-                    Some(resolved_gsis_id.to_owned())
-                } else if let Some(gsis) = links.get(&fd_id) {
+                if let Some(gsis) = links.get(&fd_id) {
                     Some(gsis.clone())
                 } else {
                     let name = format!("{} {}", player.first_name, player.last_name);

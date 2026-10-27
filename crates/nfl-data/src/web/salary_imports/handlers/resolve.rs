@@ -64,7 +64,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn resolve_creates_crosswalk_and_reconciles() {
+    async fn resolve_creates_crosswalk_and_confirms_link() {
         let state = admin_state().await;
         state
             .server
