@@ -21,9 +21,7 @@ pub struct SalaryWeekOverview {
     pub unmatched: Vec<SalariedPlayer>,
 }
 
-/// A salary row attached to a selected GSIS game, read from the authoritative
-/// source with persisted player links applied. DST rows carry no player id.
-/// Private test helper: the public read surface lands with the integration pass.
+/// Salary row with its resolved GSIS game and player. Test helper only.
 #[derive(Debug, Clone, PartialEq)]
 #[allow(dead_code)]
 pub struct ReconciledSalary {
@@ -35,8 +33,7 @@ pub struct ReconciledSalary {
 }
 
 impl NflData {
-    // Kept private for the salaries tests; the public read surface lands with
-    // the integration pass.
+    // Test helper only; public read surface lands with the integration pass.
     #[allow(dead_code)]
     async fn salaries_for_games(
         &self,
@@ -46,7 +43,6 @@ impl NflData {
             return Ok(Vec::new());
         }
 
-        // Deduplicate selected games by id, grouping their matchups per week.
         let mut by_week: BTreeMap<SeasonWeek, BTreeSet<(String, String)>> = BTreeMap::new();
         let mut selected: HashMap<&str, ()> = HashMap::new();
         for game in games {
@@ -106,8 +102,7 @@ impl NflData {
         Ok(out)
     }
 
-    /// Whether any reconciled salary exists for the given games. Exits upon
-    /// the first usable record without building a full result vector.
+    /// Early-exit existence check; test helper only.
     #[allow(dead_code)]
     async fn has_salaries_for_games(&self, games: &[Game]) -> Result<bool, SalaryError> {
         if games.is_empty() {
@@ -170,10 +165,9 @@ pub(crate) fn salary_matchups(source: &[SalariedPlayer]) -> BTreeSet<(String, St
 }
 
 impl NflData {
-    /// Match every stored source row for the week and apply successful links
-    /// in one store transaction. Never writes salaries. Precedence: a
-    /// persisted link > `PlayerIndex` > `RosterIndex`. A `None` match simply
-    /// contributes no link; its FanDuel record remains.
+    /// Match the week's stored source rows and persist successful links in
+    /// one transaction. Precedence: persisted link > `PlayerIndex` >
+    /// `RosterIndex`; no match leaves the record unresolved.
     pub(crate) async fn reconcile_salary_week(
         &self,
         season_week: SeasonWeek,
@@ -242,8 +236,6 @@ impl NflData {
                         })
                 }
             };
-            // DST rows carry no player link; a player row with no match simply
-            // contributes no link and keeps its FanDuel record.
             if let Some(gsis_player_id) = gsis_player_id {
                 let fd_id = salary.player.as_ref().expect("player row").id;
                 mapped.push(PlayerLink {
@@ -457,8 +449,6 @@ mod tests {
     #[tokio::test]
     async fn link_applies_globally_without_reimport_and_price_updates_flow_through() {
         let nfl = NflData::in_memory().await.unwrap();
-        // The roster-only identity 00-1 cannot be named from the players table,
-        // so it never auto-matches: the import leaves it unresolved in both weeks.
         let roster_only = WeeklyRosterEntry {
             season: Season(2025),
             week: Week(1),
@@ -492,8 +482,6 @@ mod tests {
         let week2 = regular_week_2025(2);
         let week2_game = game("2025_02_BUF_MIA", 2, "BUF", "MIA");
 
-        // Store source records before a link exists: the application pool
-        // omits the player while the week overview lists it.
         let week2_csv = REPRESENTATIVE_CSV.replacen("BUF@NYJ,BUF,NYJ", "BUF@MIA,BUF,MIA", 1);
         nfl.import_salary_csv(week2, week2_csv.as_bytes())
             .await
@@ -521,9 +509,6 @@ mod tests {
                 .any(|row| row.player.as_ref().is_some_and(|p| p.id == 62239))
         );
 
-        // The other source rows (Etienne, the Wideout, the DST) were never
-        // seeded as identities, so two player rows remain unresolved and the
-        // resolved row leaves the overview.
         let overview = nfl
             .resolve_salary_player(week2, 62239, "00-1")
             .await
@@ -536,7 +521,6 @@ mod tests {
                 .any(|row| row.player.as_ref().is_some_and(|p| p.id == 62239))
         );
 
-        // Read calls leave link contents unchanged.
         assert_eq!(
             nfl.player_link_by_fd_id(62239)
                 .await
@@ -546,8 +530,6 @@ mod tests {
             "00-1"
         );
 
-        // Re-importing another week does not erase the link, and the persisted
-        // link immediately affects every stored week without matching again.
         nfl.import_salary_csv(week1, REPRESENTATIVE_CSV.as_bytes())
             .await
             .unwrap();
@@ -561,8 +543,6 @@ mod tests {
                 .any(|s| s.gsis_player_id.as_deref() == Some("00-1"))
         );
 
-        // Update a source amount through the existing source API: the next
-        // reconciled read returns the new exact amount without invoking matching.
         let mut updated = nfl.fanduel.salaried_players_for(week2).await.unwrap();
         for row in &mut updated {
             if row.player.as_ref().is_some_and(|p| p.id == 62239) {
@@ -578,7 +558,6 @@ mod tests {
         assert_eq!(priced[0].salary, 9000);
         assert_eq!(priced[0].gsis_player_id.as_deref(), Some("00-1"));
 
-        // Source rows and unmatched display persist throughout.
         assert_eq!(
             nfl.fanduel.salaried_players_for(week2).await.unwrap().len(),
             4

@@ -93,8 +93,6 @@ mod tests {
                 .gsis_player_id,
             "00-roster-only"
         );
-        // The other mystery row (888) is still unmatched, so the page lists
-        // exactly one unresolved row instead of the resolved text.
         let overview = state
             .nfl
             .salary_week_overview(crate::SeasonWeek {

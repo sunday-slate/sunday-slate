@@ -186,8 +186,6 @@ async fn nflverse_post_and_scheduled_refresh_are_single_flight() {
         active_run_observed,
         "manual refresh reached a delayed release"
     );
-    // Leave enough time for the configured timer tick to fire while the
-    // delayed manual refresh remains active.
     tokio::time::sleep(interval * 2).await;
 
     let (full_response, panel_response) = tokio::join!(
@@ -204,8 +202,6 @@ async fn nflverse_post_and_scheduled_refresh_are_single_flight() {
     assert!(panel_response.text().contains("Sync in progress"));
     assert!(!panel_response.text().contains("<!doctype html>"));
 
-    // The configured timer ticks while the detached manual run is active.
-    // Stop future ticks before that run completes, then verify no overlap.
     nfl.stop_background_tasks();
     let mut completed = false;
     for _ in 0..160 {

@@ -10,8 +10,7 @@ use time::OffsetDateTime;
 
 use crate::{NflData, Season};
 
-/// Configuration for the admin router: which season it manages and an optional
-/// clock override for tests.
+/// Admin router config: season and optional test clock override.
 #[derive(Debug, Clone)]
 pub struct AdminConfig {
     pub season: Season,
@@ -31,10 +30,8 @@ impl axum::extract::FromRef<AdminState> for Arc<NflData> {
     }
 }
 
-/// Build NFL-data's self-contained administration router.
-///
-/// The returned router is not independently authenticated. The host must apply
-/// its existing session and global-admin authorization before mounting it.
+/// Build the admin router. Not authenticated: the host must mount it behind
+/// its own admin gate.
 pub fn router<S>(nfl: Arc<NflData>, config: AdminConfig) -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
@@ -57,8 +54,6 @@ mod salary_imports;
 
 #[cfg(test)]
 pub(crate) mod tests {
-    // The standalone admin test binaries live in this directory but are
-    // compiled separately via `[[test]]` entries (see Cargo.toml); only the
-    // shared fixture module is part of the crate's test build.
+    // Shared fixture; the standalone [[test]] binaries compile separately.
     pub(crate) mod salary_fixture;
 }

@@ -8,8 +8,6 @@ use time::macros::datetime;
 use crate::web::AdminConfig;
 use crate::{NflData, Season};
 
-/// An admin router mounted over an in-memory `NflData`, with the season pinned
-/// to 2025 and the clock pinned so the default-week test is deterministic.
 pub(crate) struct AdminFixture {
     pub(crate) server: TestServer,
     pub(crate) nfl: Arc<NflData>,
@@ -99,9 +97,6 @@ pub(crate) fn upload_form() -> MultipartForm {
 
 #[tokio::test]
 async fn every_salary_route_requires_authorization_in_the_host() {
-    // Authorization lives with the host (Sunday Slate). See
-    // sunday-slate/src/tests/integration/nfl_data_admin.rs.
-    // This test only pins that the standalone router serves the pages.
     let state = admin_state().await;
     let page = state.server.get("/nfl-data-admin/salary-imports").await;
     page.assert_status_ok();
@@ -173,7 +168,6 @@ async fn dashboard_lists_source_counts_and_resolves_roster_only_players_directly
         .form(&[("gsis_player_id", "00-roster-only")])
         .await
         .assert_status(axum::http::StatusCode::SEE_OTHER);
-    // The second mystery row (888) remains unresolved after this resolve.
     let resolved = state
         .server
         .get("/nfl-data-admin/salary-imports/2025001")

@@ -128,9 +128,7 @@ impl NflData {
         Ok(summaries)
     }
 
-    /// Validate the typed CSV's schedule, persist it, and (re)apply persisted
-    /// player links. CSV parsing, source save, and omitted-row upsert behavior
-    /// are the source store's; link persistence only writes successful links.
+    /// Validate the slate, persist the CSV, and apply persisted links.
     pub async fn import_salary_csv(
         &self,
         season_week: SeasonWeek,
@@ -145,8 +143,7 @@ impl NflData {
         self.salary_week_overview(season_week).await
     }
 
-    /// Read the stored week's overview: every source row plus the player IDs
-    /// still lacking a persisted link. DST rows are never unmatched.
+    /// Every source row for the week plus the player IDs lacking a link.
     pub async fn salary_week_overview(
         &self,
         season_week: SeasonWeek,
@@ -170,10 +167,8 @@ impl NflData {
         })
     }
 
-    /// Confirm an explicit player link for one source row. The source row must
-    /// exist in the requested week. Confirming never matches other rows: the
-    /// persisted link applies to every stored week on its own, and each week's
-    /// remaining rows keep waiting for their own confirmation or re-import.
+    /// Confirm the link for one source row in the requested week; the link
+    /// applies globally. Other rows are left to their own resolution.
     pub async fn resolve_salary_player(
         &self,
         season_week: SeasonWeek,
@@ -206,13 +201,12 @@ impl NflData {
         self.store.by_fd_id(fd_player_id).await
     }
 
-    /// Persisted GSIS ids, deduplicated and sorted. Sourced from links only.
+    /// Persisted GSIS ids, deduplicated and sorted.
     pub async fn reconciled_gsis_ids(&self) -> Result<Vec<String>, SalaryError> {
         self.store.gsis_ids().await
     }
 
-    /// Per-week source counts with per-week unresolved counts, across every
-    /// stored week. DST entries are never unresolved.
+    /// Per-week salary and unresolved counts across every stored week.
     pub async fn salary_week_summaries(&self) -> Result<Vec<WeeklySummary>, SalaryError> {
         let link_ids = self.store.links().await?;
         let matched_ids: Vec<u32> = link_ids.keys().copied().collect();
@@ -256,9 +250,7 @@ impl NflData {
         })
     }
 
-    /// A fresh, empty, in-memory cache — for tests and tooling that need an
-    /// `NflData` handle without a database file. Migrations are applied; no data
-    /// is synced.
+    /// A fresh, empty, in-memory cache: migrations applied, nothing synced.
     pub async fn in_memory() -> Result<Self, NflDataConnectError> {
         let provider = NflverseData::in_memory()
             .await
@@ -277,12 +269,8 @@ impl NflData {
         })
     }
 
-    /// Most recent weekly roster entry for each id, keyed by gsis id. Ids with
-    /// no entry are absent from the map rather than an error.
-    ///
-    /// Complements [`Self::players_by_gsis`]: candidate lists are built from
-    /// weekly rosters, and 144 of 2025's 3,133 rostered players have no row in
-    /// the `players` table, so a pick cannot always be named from there.
+    /// Most recent weekly roster entry for each id, keyed by gsis id; ids with
+    /// no entry are absent. Complements `players_by_gsis` for candidates.
     pub async fn weekly_roster_entries_by_gsis<I: AsRef<str>>(
         &self,
         ids: &[I],
@@ -290,9 +278,8 @@ impl NflData {
         self.provider.weekly_roster_entries_by_gsis(ids).await
     }
 
-    /// Display facts for a set of gsis ids: the `players` table first, the
-    /// weekly rosters for the ids it misses. An id in neither source is
-    /// absent from the map.
+    /// Display facts per gsis id: `players` first, weekly rosters for the
+    /// misses; unknown ids are absent from the map.
     pub async fn identify<I: AsRef<str>>(
         &self,
         ids: &[I],
@@ -325,8 +312,7 @@ impl NflData {
         Ok(named.chain(rostered).collect())
     }
 
-    /// Seed weekly roster entries directly, for tests and tooling. Not part of
-    /// the stable API — bypasses the sync pipeline and `sync_state` bookkeeping.
+    /// Seed weekly roster entries directly, for tests and tooling.
     #[doc(hidden)]
     pub async fn seed_weekly_roster_for_test(
         &self,
@@ -335,8 +321,7 @@ impl NflData {
         self.provider.seed_weekly_roster_for_test(entries).await
     }
 
-    /// Seed players and games directly, for tests and tooling. Not part of the
-    /// stable API — bypasses the sync pipeline and `sync_state` bookkeeping.
+    /// Seed players and games directly, for tests and tooling.
     #[doc(hidden)]
     pub async fn seed_for_test(
         &self,

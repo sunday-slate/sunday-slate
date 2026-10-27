@@ -1,8 +1,6 @@
 use fanduel_data::FanduelDataError;
 use nflverse_data::NflverseDataError as NflDataError;
 
-/// Errors from the salary domain: source parsing, schedule resolution, and
-/// the NFL data store.
 #[derive(Debug, thiserror::Error)]
 pub enum SalaryError {
     #[error("FanDuel salary import failed: {0}")]

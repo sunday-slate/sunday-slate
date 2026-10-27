@@ -101,9 +101,6 @@ mod tests {
             .await
             .assert_status(StatusCode::SEE_OTHER);
 
-        // The production path for mapping a GSIS id is the resolve route; run
-        // it once for the suggestion's own id, then the suggestion and the
-        // candidate list must hide it for the remaining unmatched row.
         state
             .server
             .post("/nfl-data-admin/salary-imports/2025001/players/999/resolve")
@@ -111,11 +108,6 @@ mod tests {
             .await
             .assert_status(StatusCode::SEE_OTHER);
 
-        // Now the only remaining unmatched row is the QB (id 100). Its page
-        // must not suggest Roster Receiver (already mapped), and the search
-        // must exclude it too.
-        // The other unmatched row (888) must not suggest Roster Receiver
-        // (already mapped), and its search must exclude it too.
         state
             .server
             .get("/nfl-data-admin/salary-imports/2025001/players/888?q=Roster")

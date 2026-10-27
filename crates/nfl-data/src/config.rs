@@ -6,16 +6,12 @@ use utils::Secret;
 pub struct NflDataConfig {
     pub database_url: String,
     pub fanduel_database_url: String,
-    /// Durable nfl-data-owned store; currently the player-links table.
     pub store_database_url: String,
-    /// Per-season datasets fetch seasons >= this. Lower bound only, so the
-    /// exact NFL season boundary doesn't matter.
+    /// Datasets fetch seasons >= this.
     pub earliest_season: u16,
-    /// Optional token to raise the GitHub API rate limit. Never required.
     pub github_token: Option<Secret>,
-    /// Overridable so tests can point at a mock server.
     pub github_api_base: String,
-    /// Configured cadence for internal background refreshes; `None` disables it.
+    /// Background refresh cadence; `None` disables it.
     pub refresh_interval: Option<Duration>,
 }
 

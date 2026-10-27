@@ -1,6 +1,3 @@
-//! Salary handler errors, mapped to HTTP responses the same way Sunday Slate
-//! mapped the old salary module's errors.
-
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},

@@ -4,20 +4,16 @@ use crate::{Player, SalariedPlayer, Season, SeasonWeek, TeamAbbr, Week, WeeklyRo
 pub struct Candidate {
     pub gsis_id: String,
     pub label: String, // "Jaxon Smith-Njigba (WR)"
-    /// Not rendered — orders the list by surname. See [`sort_key`].
+    /// Sort key only; not rendered.
     pub sort_key: String,
 }
 
-/// Surname first so lists read the way an admin scans them, then the full name
-/// to break ties between players who share one. Upstream has already stripped
-/// generational suffixes, so "Dante Fowler Jr." sorts under F, not J. Falls back
-/// to the full name when upstream leaves the surname blank.
+/// Surname first (suffixes already stripped), full name breaks ties.
 fn sort_key(full_name: &str, last_name: Option<&str>) -> String {
     let last = last_name.unwrap_or(full_name);
     format!("{last} {full_name}").to_lowercase()
 }
 
-/// One player, labeled with position when known.
 pub fn candidate(p: &Player) -> Candidate {
     Candidate {
         gsis_id: p.gsis_id.clone(),
@@ -29,11 +25,8 @@ pub fn candidate(p: &Player) -> Candidate {
     }
 }
 
-/// Positions a FanDuel salary row can never be. Listed as an exclusion rather
-/// than an allow-list so an unfamiliar or blank position still reaches the
-/// admin instead of being silently dropped. Covers both vocabularies: the
-/// weekly roster's coarse buckets (DB/OL/DL) and the finer-grained `players`
-/// table (CB/OT/DE).
+/// Positions a FanDuel salary row can never be; exclusion list so unfamiliar
+/// or blank positions still reach the admin.
 const NON_SKILL_POSITIONS: &[&str] = &[
     "DB", "DL", "LB", "OL", "P", "K", "LS", "CB", "S", "SS", "FS", "SAF", "DE", "DT", "NT", "ILB",
     "MLB", "OLB", "OT", "T", "G", "OG", "C",
@@ -46,8 +39,7 @@ pub fn is_skill_position(position: Option<&str>) -> bool {
     }
 }
 
-/// Team-scoped candidates by the player table's latest team. Used only when no
-/// weekly roster has been synced for the row's week — see [`roster_candidates`].
+/// Fallback when no weekly roster exists for the row's week.
 fn candidates_for(players: &[Player], team: &str) -> Vec<Candidate> {
     players
         .iter()
@@ -57,8 +49,7 @@ fn candidates_for(players: &[Player], team: &str) -> Vec<Candidate> {
         .collect()
 }
 
-/// One weekly-roster entry as a pickable candidate. Entries upstream leaves
-/// without a GSIS id can't be resolved to, so they're dropped.
+/// One weekly-roster entry as a candidate; drops entries without a GSIS id.
 fn roster_candidate(e: &WeeklyRosterEntry) -> Option<Candidate> {
     if !is_skill_position(e.position.as_deref()) {
         return None;
@@ -73,9 +64,7 @@ fn roster_candidate(e: &WeeklyRosterEntry) -> Option<Candidate> {
     })
 }
 
-/// Who was actually on this team in this week. This is the scoping that makes
-/// mid-season trades come out right: 422 players changed teams in 2025 alone,
-/// and the player table records only where each of them ended up.
+/// Candidates from the exact week's roster — the trade-correct scope.
 async fn roster_candidates(
     nfl: &crate::NflData,
     season: Season,
@@ -86,7 +75,6 @@ async fn roster_candidates(
     Ok(entries.iter().filter_map(roster_candidate).collect())
 }
 
-/// A human-confirmed nickname/surname suggestion from the exact week's roster.
 pub(crate) async fn suggestion_for(
     nfl: &crate::NflData,
     reconciled_gsis_ids: &[String],
@@ -124,7 +112,6 @@ pub struct CandidateResults {
     pub widened: bool,
 }
 
-/// Keep the week's team roster as the default; widening is always explicit.
 pub(crate) async fn search(
     nfl: &crate::NflData,
     reconciled_gsis_ids: &[String],

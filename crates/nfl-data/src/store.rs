@@ -16,11 +16,7 @@ pub struct PlayerLink {
     pub gsis_player_id: String,
 }
 
-/// The nfl-data store: currently one durable table of player links.
-///
-/// Single-pool like `fanduel-data`'s store: one connection serializes every
-/// write, and in-memory connections share that same pool so schema and data
-/// cannot split across connections.
+/// One durable table of player links; single-connection pool.
 #[derive(Clone)]
 pub(crate) struct Store {
     pool: SqlitePool,
@@ -99,9 +95,7 @@ impl Store {
         Ok(rows.into_iter().map(|row| row.gsis_player_id).collect())
     }
 
-    /// Replace the source set in one transaction: an upsert per link keyed on
-    /// the GSIS id, so a re-link moves the FanDuel id rather than adding rows.
-    /// An empty set writes nothing.
+    /// Upsert each link keyed on the GSIS id; empty set writes nothing.
     pub(crate) async fn save_links(&self, links: &[PlayerLink]) -> Result<(), SalaryError> {
         self.write_tx(async |conn| {
             save_links_tx(conn, links).await?;
@@ -110,7 +104,7 @@ impl Store {
         .await
     }
 
-    /// Run a write inside a BEGIN IMMEDIATE transaction. Commits on Ok, rolls back on Err.
+    /// BEGIN IMMEDIATE transaction: commit on Ok, roll back on Err.
     pub(crate) async fn write_tx<T>(
         &self,
         f: impl AsyncFnOnce(&mut SqliteConnection) -> Result<T, SalaryError>,
@@ -173,7 +167,6 @@ mod tests {
         }])
         .await
         .expect("save");
-        // Each form sees only its own pool: schema and data stayed together.
         assert_eq!(dotted.links().await.unwrap().len(), 1);
         assert_eq!(bare.links().await.unwrap().len(), 1);
     }
@@ -278,8 +271,6 @@ mod tests {
             .await
             .unwrap();
 
-        // A remap of the same GSIS identity is an UPDATE: the conflict clause
-        // changes only fd_player_id, so the trigger moves updated_at forward.
         store
             .save_links(&[PlayerLink {
                 fd_player_id: 2,

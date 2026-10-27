@@ -2,10 +2,8 @@ use std::collections::HashMap;
 
 use crate::{Player, WeeklyRosterEntry};
 
-/// Normalized-name key: lowercase, non-alphanumeric characters dropped,
-/// whitespace collapsed. Copied from Sunday Slate's live identity helper, which
-/// also uses this exact rule for its own matching; the salary matcher and the
-/// host's live identity must never disagree about whether two names match.
+/// Lowercase, drop non-alphanumerics, collapse whitespace. Must match
+/// sunday-slate's live identity normalization exactly.
 pub(crate) fn normalize_name(name: &str) -> String {
     name.to_lowercase()
         .chars()
@@ -16,9 +14,7 @@ pub(crate) fn normalize_name(name: &str) -> String {
         .join(" ")
 }
 
-/// A normalized-name index over nfl-data players, built once so matching a whole
-/// slate is O(rows) rather than O(rows × players). Suffixes are kept in the name
-/// (they live in the last name), and the team breaks same-name ties.
+/// Name-index over nfl-data players; team breaks ties.
 pub struct PlayerIndex<'a> {
     by_norm: HashMap<String, Vec<&'a Player>>,
 }
@@ -35,9 +31,7 @@ impl<'a> PlayerIndex<'a> {
         Self { by_norm }
     }
 
-    /// Best-guess gsis_id for a FanDuel player: a normalized-name match, with the
-    /// team breaking ties when several players share a name. `None` if unmatched
-    /// or still ambiguous after the team filter.
+    /// Name match with team tie-break; `None` if unmatched or ambiguous.
     pub fn match_one(&self, fd_name: &str, fd_team: &str) -> Option<String> {
         let hits = self.by_norm.get(&normalize_name(fd_name))?;
         match hits.as_slice() {
@@ -57,31 +51,18 @@ impl<'a> PlayerIndex<'a> {
     }
 }
 
-/// A normalized-name index over one slate's weekly rosters, scoped by team.
-///
-/// The secondary matcher, tried only after [`PlayerIndex`] misses. Two reasons
-/// it catches what the player table cannot:
-///
-/// - `players` is nflverse's career index and omits players cut before
-///   recording a snap — 144 of 2025's 3,133 rostered players. FanDuel lists
-///   them because they were on the roster that week.
-/// - The two feeds render 104 names differently ("Kenny Gainwell" in `players`,
-///   "Kenneth Gainwell" on the roster), and FanDuel usually agrees with the
-///   roster.
-///
-/// Scoped to the slate's own week, so a player who was on the team in some
-/// other week never matches — the trade case the weekly dataset exists for.
+/// Week-scoped name-index over one slate's rosters, tried after `PlayerIndex`:
+/// the player table omits players cut before a snap, and FanDuel's spellings
+/// usually agree with the roster, not the player table.
 pub struct RosterIndex {
     by_team_norm: HashMap<(String, String), Vec<RosterHit>>,
     by_team_stem: HashMap<(String, String), Vec<RosterHit>>,
 }
 
-/// Generational suffixes. FanDuel and the roster feed disagree about them in
-/// both directions — "Kyle Pitts Sr." against "Kyle Pitts", and "Lew Nichols"
-/// against "Lew Nichols III" — so neither side can be trusted to carry one.
+/// Generational suffixes; the feeds disagree about them in both directions.
 const SUFFIXES: &[&str] = &["jr", "sr", "ii", "iii", "iv", "v"];
 
-/// A normalized name with any trailing generational suffixes removed.
+/// Normalized name minus trailing generational suffixes.
 fn strip_suffix(name: &str) -> String {
     let normalized = normalize_name(name);
     let mut parts: Vec<&str> = normalized.split(' ').collect();
@@ -101,7 +82,6 @@ impl RosterIndex {
         let mut by_team_norm: HashMap<(String, String), Vec<RosterHit>> = HashMap::new();
         let mut by_team_stem: HashMap<(String, String), Vec<RosterHit>> = HashMap::new();
         for e in entries {
-            // No gsis id means nothing to resolve to.
             let Some(gsis_id) = e.gsis_id.clone() else {
                 continue;
             };
@@ -124,11 +104,8 @@ impl RosterIndex {
         }
     }
 
-    /// Best-guess gsis_id for a FanDuel row: an exact normalized name, then the
-    /// same name with generational suffixes stripped from both sides.
-    ///
-    /// `dfs_position` breaks ties between teammates of the same name; anything
-    /// still ambiguous returns `None` and stays a human decision.
+    /// Exact normalized name, then suffix-stripped; `dfs_position` breaks
+    /// teammate ties; ambiguous stays `None`.
     pub fn match_one(&self, fd_name: &str, fd_team: &str, dfs_position: &str) -> Option<String> {
         let exact = self
             .by_team_norm
@@ -144,18 +121,10 @@ impl RosterIndex {
 }
 
 impl RosterIndex {
-    /// A likely-but-unproven match for a row [`Self::match_one`] could not
-    /// settle: the one player on this team, this week, sharing the row's
-    /// surname and FanDuel position.
-    ///
-    /// This is what catches nicknames — "Zonovan Knight" is rostered as "Bam
-    /// Knight", "Juice Wells Jr." as "Antwane Wells Jr." — which no
-    /// string-similarity threshold could reach from the first name.
-    ///
-    /// It can be wrong: if FanDuel's player is absent from the roster and a
-    /// different player of the same surname and position is present, this names
-    /// the wrong man. Callers must treat it as a suggestion for a human, never
-    /// as a match.
+    /// Surname+position suggestion when match_one fails — catches nicknames
+    /// like "Zonovan Knight" → "Bam Knight". Unproven: if the row's player is
+    /// absent and another surname/position match exists, this names the wrong
+    /// man. Suggestions only, never auto-match.
     pub fn suggest_one(&self, fd_name: &str, fd_team: &str, dfs_position: &str) -> Option<String> {
         let surname = surname(fd_name);
         if surname.is_empty() {
@@ -169,14 +138,13 @@ impl RosterIndex {
             .filter(|h| h.position.as_deref() == Some(dfs_position));
         let first = hits.next()?;
         match hits.next() {
-            // More than one candidate is not guessable.
             Some(_) => None,
             None => Some(first.gsis_id.clone()),
         }
     }
 }
 
-/// Last word of a name, suffixes already removed.
+/// Last word of the suffix-stripped name.
 fn surname(name: &str) -> String {
     surname_of_stem(&strip_suffix(name))
 }
@@ -185,7 +153,7 @@ fn surname_of_stem(stem: &str) -> String {
     stem.rsplit(' ').next().unwrap_or_default().to_string()
 }
 
-/// One hit, or the one whose position agrees, or nothing.
+/// The one hit, or the one whose position agrees, or `None`.
 fn pick(hits: &[RosterHit], dfs_position: &str) -> Option<String> {
     match hits {
         [] => None,
@@ -272,13 +240,11 @@ mod tests {
             idx.match_one("Kenneth Gainwell", "PHI", "RB").as_deref(),
             Some("00-1")
         );
-        // Same name, wrong team: the slate is scoped, so no match.
         assert_eq!(idx.match_one("Kenneth Gainwell", "DAL", "RB"), None);
     }
 
     #[test]
     fn roster_matches_across_a_suffix_on_either_side() {
-        // FanDuel carries the suffix, the roster does not.
         let es = vec![weekly(Some("00-1"), "Kyle Pitts", Some("TE"), "ATL")];
         let idx = RosterIndex::build(&es);
         assert_eq!(
@@ -286,7 +252,6 @@ mod tests {
             Some("00-1")
         );
 
-        // The roster carries the suffix, FanDuel does not.
         let es = vec![weekly(Some("00-2"), "Lew Nichols III", Some("RB"), "DET")];
         let idx = RosterIndex::build(&es);
         assert_eq!(
@@ -306,7 +271,6 @@ mod tests {
             idx.match_one("Chris Johnson", "NYJ", "RB").as_deref(),
             Some("00-rb")
         );
-        // Two teammates of that name AND that position: not resolvable.
         let es = vec![
             weekly(Some("00-a"), "Chris Johnson", Some("RB"), "NYJ"),
             weekly(Some("00-b"), "Chris Johnson", Some("RB"), "NYJ"),
@@ -324,8 +288,6 @@ mod tests {
 
     #[test]
     fn suggest_finds_the_lone_surname_and_position_match() {
-        // The nickname case: FanDuel "Zonovan Knight" is rostered as "Bam Knight".
-        // No name match, but exactly one RB named Knight on the team that week.
         let es = vec![weekly(Some("00-bam"), "Bam Knight", Some("RB"), "NYJ")];
         let idx = RosterIndex::build(&es);
         assert_eq!(idx.match_one("Zonovan Knight", "NYJ", "RB"), None);
@@ -337,8 +299,6 @@ mod tests {
 
     #[test]
     fn suggest_matches_surname_after_stripping_suffixes() {
-        // "Juice Wells Jr." (FanDuel) against "Antwane Wells Jr." (roster): the
-        // surname agrees once the suffix is stripped from both sides.
         let es = vec![weekly(
             Some("00-wells"),
             "Antwane Wells Jr.",
@@ -364,7 +324,6 @@ mod tests {
 
     #[test]
     fn suggest_requires_the_position_to_agree() {
-        // A defender named Knight is not a suggestion for a running back.
         let es = vec![weekly(Some("00-cb"), "Bam Knight", Some("CB"), "NYJ")];
         let idx = RosterIndex::build(&es);
         assert_eq!(idx.suggest_one("Zonovan Knight", "NYJ", "RB"), None);

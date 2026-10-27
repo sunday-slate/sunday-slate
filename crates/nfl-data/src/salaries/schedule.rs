@@ -8,14 +8,9 @@ pub enum ScheduleError {
     NoWeekContainsSlate,
 }
 
-/// Resolve the games of a slate from its directed matchups.
-///
-/// Each FanDuel row carries a directed `AWAY@HOME` matchup. A directed matchup is
-/// NOT unique across a full season: a same-venue playoff rematch can repeat a
-/// regular-season matchup, and `nfl.games` returns regular season and postseason
-/// together. Restrict lookup by the complete requested season, season type, and
-/// week before matching directed `(away, home)` pairs. `matchups` holds nflverse
-/// codes; the caller supplies canonical FanDuel team abbreviations.
+/// Resolve a slate's matchups to games. A directed matchup can recur across
+/// the season (playoff rematch), so lookup is restricted to the requested
+/// season, season type, and week.
 pub fn resolve_slate_games(
     season_games: &[Game],
     season_week: &SeasonWeek,
@@ -173,9 +168,6 @@ mod tests {
 
     #[test]
     fn full_slate_pins_the_week_when_a_matchup_repeats_in_the_playoffs() {
-        // SF@SEA occurs in both the regular season (week 1) and the divisional
-        // round (week 20). A lone SF@SEA is ambiguous, but the rest of the week-1
-        // slate pins the week, so the regular-season game is chosen.
         let games = vec![
             game(
                 "2025_01_SF_SEA",
