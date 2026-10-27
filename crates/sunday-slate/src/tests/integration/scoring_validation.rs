@@ -15,6 +15,7 @@ use nfl_data::{
     NflData, NflDataConfig, PlayerWeekStats as NflPlayerWeekStats, Season, SeasonType, SeasonWeek,
     TeamWeekStats as NflTeamWeekStats, Week,
 };
+use nflverse_data::NflverseData;
 
 use crate::scoring;
 
@@ -93,12 +94,20 @@ async fn full_season_scores_match_fanduel() {
     }
     let fixtures = format!("{manifest}/src/tests/fixtures/fanduel");
 
-    let nfl = NflData::connect(NflDataConfig {
-        nflverse_database_url: format!("sqlite://{nfl_db}"),
-        fanduel_database_url: "sqlite::memory:".into(),
-        reconciliation_database_url: "sqlite::memory:".into(),
+    let provider = NflverseData::connect(nflverse_data::NflverseDataConfig {
+        database_url: format!("sqlite://{nfl_db}"),
         ..Default::default()
     })
+    .await
+    .unwrap();
+    let nfl = NflData::connect(
+        provider,
+        NflDataConfig {
+            fanduel_database_url: "sqlite::memory:".into(),
+            store_database_url: "sqlite::memory:".into(),
+            refresh_interval: None,
+        },
+    )
     .await
     .unwrap();
 

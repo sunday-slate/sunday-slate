@@ -77,7 +77,7 @@ async fn cutover_migration_preserves_players_and_drops_salary_storage() {
     .unwrap();
 
     sqlx::raw_sql(include_str!(
-        "../../../migrations/20261026010000_remove_salary_reconciliation.up.sql"
+        "../../../migrations/20261026010000_remove_salary_data.up.sql"
     ))
     .execute(&pool)
     .await
@@ -157,7 +157,7 @@ async fn cutover_migration_preserves_players_and_drops_salary_storage() {
     .await
     .unwrap();
     sqlx::raw_sql(include_str!(
-        "../../../migrations/20261026010000_remove_salary_reconciliation.down.sql"
+        "../../../migrations/20261026010000_remove_salary_data.down.sql"
     ))
     .execute(&pool)
     .await

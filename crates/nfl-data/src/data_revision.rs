@@ -14,7 +14,8 @@ impl DataRevision {
 #[cfg(test)]
 mod tests {
     use super::Dataset;
-    use crate::{NflDataConfig, test::test_support::mock_nfl_with_schedule};
+    use crate::test::test_support::mock_nfl_with_schedule;
+    use nflverse_data::NflverseData;
     use utils::Secret;
     use wiremock::{
         Mock, MockServer, ResponseTemplate,
@@ -77,15 +78,21 @@ mod tests {
             ))
             .mount(&server)
             .await;
-        let nfl = crate::NflData::connect(NflDataConfig {
-            nflverse_database_url: "sqlite::memory:".into(),
-            fanduel_database_url: "sqlite::memory:".into(),
-            reconciliation_database_url: "sqlite::memory:".into(),
-            earliest_season: 2025,
-            github_token: Some(Secret::new("sentinel")),
-            github_api_base: server.uri(),
-            refresh_interval: None,
-        })
+        let nfl = crate::NflData::connect(
+            NflverseData::connect(nflverse_data::NflverseDataConfig {
+                database_url: "sqlite::memory:".into(),
+                earliest_season: 2025,
+                github_token: Some(Secret::new("sentinel")),
+                github_api_base: server.uri(),
+            })
+            .await
+            .unwrap(),
+            crate::NflDataConfig {
+                fanduel_database_url: "sqlite::memory:".into(),
+                store_database_url: "sqlite::memory:".into(),
+                refresh_interval: None,
+            },
+        )
         .await
         .unwrap();
         let report = nfl.provider.sync().await.unwrap();
@@ -106,14 +113,7 @@ mod tests {
 
     #[tokio::test]
     async fn seeding_preserves_bookkeeping_in_memory() {
-        let config = NflDataConfig {
-            nflverse_database_url: "sqlite::memory:".into(),
-            fanduel_database_url: "sqlite::memory:".into(),
-            reconciliation_database_url: "sqlite::memory:".into(),
-            refresh_interval: None,
-            ..Default::default()
-        };
-        let nfl = crate::NflData::connect(config).await.unwrap();
+        let nfl = crate::NflData::in_memory().await.unwrap();
         let initial = nfl.data_revision().await.unwrap();
         let player = crate::Player {
             gsis_id: "00-seed".into(),

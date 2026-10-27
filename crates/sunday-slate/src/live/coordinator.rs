@@ -1074,17 +1074,24 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn coordinator_revision_errors_follow_reconciliation_error_path(_pool: SqlitePool) {
+    async fn coordinator_revision_errors_follow_store_error_path(_pool: SqlitePool) {
         let dir = tempfile::tempdir().unwrap();
         let server = wiremock::MockServer::start().await;
-        let nfl = nfl_data::NflData::connect(nfl_data::NflDataConfig {
-            nflverse_database_url: format!("sqlite://{}/cache.db", dir.path().display()),
-            fanduel_database_url: "sqlite::memory:".into(),
-            reconciliation_database_url: "sqlite::memory:".into(),
+        let provider = nflverse_data::NflverseData::connect(nflverse_data::NflverseDataConfig {
+            database_url: format!("sqlite://{}/cache.db", dir.path().display()),
             github_api_base: server.uri(),
-            refresh_interval: None,
             ..Default::default()
         })
+        .await
+        .unwrap();
+        let nfl = nfl_data::NflData::connect(
+            provider,
+            nfl_data::NflDataConfig {
+                fanduel_database_url: "sqlite::memory:".into(),
+                store_database_url: "sqlite::memory:".into(),
+                refresh_interval: None,
+            },
+        )
         .await
         .unwrap();
         let app = TestApp::new_with_nfl(Arc::new(nfl)).await;

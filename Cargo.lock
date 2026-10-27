@@ -3587,6 +3587,7 @@ dependencies = [
  "mime_guess",
  "nfl-data",
  "nfl-model",
+ "nflverse-data",
  "password-auth",
  "regex",
  "reqwest",

@@ -18,7 +18,7 @@ The nflverse provider stores its rebuildable, disposable source cache in
 contests remain in `storage/sunday-slate.db` — salaries and identifier links
 no longer live there. Original FanDuel salary uploads are retained in the
 durable `storage/fanduel-data.db` source archive, and confirmed
-FanDuel-to-GSIS player links live in the durable reconciliation store
+FanDuel-to-GSIS player links live in the durable NFL data store
 `storage/nfl-data.db`. Back up both alongside `storage/sunday-slate.db`;
 deleting or rebuilding the nflverse cache does not change either.
 
@@ -70,14 +70,14 @@ monotonic version.
 The nflverse database is a rebuildable cache and may be recreated from source.
 The FanDuel database is durable source data and belongs in routine backups with
 the Sunday Slate database. `storage/nfl-data.db` additionally holds the
-persisted FanDuel→GSIS player links (the reconciliation store); it is durable
+persisted FanDuel→GSIS player links; it is durable
 admin state and belongs in routine backups too. Keep all stores separate; do
 not remove the FanDuel archive when rebuilding the nflverse cache.
 
 ## Player Link Transfer
 
 Migrating an existing deployment's confirmed player links out of the Sunday
-Slate database into the reconciliation store is a one-time command:
+Slate database into the NFL data store is a one-time command:
 
 ```sh
 cargo run -p nfl-data --bin migrate-salary-links -- \
@@ -90,7 +90,7 @@ and migrated if missing. The transfer is idempotent — links already present
 with the same FD id are counted, not re-copied — and rejects a source and
 destination that resolve to the same file (including hard links and symlinks
 to the same inode). Preserve the legacy `fd_player_id` column (run the transfer
-before upgrading Sunday Slate past its `remove_salary_reconciliation`
+before upgrading Sunday Slate past its `remove_salary_data`
 migration); a source without that column fails with a clear error.
 
 ## Command-Line Refresh

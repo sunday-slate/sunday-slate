@@ -4,13 +4,13 @@ use clap::Parser;
 use nfl_data::migrate_salary_links;
 
 #[derive(Parser)]
-#[command(about = "One-time transfer of Sunday Slate player links into the reconciliation store")]
+#[command(about = "One-time transfer of Sunday Slate player links into the NFL data store")]
 struct Args {
     /// SQLite URL of the pre-cutover Sunday Slate database (read-only source)
     #[arg(long)]
     source: String,
 
-    /// SQLite URL of the reconciliation database (created if missing)
+    /// SQLite URL of the NFL data store (created if missing)
     #[arg(long)]
     destination: String,
 }

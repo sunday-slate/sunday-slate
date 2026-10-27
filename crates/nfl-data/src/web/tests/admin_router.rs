@@ -4,6 +4,7 @@ use axum::{Router, http::StatusCode};
 use axum_test::TestServer;
 use nfl_data::{AdminConfig, NflData, NflDataConfig, admin_router};
 use nfl_model::Season;
+use nflverse_data::NflverseData;
 use sqlx::Connection;
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
@@ -27,14 +28,21 @@ async fn server() -> (TestServer, MockServer) {
             .mount(&upstream)
             .await;
     }
-    let nfl = NflData::connect(NflDataConfig {
-        nflverse_database_url: "sqlite::memory:".into(),
-        fanduel_database_url: "sqlite::memory:".into(),
-        reconciliation_database_url: "sqlite::memory:".into(),
+    let provider = NflverseData::connect(nflverse_data::NflverseDataConfig {
+        database_url: "sqlite::memory:".into(),
         github_api_base: upstream.uri(),
-        refresh_interval: None,
         ..Default::default()
     })
+    .await
+    .unwrap();
+    let nfl = NflData::connect(
+        provider,
+        NflDataConfig {
+            fanduel_database_url: "sqlite::memory:".into(),
+            store_database_url: "sqlite::memory:".into(),
+            refresh_interval: None,
+        },
+    )
     .await
     .unwrap();
     (
@@ -83,14 +91,21 @@ async fn nflverse_setup_errors_are_generic_500_responses() {
     let upstream = MockServer::start().await;
     let cache = tempfile::tempdir().unwrap();
     let database_url = format!("sqlite://{}/cache.db", cache.path().display());
-    let nfl = NflData::connect(NflDataConfig {
-        nflverse_database_url: database_url.clone(),
-        fanduel_database_url: "sqlite::memory:".into(),
-        reconciliation_database_url: "sqlite::memory:".into(),
+    let provider = NflverseData::connect(nflverse_data::NflverseDataConfig {
+        database_url: database_url.clone(),
         github_api_base: upstream.uri(),
-        refresh_interval: None,
         ..Default::default()
     })
+    .await
+    .unwrap();
+    let nfl = NflData::connect(
+        provider,
+        NflDataConfig {
+            fanduel_database_url: "sqlite::memory:".into(),
+            store_database_url: "sqlite::memory:".into(),
+            refresh_interval: None,
+        },
+    )
     .await
     .unwrap();
     let mut connection = sqlx::SqliteConnection::connect(&database_url)
@@ -144,15 +159,22 @@ async fn nflverse_post_and_scheduled_refresh_are_single_flight() {
             .await;
     }
     let interval = Duration::from_millis(60);
+    let provider = NflverseData::connect(nflverse_data::NflverseDataConfig {
+        database_url: "sqlite::memory:".into(),
+        github_api_base: upstream.uri(),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
     let nfl = Arc::new(
-        NflData::connect(NflDataConfig {
-            nflverse_database_url: "sqlite::memory:".into(),
-            fanduel_database_url: "sqlite::memory:".into(),
-            reconciliation_database_url: "sqlite::memory:".into(),
-            github_api_base: upstream.uri(),
-            refresh_interval: Some(interval),
-            ..Default::default()
-        })
+        NflData::connect(
+            provider,
+            NflDataConfig {
+                fanduel_database_url: "sqlite::memory:".into(),
+                store_database_url: "sqlite::memory:".into(),
+                refresh_interval: Some(interval),
+            },
+        )
         .await
         .unwrap(),
     );

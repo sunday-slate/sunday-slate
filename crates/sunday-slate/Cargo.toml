@@ -17,6 +17,7 @@ utils = { path = "../utils" }
 anyhow.workspace = true
 nfl-data = { path = "../nfl-data" }
 nfl-model = { path = "../nfl-model" }
+nflverse-data = { path = "../nflverse-data" }
 tank01-data = { path = "../tank01-data" }
 askama.workspace = true
 futures-util = "0.3"

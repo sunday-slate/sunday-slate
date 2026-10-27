@@ -1,6 +1,4 @@
-use nfl_data::{
-    Game, NflData, NflDataConfig, Player, Season, SeasonType, TeamAbbr, Week, WeeklyRosterEntry,
-};
+use nfl_data::{Game, NflData, Player, Season, SeasonType, TeamAbbr, Week, WeeklyRosterEntry};
 
 fn player() -> Player {
     Player {
@@ -69,13 +67,7 @@ async fn empty_provider_reads_preserve_missing_result_behavior() {
 
 #[tokio::test]
 async fn seeded_records_preserve_identity_and_prefer_players() {
-    let config = NflDataConfig {
-        nflverse_database_url: "sqlite::memory:".into(),
-        fanduel_database_url: "sqlite::memory:".into(),
-        reconciliation_database_url: "sqlite::memory:".into(),
-        ..Default::default()
-    };
-    let nfl = NflData::connect(config).await.unwrap();
+    let nfl = NflData::in_memory().await.unwrap();
     nfl.seed_for_test(&[player()], &[game()]).await.unwrap();
     let roster = |id: &str| WeeklyRosterEntry {
         season: Season(2025),

@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use nfl_data::{NflData, NflDataConfig, Season};
+use nflverse_data::NflverseData;
 
 use crate::contests::rule::{Rule, resolve};
 
@@ -39,12 +40,20 @@ async fn resolve_matches_fanduel_2025() {
     let fanduel = load_fanduel(&fixture);
     assert_eq!(fanduel.len(), 23, "expected 23 FanDuel contests");
 
-    let nfl = NflData::connect(NflDataConfig {
-        nflverse_database_url: format!("sqlite://{nfl_db}"),
-        fanduel_database_url: "sqlite::memory:".into(),
-        reconciliation_database_url: "sqlite::memory:".into(),
+    let provider = NflverseData::connect(nflverse_data::NflverseDataConfig {
+        database_url: format!("sqlite://{nfl_db}"),
         ..Default::default()
     })
+    .await
+    .unwrap();
+    let nfl = NflData::connect(
+        provider,
+        NflDataConfig {
+            fanduel_database_url: "sqlite::memory:".into(),
+            store_database_url: "sqlite::memory:".into(),
+            refresh_interval: None,
+        },
+    )
     .await
     .unwrap();
     let games = nfl.games(Season(SEASON)).await.unwrap();

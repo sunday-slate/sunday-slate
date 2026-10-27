@@ -29,15 +29,21 @@ impl App {
         std::fs::create_dir_all(&config.media_dir)?;
         let (session_layer, sessions) = sessions::layer(&config).await?;
 
+        let nflverse = nflverse_data::NflverseData::connect(nflverse_data::NflverseDataConfig {
+            database_url: config.nflverse_database_url.clone(),
+            github_token: config.nflverse_github_token.clone(),
+            ..Default::default()
+        })
+        .await?;
         let nfl = Arc::new(
-            nfl_data::NflData::connect(nfl_data::NflDataConfig {
-                nflverse_database_url: config.nflverse_database_url.clone(),
-                fanduel_database_url: config.fanduel_database_url.clone(),
-                reconciliation_database_url: config.nfl_data_database_url.clone(),
-                github_token: config.nflverse_github_token.clone(),
-                refresh_interval: config.nflverse_sync_interval(),
-                ..Default::default()
-            })
+            nfl_data::NflData::connect(
+                nflverse,
+                nfl_data::NflDataConfig {
+                    fanduel_database_url: config.fanduel_database_url.clone(),
+                    store_database_url: config.nfl_data_database_url.clone(),
+                    refresh_interval: config.nflverse_sync_interval(),
+                },
+            )
             .await?,
         );
         let avatar_runner = Arc::new(crate::avatars::AvatarFetchRunner::new());

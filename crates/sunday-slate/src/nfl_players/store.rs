@@ -6,7 +6,7 @@ use crate::media::{Media, MediaId, store as media_store};
 use crate::nfl_players::model::NflPlayer;
 
 /// Get-or-create the local player row for one GSIS identity. Media-only:
-/// reconciliation links live in nfl-data, not here. Idempotent on
+/// player links live in nfl-data, not here. Idempotent on
 /// gsis_player_id; an existing row keeps its timestamps and headshot.
 pub async fn upsert_for_gsis<'e, E>(ex: E, gsis_player_id: &str) -> Result<NflPlayer, sqlx::Error>
 where

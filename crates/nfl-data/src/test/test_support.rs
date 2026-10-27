@@ -6,6 +6,7 @@ use wiremock::{
 };
 
 use crate::{NflData, NflDataConfig};
+use nflverse_data::NflverseData;
 
 pub(crate) async fn mock_nfl(refresh_interval: Option<Duration>) -> (Arc<NflData>, MockServer) {
     mock_nfl_setup(refresh_interval, false, Duration::ZERO).await
@@ -60,14 +61,20 @@ async fn mock_nfl_setup(
             .mount(&server)
             .await;
     }
-    let nfl = NflData::connect(NflDataConfig {
-        nflverse_database_url: "sqlite::memory:".into(),
-        fanduel_database_url: "sqlite::memory:".into(),
-        reconciliation_database_url: "sqlite::memory:".into(),
-        github_api_base: server.uri(),
-        refresh_interval,
-        ..Default::default()
-    })
+    let nfl = NflData::connect(
+        NflverseData::connect(nflverse_data::NflverseDataConfig {
+            database_url: "sqlite::memory:".into(),
+            github_api_base: server.uri(),
+            ..Default::default()
+        })
+        .await
+        .unwrap(),
+        NflDataConfig {
+            fanduel_database_url: "sqlite::memory:".into(),
+            store_database_url: "sqlite::memory:".into(),
+            refresh_interval,
+        },
+    )
     .await
     .unwrap();
     (Arc::new(nfl), server)

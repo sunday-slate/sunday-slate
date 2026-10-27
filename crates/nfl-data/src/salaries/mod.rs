@@ -9,8 +9,8 @@ pub use schedule::resolve_slate_games;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::WeeklySummary;
-use crate::reconciliation::store::PlayerLink;
 use crate::salaries::matcher::{PlayerIndex, RosterIndex};
+use crate::store::PlayerLink;
 use crate::{DfsPosition, Game, NflData, SalariedPlayer, SeasonWeek};
 
 /// One stored contest week and the source player IDs still needing a crosswalk.
@@ -34,7 +34,7 @@ pub struct ReconciledSalary {
 impl NflData {
     /// Validate the typed CSV's schedule, persist it, and (re)apply persisted
     /// player links. CSV parsing, source save, and omitted-row upsert behavior
-    /// are the source store's; reconciliation only writes successful links.
+    /// are the source store's; link persistence only writes successful links.
     pub async fn import_salary_csv(
         &self,
         season_week: SeasonWeek,
@@ -58,7 +58,7 @@ impl NflData {
         let salaries = self.fanduel.salaried_players_for(season_week).await?;
         let salary_count = salaries.len();
 
-        let links = self.reconciliation.links().await?;
+        let links = self.store.links().await?;
         let unmatched = salaries
             .into_iter()
             .filter(|salaried_player| match &salaried_player.player {
@@ -101,18 +101,18 @@ impl NflData {
         &self,
         fd_player_id: u32,
     ) -> Result<Option<PlayerLink>, SalaryError> {
-        self.reconciliation.by_fd_id(fd_player_id).await
+        self.store.by_fd_id(fd_player_id).await
     }
 
     /// Persisted GSIS ids, deduplicated and sorted. Sourced from links only.
     pub async fn reconciled_gsis_ids(&self) -> Result<Vec<String>, SalaryError> {
-        self.reconciliation.gsis_ids().await
+        self.store.gsis_ids().await
     }
 
     /// Per-week source counts with per-week unresolved counts, across every
     /// stored week. DST entries are never unresolved.
     pub async fn salary_week_summaries(&self) -> Result<Vec<WeeklySummary>, SalaryError> {
-        let link_ids = self.reconciliation.links().await?;
+        let link_ids = self.store.links().await?;
         let matched_ids: Vec<u32> = link_ids.keys().copied().collect();
         let salary_counts = self.fanduel.weekly_salary_counts().await?;
         let unmatched_counts = self.fanduel.weekly_unmatched_counts(&matched_ids).await?;
@@ -159,7 +159,7 @@ impl NflData {
                 ));
         }
 
-        let links = self.reconciliation.links().await?;
+        let links = self.store.links().await?;
         let mut out: Vec<ReconciledSalary> = Vec::new();
         for (season_week, _matchups) in by_week {
             let rows = self.fanduel.salaried_players_for(season_week).await?;
@@ -223,7 +223,7 @@ impl NflData {
                 ));
         }
 
-        let links = self.reconciliation.links().await?;
+        let links = self.store.links().await?;
         for (season_week, _matchups) in by_week {
             let rows = self.fanduel.salaried_players_for(season_week).await?;
             for game in games.iter().filter(|g| {
@@ -305,7 +305,7 @@ impl NflData {
             );
         }
         let roster_index = RosterIndex::build(&roster_entries);
-        let links = self.reconciliation.links().await?;
+        let links = self.store.links().await?;
 
         let mut mapped = Vec::new();
         for salary in source {
@@ -352,7 +352,7 @@ impl NflData {
             }
             let _ = game_id;
         }
-        self.reconciliation.save_links(&mapped).await?;
+        self.store.save_links(&mapped).await?;
         Ok(())
     }
 }

@@ -1,8 +1,9 @@
 mod config;
 mod data_revision;
 mod identity;
-mod reconciliation;
+mod legacy_transfer;
 mod salaries;
+mod store;
 #[cfg(test)]
 mod test;
 mod web;
@@ -15,6 +16,7 @@ pub use config::NflDataConfig;
 pub use data_revision::DataRevision;
 pub use fanduel_data::{FanduelDataError, SalariedPlayer};
 pub use identity::PlayerIdentity;
+pub use legacy_transfer::{LinkMigrationReport, migrate_salary_links};
 pub use live::{
     EspnPlayerId, InjuryDesignation, InjuryEntry, InjuryProvider, InjuryReport, LiveGame,
     LiveGamePhase, LiveGameSnapshot, LivePlayerStats, LiveProviderError, LiveScoreProvider,
@@ -30,10 +32,9 @@ pub use nflverse_data::{
     Dataset, DatasetFreshness, DatasetReport, DatasetStatus, NflverseDataError as NflDataError,
     RefreshStatus, SyncReport,
 };
-pub use reconciliation::PlayerLink;
-pub use reconciliation::migration::{LinkMigrationReport, migrate_salary_links};
 pub use salaries::ReconciledSalary;
 pub use salaries::SalaryError;
+pub use store::PlayerLink;
 pub use web::AdminConfig;
 pub use web::router as admin_router;
 
@@ -46,17 +47,17 @@ pub struct WeeklySummary {
 #[derive(Debug, thiserror::Error)]
 pub enum NflDataConnectError {
     #[error("nflverse provider startup failed: {0}")]
-    Nflverse(#[source] NflDataError),
+    Provider(String),
     #[error("FanDuel provider startup failed: {0}")]
     Fanduel(#[source] FanduelDataError),
-    #[error("NFL reconciliation startup failed: {0}")]
-    Reconciliation(#[source] SalaryError),
+    #[error("NFL data store startup failed: {0}")]
+    Store(#[source] SalaryError),
 }
 
 pub struct NflData {
     provider: NflverseData,
     fanduel: fanduel_data::FanduelData,
-    reconciliation: reconciliation::Store,
+    store: store::Store,
     refresh_interval: Option<std::time::Duration>,
 }
 
@@ -130,27 +131,28 @@ impl NflData {
         Ok(summaries)
     }
 
-    /// Opens both provider databases and runs their migrations.
-    pub async fn connect(config: NflDataConfig) -> Result<Self, NflDataConnectError> {
+    /// Opens the FanDuel provider and the NFL data store; the nflverse
+    /// provider handle is built by the caller and passed in.
+    pub async fn connect(
+        provider: NflverseData,
+        config: NflDataConfig,
+    ) -> Result<Self, NflDataConnectError> {
         let refresh_interval = config
             .refresh_interval
             .filter(|interval| !interval.is_zero());
-        let provider = NflverseData::connect(config.clone().into())
-            .await
-            .map_err(NflDataConnectError::Nflverse)?;
         let fanduel = if config.fanduel_database_url == "sqlite::memory:" {
             fanduel_data::FanduelData::in_memory().await
         } else {
             fanduel_data::FanduelData::connect(&config.fanduel_database_url).await
         }
         .map_err(NflDataConnectError::Fanduel)?;
-        let reconciliation = reconciliation::Store::open(&config.reconciliation_database_url)
+        let store = store::Store::open(&config.store_database_url)
             .await
-            .map_err(NflDataConnectError::Reconciliation)?;
+            .map_err(NflDataConnectError::Store)?;
         Ok(Self {
             provider,
             fanduel,
-            reconciliation,
+            store,
             refresh_interval,
         })
     }
@@ -159,19 +161,18 @@ impl NflData {
     /// `NflData` handle without a database file. Migrations are applied; no data
     /// is synced.
     pub async fn in_memory() -> Result<Self, NflDataConnectError> {
-        let provider = NflverseData::in_memory()
-            .await
-            .map_err(NflDataConnectError::Nflverse)?;
         let fanduel = fanduel_data::FanduelData::in_memory()
             .await
             .map_err(NflDataConnectError::Fanduel)?;
-        let reconciliation = reconciliation::Store::in_memory()
+        let store = store::Store::in_memory()
             .await
-            .map_err(NflDataConnectError::Reconciliation)?;
+            .map_err(NflDataConnectError::Store)?;
         Ok(Self {
-            provider,
+            provider: NflverseData::in_memory()
+                .await
+                .map_err(|e| NflDataConnectError::Provider(e.to_string()))?,
             fanduel,
-            reconciliation,
+            store,
             refresh_interval: None,
         })
     }

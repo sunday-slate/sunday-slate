@@ -1,5 +1,5 @@
 //! One-time transfer of legacy player links from Sunday Slate's pre-cutover
-//! database into the reconciliation store.
+//! database into the NFL data store.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -17,7 +17,7 @@ pub struct LinkMigrationReport {
 }
 
 /// Copy legacy player links from a pre-cutover Sunday Slate database into the
-/// reconciliation store. Source is opened read-only and never modified; the
+/// NFL data store. Source is opened read-only and never modified; the
 /// destination is created/migrated if missing. Same-file source/destination is
 /// rejected before anything is written, by filesystem identity (device +
 /// inode), so aliases like relative vs. absolute spellings, symlinks, and hard
@@ -84,9 +84,9 @@ pub async fn migrate_salary_links(
         rows
     };
 
-    let destination = crate::reconciliation::store::Store::open(destination_url)
+    let destination = crate::store::Store::open(destination_url)
         .await
-        .map_err(|e| anyhow::anyhow!("preparing the destination reconciliation store: {e}"))?;
+        .map_err(|e| anyhow::anyhow!("preparing the destination NFL data store: {e}"))?;
 
     // Group by FD id: one source row per FD id, or an ambiguous legacy state.
     let mut by_fd: BTreeMap<u32, (String, String, String)> = BTreeMap::new();

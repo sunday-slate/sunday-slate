@@ -1,4 +1,4 @@
-//! Durable FanDuel→GSIS player links, owned by the reconciliation domain.
+//! Durable FanDuel→GSIS player links, owned by the nfl-data store.
 
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{SqliteConnection, SqlitePool};
@@ -16,7 +16,7 @@ pub struct PlayerLink {
     pub gsis_player_id: String,
 }
 
-/// The reconciliation store: one durable table of player links.
+/// The nfl-data store: currently one durable table of player links.
 ///
 /// Single-pool like `fanduel-data`'s store: one connection serializes every
 /// write, and in-memory connections share that same pool so schema and data

@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use nfl_data::{NflData, NflDataConfig};
+use nflverse_data::NflverseData;
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
     matchers::{method, path},
@@ -23,14 +24,21 @@ pub(crate) async fn mocked_nfl() -> (Arc<NflData>, MockServer) {
             .mount(&server)
             .await;
     }
-    let nfl = NflData::connect(NflDataConfig {
-        nflverse_database_url: "sqlite::memory:".into(),
-        fanduel_database_url: "sqlite::memory:".into(),
-        reconciliation_database_url: "sqlite::memory:".into(),
+    let provider = NflverseData::connect(nflverse_data::NflverseDataConfig {
+        database_url: "sqlite::memory:".into(),
         github_api_base: server.uri(),
-        refresh_interval: Some(Duration::ZERO),
         ..Default::default()
     })
+    .await
+    .unwrap();
+    let nfl = NflData::connect(
+        provider,
+        NflDataConfig {
+            fanduel_database_url: "sqlite::memory:".into(),
+            store_database_url: "sqlite::memory:".into(),
+            refresh_interval: Some(Duration::ZERO),
+        },
+    )
     .await
     .unwrap();
     (Arc::new(nfl), server)
