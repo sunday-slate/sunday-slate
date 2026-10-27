@@ -38,6 +38,8 @@ impl Store {
     }
 
     /// Upsert each link keyed on the GSIS id; empty set writes nothing.
+    /// A link is written once: saving an identical pair is a no-op, and a
+    /// conflicting save (already-linked GSIS id) is ignored.
     pub(crate) async fn save_links(&self, links: &[PlayerLink]) -> Result<(), SalaryError> {
         self.write_tx(async |conn| {
             save_links_tx(conn, links).await?;
@@ -54,7 +56,7 @@ pub(crate) async fn save_links_tx(
     for link in links {
         sqlx::query!(
             r#"INSERT INTO player_links (fd_player_id, gsis_player_id) VALUES (?, ?)
-               ON CONFLICT (gsis_player_id) DO UPDATE SET fd_player_id = excluded.fd_player_id"#,
+               ON CONFLICT (gsis_player_id) DO NOTHING"#,
             i64::from(link.fd_player_id),
             link.gsis_player_id,
         )
@@ -114,6 +116,29 @@ mod tests {
         store.save_links(&[link.clone()]).await.unwrap();
         store.save_links(&[link]).await.unwrap();
         assert_eq!(store.links().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_conflicting_fd_id_does_not_move_an_existing_gsis_link() {
+        let store = store().await;
+        store
+            .save_links(&[PlayerLink {
+                fd_player_id: 111,
+                gsis_player_id: "00-x".into(),
+            }])
+            .await
+            .unwrap();
+        store
+            .save_links(&[PlayerLink {
+                fd_player_id: 222,
+                gsis_player_id: "00-x".into(),
+            }])
+            .await
+            .unwrap();
+        assert_eq!(
+            store.links().await.unwrap(),
+            HashMap::from([(111, "00-x".to_owned())])
+        );
     }
 
     #[tokio::test]
