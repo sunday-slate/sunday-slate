@@ -172,15 +172,6 @@ impl NflData {
         })
     }
 
-    /// Most recent weekly roster entry for each id, keyed by gsis id; ids with
-    /// no entry are absent. Complements `players_by_gsis` for candidates.
-    pub async fn weekly_roster_entries_by_gsis<I: AsRef<str>>(
-        &self,
-        ids: &[I],
-    ) -> Result<HashMap<String, WeeklyRosterEntry>, NflDataError> {
-        self.provider.weekly_roster_entries_by_gsis(ids).await
-    }
-
     /// Display facts per gsis id: `players` first, weekly rosters for the
     /// misses; unknown ids are absent from the map.
     pub async fn identify<I: AsRef<str>>(
@@ -193,7 +184,7 @@ impl NflData {
             .map(|id| id.as_ref())
             .filter(|id| !players.contains_key(*id))
             .collect();
-        let roster = self.weekly_roster_entries_by_gsis(&unnamed).await?;
+        let roster = self.provider.weekly_roster_entries_by_gsis(&unnamed).await?;
         let named = players.into_iter().map(|(id, p)| {
             let identity = PlayerIdentity {
                 name: p.full_name,
