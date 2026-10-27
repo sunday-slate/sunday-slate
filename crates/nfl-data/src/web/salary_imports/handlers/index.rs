@@ -7,7 +7,7 @@ use askama::Template;
 use axum::extract::State;
 use axum::response::Html;
 use nfl_model::SeasonWeek;
-use crate::{SalaryError, WeeklySummary};
+use crate::WeeklySummary;
 
 #[derive(Template)]
 #[template(
@@ -47,7 +47,7 @@ async fn salary_week_summaries(
     let salary_counts = state.nfl.fanduel.weekly_salary_counts().await?;
     let unmatched_counts = state.nfl.fanduel.weekly_unmatched_counts(&matched_ids).await?;
 
-    let summaries = salary_counts
+    let summaries: Vec<WeeklySummary> = salary_counts
         .into_iter()
         .map(|(season_week, salary_count)| WeeklySummary {
             season_week,

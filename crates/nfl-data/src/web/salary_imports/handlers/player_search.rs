@@ -25,7 +25,7 @@ pub async fn player_search(
 ) -> Result<Html<String>, SalaryAdminError> {
     let season_week = crate::SeasonWeek::decode(encoded).ok_or(SalaryAdminError::NotFound)?;
     let row = unmatched_salary(&state, &season_week, fd_player_id).await?;
-    let reconciled = state.nfl.reconciled_gsis_ids().await?;
+    let reconciled = state.nfl.store.gsis_ids().await?;
     let results = crate::salaries::candidates::search(
         &state.nfl,
         &reconciled,

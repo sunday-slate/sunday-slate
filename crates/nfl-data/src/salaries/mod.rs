@@ -6,13 +6,11 @@ mod schedule;
 pub use error::SalaryError;
 pub use schedule::resolve_slate_games;
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap};
 
-#[allow(unused_imports)]
-use crate::WeeklySummary;
 use crate::salaries::matcher::{PlayerIndex, RosterIndex};
 use crate::store::PlayerLink;
-use crate::{DfsPosition, Game, NflData, SalariedPlayer, SeasonWeek};
+use crate::{DfsPosition, NflData, SalariedPlayer, SeasonWeek};
 
 /// One stored contest week and the source player IDs still needing a crosswalk.
 pub struct SalaryWeekOverview {

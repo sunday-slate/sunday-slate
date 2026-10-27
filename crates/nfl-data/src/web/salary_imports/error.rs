@@ -16,6 +16,8 @@ pub(crate) enum SalaryAdminError {
     Salary(#[from] crate::SalaryError),
     #[error(transparent)]
     Render(#[from] askama::Error),
+    #[error(transparent)]
+    Fanduel(#[from] crate::FanduelDataError),
 }
 
 impl From<crate::NflDataError> for SalaryAdminError {
@@ -68,5 +70,13 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(body, "internal server error: db failed");
+    }
+
+    #[tokio::test]
+    async fn fanduel_error_maps_to_500() {
+        let response =
+            SalaryAdminError::from(crate::FanduelDataError::InvalidRow("bad row".into()))
+                .into_response();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 }
