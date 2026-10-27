@@ -109,25 +109,27 @@ mod tests {
             response.header("location"),
             "/nfl-data-admin/salary-imports/2025001"
         );
+        let links = state.nfl.store.links().await.unwrap();
         assert_eq!(
-            state
-                .nfl
-                .player_link_by_fd_id(999)
-                .await
-                .unwrap()
-                .expect("link")
-                .gsis_player_id,
-            "00-roster-only"
+            links.get(&999).map(String::as_str),
+            Some("00-roster-only")
         );
-        let overview = state
-            .nfl
-            .salary_week_overview(crate::SeasonWeek {
+        let overview = crate::web::salary_imports::salary_week_overview(
+            &crate::web::AdminState {
+                nfl: std::sync::Arc::clone(&state.nfl),
+                config: crate::web::AdminConfig {
+                    season: crate::Season(2025),
+                    now_override: None,
+                },
+            },
+            crate::SeasonWeek {
                 season: crate::Season(2025),
                 season_type: crate::SeasonType::Reg,
                 week: crate::Week(1),
-            })
-            .await
-            .unwrap();
+            },
+        )
+        .await
+        .unwrap();
         assert_eq!(overview.unmatched.len(), 1);
         assert_eq!(overview.unmatched[0].player.as_ref().unwrap().id, 888);
         let page = state

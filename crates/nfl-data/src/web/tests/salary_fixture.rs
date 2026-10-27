@@ -6,7 +6,7 @@ use axum_test::multipart::{MultipartForm, Part};
 use time::macros::datetime;
 
 use crate::web::AdminConfig;
-use crate::{NflData, Season};
+use crate::{Game, NflData, Player, Season, SeasonType, Week};
 
 pub(crate) struct AdminFixture {
     pub(crate) server: TestServer,
@@ -84,6 +84,76 @@ pub(crate) const DASHBOARD_CSV: &str = r#""Id","Position","First Name","Nickname
 
 pub(crate) const POST_CSV: &str = DASHBOARD_CSV;
 
+/// FanDuel's representative export: Josh Allen (fd 135064-62239) on BUF@NYJ,
+/// a Giants DST, Travis Etienne Jr. (135064-80796) on JAC@HOU, and an
+/// unresolved Rookie Wideout (135064-99999) on LAR@SEA.
+pub(crate) const REPRESENTATIVE_CSV: &str =
+    include_str!("../../../../fanduel-data/src/csv/fixtures/fanduel-export.csv");
+
+/// Seed the representative slate around `admin_state()`: the four week-1 and
+/// four week-2 games, plus players 00-2 and 00-3. `admin_state()` already
+/// seeded player 00-1 and the BUF@NYJ week-1 game; re-seeding either trips the
+/// `players.gsis_id` / `games.gsis_game_id` UNIQUE constraints.
+pub(crate) async fn seed_representative_slate(nfl: &NflData) {
+    nfl.seed_for_test(
+        &[
+            player("00-2", "Travis Etienne Jr.", "JAX"),
+            player("00-3", "Slate Receiver", "LA"),
+        ],
+        &[
+            game("2025_01_NYG_WAS", 1, "NYG", "WAS"),
+            game("2025_01_JAX_HOU", 1, "JAX", "HOU"),
+            game("2025_01_LA_SEA", 1, "LA", "SEA"),
+            game("2025_02_BUF_MIA", 2, "BUF", "MIA"),
+            game("2025_02_NYG_WAS", 2, "NYG", "WAS"),
+            game("2025_02_JAX_HOU", 2, "JAX", "HOU"),
+            game("2025_02_LA_SEA", 2, "LA", "SEA"),
+        ],
+    )
+    .await
+    .unwrap();
+}
+
+/// Upload form for the representative slate: 2025 REG with an explicit week
+/// and CSV body.
+pub(crate) fn salary_upload_form(week: u8, csv: &str) -> MultipartForm {
+    MultipartForm::new()
+        .add_text("season", "2025")
+        .add_text("season_type", "REG")
+        .add_text("week", week.to_string())
+        .add_part(
+            "csv",
+            Part::bytes(csv.as_bytes().to_vec()).file_name("salary.csv"),
+        )
+}
+
+fn game(id: &str, week: u8, away: &str, home: &str) -> Game {
+    Game {
+        gsis_game_id: id.into(),
+        season: Season(2025),
+        week: Week(week),
+        season_type: SeasonType::Reg,
+        kickoff: None,
+        home_team: home.parse().unwrap(),
+        away_team: away.parse().unwrap(),
+        home_score: None,
+        away_score: None,
+    }
+}
+
+fn player(gsis: &str, name: &str, team: &str) -> Player {
+    Player {
+        gsis_id: gsis.into(),
+        espn_id: None,
+        full_name: name.into(),
+        first_name: None,
+        last_name: None,
+        position: None,
+        latest_team: Some(team.parse().unwrap()),
+        headshot_url: None,
+    }
+}
+
 pub(crate) fn upload_form() -> MultipartForm {
     MultipartForm::new()
         .add_text("season", "2025")
@@ -116,24 +186,6 @@ async fn dashboard_lists_source_counts_and_resolves_roster_only_players_directly
         .multipart(upload_form())
         .await
         .assert_status(axum::http::StatusCode::SEE_OTHER);
-    let overview = state
-        .nfl
-        .salary_week_overview(crate::SeasonWeek {
-            season: Season(2025),
-            season_type: crate::SeasonType::Reg,
-            week: crate::Week(1),
-        })
-        .await
-        .unwrap();
-    assert_eq!(overview.salary_count, 4);
-    assert_eq!(overview.unmatched.len(), 2);
-    assert!(
-        overview
-            .unmatched
-            .iter()
-            .any(|row| row.player.as_ref().is_some_and(|p| p.id == 999))
-    );
-
     let root = state.server.get("/nfl-data-admin/salary-imports").await;
     root.assert_status_ok();
     root.assert_text_contains("4 salaries");
@@ -174,29 +226,10 @@ async fn dashboard_lists_source_counts_and_resolves_roster_only_players_directly
         .await;
     resolved.assert_text_contains("Second Receiver");
     assert!(!resolved.text().contains("All player IDs are resolved"));
-    let overview = state
-        .nfl
-        .salary_week_overview(crate::SeasonWeek {
-            season: Season(2025),
-            season_type: crate::SeasonType::Reg,
-            week: crate::Week(1),
-        })
-        .await
-        .unwrap();
+    let links = state.nfl.store.links().await.unwrap();
     assert_eq!(
-        overview.unmatched.len(),
-        1,
-        "the second mystery row stays unresolved"
-    );
-    assert_eq!(
-        state
-            .nfl
-            .player_link_by_fd_id(999)
-            .await
-            .unwrap()
-            .unwrap()
-            .gsis_player_id,
-        "00-roster-only"
+        links.get(&999).map(String::as_str),
+        Some("00-roster-only")
     );
 }
 

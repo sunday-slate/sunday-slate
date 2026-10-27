@@ -56,4 +56,5 @@ mod salary_imports;
 pub(crate) mod tests {
     // Shared fixture; the standalone [[test]] binaries compile separately.
     pub(crate) mod salary_fixture;
+    pub(crate) mod salary_imports;
 }

@@ -277,6 +277,13 @@ mod tests {
                 .await
                 .assert_status(StatusCode::BAD_REQUEST);
         }
-        assert!(state.nfl.salary_week_summaries().await.unwrap().is_empty());
+        assert!(
+            state
+                .nfl
+                .fanduel_weekly_summaries(&[])
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 }
