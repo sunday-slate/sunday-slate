@@ -239,7 +239,7 @@ impl NflData {
             fanduel_data::FanduelData::connect(&config.fanduel_database_url).await
         }
         .map_err(NflDataConnectError::Fanduel)?;
-        let store = store::Store::open(&config.store_database_url)
+        let store = store::Store::open(&config.database_url)
             .await
             .map_err(NflDataConnectError::Store)?;
         Ok(Self {

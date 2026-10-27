@@ -104,24 +104,15 @@ impl Store {
         .await
     }
 
-    /// BEGIN IMMEDIATE transaction: commit on Ok, roll back on Err.
+    /// BEGIN IMMEDIATE transaction: commit on Ok, roll back on Err or drop.
     pub(crate) async fn write_tx<T>(
         &self,
         f: impl AsyncFnOnce(&mut SqliteConnection) -> Result<T, SalaryError>,
     ) -> Result<T, SalaryError> {
-        let mut conn = self.pool.acquire().await?;
-        sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
-
-        match f(&mut *conn).await {
-            Ok(v) => {
-                sqlx::query("COMMIT").execute(&mut *conn).await?;
-                Ok(v)
-            }
-            Err(e) => {
-                let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
-                Err(e)
-            }
-        }
+        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let value = f(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(value)
     }
 }
 

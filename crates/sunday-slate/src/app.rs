@@ -31,9 +31,9 @@ impl App {
 
         let nfl = Arc::new(
             nfl_data::NflData::connect(nfl_data::NflDataConfig {
-                database_url: config.nflverse_database_url.clone(),
+                nflverse_database_url: config.nflverse_database_url.clone(),
                 fanduel_database_url: config.fanduel_database_url.clone(),
-                store_database_url: config.nfl_data_database_url.clone(),
+                database_url: config.nfl_data_database_url.clone(),
                 github_token: config.nflverse_github_token.clone(),
                 refresh_interval: config.nflverse_sync_interval(),
                 ..Default::default()

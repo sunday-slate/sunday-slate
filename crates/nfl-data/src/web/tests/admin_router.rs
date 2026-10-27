@@ -29,9 +29,9 @@ async fn server() -> (TestServer, MockServer) {
     }
     let nfl = NflData::connect(NflDataConfig {
         github_token: None,
-        database_url: "sqlite::memory:".into(),
+        nflverse_database_url: "sqlite::memory:".into(),
         fanduel_database_url: "sqlite::memory:".into(),
-        store_database_url: "sqlite::memory:".into(),
+        database_url: "sqlite::memory:".into(),
         earliest_season: 2025,
         github_api_base: upstream.uri(),
         refresh_interval: None,
@@ -85,9 +85,9 @@ async fn nflverse_setup_errors_are_generic_500_responses() {
     let cache = tempfile::tempdir().unwrap();
     let database_url = format!("sqlite://{}/cache.db", cache.path().display());
     let nfl = NflData::connect(NflDataConfig {
-        database_url: database_url.clone(),
+        nflverse_database_url: database_url.clone(),
         fanduel_database_url: "sqlite::memory:".into(),
-        store_database_url: "sqlite::memory:".into(),
+        database_url: "sqlite::memory:".into(),
         earliest_season: nflverse_data::NflverseDataConfig::default().earliest_season,
         github_token: None,
         github_api_base: upstream.uri(),
@@ -149,9 +149,9 @@ async fn nflverse_post_and_scheduled_refresh_are_single_flight() {
     let nfl = Arc::new(
         NflData::connect(NflDataConfig {
             github_token: None,
-            database_url: "sqlite::memory:".into(),
+            nflverse_database_url: "sqlite::memory:".into(),
             fanduel_database_url: "sqlite::memory:".into(),
-            store_database_url: "sqlite::memory:".into(),
+            database_url: "sqlite::memory:".into(),
             earliest_season: 2025,
             github_api_base: upstream.uri(),
             refresh_interval: Some(interval),
