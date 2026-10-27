@@ -22,7 +22,7 @@ FanDuel-to-GSIS player links live in the durable NFL data store
 `storage/nfl-data.db`. Back up both alongside `storage/sunday-slate.db`;
 deleting or rebuilding the nflverse cache does not change either.
 
-For Rust consumers, `nfl-data` retains canonical read operations and re-exports shared model types, live contracts, and time helpers from `nfl-model`. Provider synchronization operations and status types remain private to the crate; callers use its lifecycle methods and opaque `DataRevision` instead. Its distinct `NflDataConfig` takes default values from `NflverseDataConfig` so cache settings stay aligned.
+For Rust consumers, `nfl-data` retains canonical read operations and re-exports shared model types, live contracts, and time helpers from `nfl-model`. Provider synchronization operations and status types remain private to the crate; callers use its lifecycle methods and opaque `DataRevision` instead. `NflDataConfig` carries only the FanDuel source URL and the NFL data store URL; hosts construct the `NflverseData` provider themselves — with its own cache settings — and pass it to `NflData::connect`, so `nfl-data` holds no nflverse configuration.
 
 From the workspace root, run:
 
