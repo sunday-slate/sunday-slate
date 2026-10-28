@@ -13,7 +13,12 @@ nav:
   - NFL Data: nfl-data-sources.md  
   - Rust API:
       - fanduel-data: https://docs.sundayslate.org/rustdoc/fanduel_data/
+      - nfl-data: https://docs.sundayslate.org/rustdoc/nfl_data/
       - nfl-model: https://docs.sundayslate.org/rustdoc/nfl_model/
+      - nflverse-data: https://docs.sundayslate.org/rustdoc/nflverse_data/
+      - sunday-slate: https://docs.sundayslate.org/rustdoc/sunday_slate/
+      - tank01-data: https://docs.sundayslate.org/rustdoc/tank01_data/
+      - utils: https://docs.sundayslate.org/rustdoc/utils/
   - About These Documents: about.md
 
 theme:

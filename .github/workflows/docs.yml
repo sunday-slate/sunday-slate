@@ -6,8 +6,7 @@ on:
       - "docs/**"
       - ".config/mkdocs.yml"
       - "scripts/repo_links.py"
-      - "crates/fanduel-data/**"
-      - "crates/nfl-model/**"
+      - "crates/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
@@ -37,7 +36,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes mold
       - name: Build Rust API docs
-        run: cargo doc --locked -p fanduel-data -p nfl-model
+        run: cargo doc --locked --workspace --no-deps
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5 (actions/setup-python)
         with:
@@ -56,6 +55,11 @@ jobs:
           cp -a target/doc/. _site/rustdoc/
           test -f _site/rustdoc/fanduel_data/index.html
           test -f _site/rustdoc/nfl_model/index.html
+          test -f _site/rustdoc/nfl_data/index.html
+          test -f _site/rustdoc/nflverse_data/index.html
+          test -f _site/rustdoc/tank01_data/index.html
+          test -f _site/rustdoc/utils/index.html
+          test -f _site/rustdoc/sunday_slate/index.html
       - name: Upload artifact
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3 (actions/upload-pages-artifact)
         with:

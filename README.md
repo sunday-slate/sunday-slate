@@ -36,6 +36,7 @@ direnv allow        # enters the flake devshell
 just db-migrate
 just dev            # or `just serve 3000` for no bacon TUI
 just docs           # serve the docs site at localhost:8000
+just rustdoc        # build and open API docs for all workspace crates, without dependency docs
 ```
 
 `just --list` shows the useful commands.

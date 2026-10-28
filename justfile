@@ -50,10 +50,10 @@ docs:
 docs-build:
     mkdocs build --strict -f .config/mkdocs.yml
 
-# Build FanDuel data and shared NFL model API docs, including dependencies, and open them.
+# Build API docs for every workspace crate, without dependency docs, and open them.
 [group('docs')]
 rustdoc:
-    cargo doc -p fanduel-data -p nfl-model --open
+    cargo doc --workspace --no-deps --open
 
 # Run all tests
 [group('check')]
