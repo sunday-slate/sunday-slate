@@ -11,7 +11,6 @@ use crate::{Game, NflData, NflDataConfig};
 pub(crate) struct Fixture {
     pub(crate) nfl: NflData,
     provider: SqlitePool,
-    /// Holds the database files for the fixture's lifetime.
     _dir: TempDir,
 }
 

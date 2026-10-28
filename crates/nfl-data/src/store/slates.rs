@@ -82,14 +82,7 @@ pub(crate) async fn game_ids(pool: &SqlitePool, id: SlateId) -> Result<Vec<Strin
     .await
 }
 
-/// Reconciles one week inside a single `BEGIN IMMEDIATE` transaction,
-/// rechecking fixation inside it so concurrent writers serialize: the first
-/// fixation wins. Before fixation it upserts proposal metadata, clears stale
-/// kickoffs of slates absent from the proposal set, and, with `fix`, inserts
-/// membership rows in the same transaction; after fixation it ignores
-/// proposals and only refreshes stored kickoffs from the fixed ids. Returns
-/// the week's metadata in kickoff order (known ascending, unknown last, id
-/// breaking ties).
+/// Reconciles the week in one `BEGIN IMMEDIATE` transaction; a fixed week's stored snapshot wins.
 pub(crate) async fn reconcile(
     store: &Store,
     week: SeasonWeek,
@@ -149,10 +142,7 @@ async fn upsert_metadata(
     Ok(())
 }
 
-/// Clears the kickoffs of stored slates absent from the proposal set: they
-/// keep their identity but drop the stale kickoff, so identical schedule
-/// data yields identical metadata on every lookup, including the first
-/// fixing one.
+/// Clears stored kickoffs for week rows absent from the current proposals.
 async fn clear_absent_kickoffs(
     conn: &mut SqliteConnection,
     week: SeasonWeek,

@@ -117,10 +117,7 @@ fn proposal(rule: Rule, week: &SeasonWeek, week_games: &[&Game]) -> SlateProposa
     }
 }
 
-/// The Monday that opens `week`'s NFL schedule window: the earliest known
-/// Eastern kickoff date among all of the exact week's games, mapped through
-/// `nfl_week_monday` (Monday night belongs to the preceding NFL week). `None`
-/// when no game in the week has a known kickoff.
+/// The Monday that opens `week`'s NFL schedule window, or `None` with no known kickoff dates.
 pub(crate) fn opening_monday(week: SeasonWeek, games: &[Game]) -> Option<Date> {
     games
         .iter()
