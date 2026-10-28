@@ -260,7 +260,7 @@ mod tests {
     use time::macros::datetime;
 
     use super::{by_id, for_week, game_ids, is_fixed, reconcile};
-    use crate::slates::SlateProposal;
+    use crate::slates::{SlateId, SlateProposal};
     use crate::store::Store;
     use crate::store::player_link::{links, save_links};
     use crate::{Game, PlayerLink, Season, SeasonType, SeasonWeek, Week};
@@ -303,6 +303,9 @@ mod tests {
 
     fn proposal(name: &str, kickoff: Option<OffsetDateTime>, ids: &[&str]) -> SlateProposal {
         SlateProposal {
+            // Reconciliation keys metadata on the week and name; it does not
+            // read the proposal's id.
+            id: SlateId(0),
             name: name.into(),
             kickoff,
             game_ids: ids.iter().map(|id| id.to_string()).collect(),

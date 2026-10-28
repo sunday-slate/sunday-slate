@@ -20,11 +20,14 @@ pub struct Slate {
     pub kickoff: Option<OffsetDateTime>,
 }
 
-/// Opaque wrapper around a slate's auto-incrementing database integer.
+/// Opaque wrapper around a slate's deterministic identity.
 ///
-/// Not a deterministic identifier shared across databases: ids are local to
-/// each database, and the same named slate can carry coincidentally equal
-/// numeric values in different databases.
+/// Derived from the slate's NFL week and kind as `SeasonWeek.encode() * 10 +
+/// kind`, so the same slate carries the identical numeric value in every
+/// database. The kind digit is `1` for main slates — regular-season `Week 1`
+/// through `Week 18` and the postseason `Wild Card`, `Divisional`, and
+/// `Championship` slates — and `0` for the holiday slates, `Thanksgiving`
+/// and `Christmas`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, sqlx::Type)]
 #[sqlx(transparent)]
 pub struct SlateId(pub i64);
@@ -33,6 +36,7 @@ pub struct SlateId(pub i64);
 /// consumed by storage reconciliation. Not public API.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SlateProposal {
+    pub id: SlateId,
     pub name: String,
     pub kickoff: Option<OffsetDateTime>,
     pub game_ids: Vec<String>,

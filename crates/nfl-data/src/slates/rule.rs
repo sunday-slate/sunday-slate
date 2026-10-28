@@ -11,7 +11,7 @@ use time::{Date, Month, OffsetDateTime, Time, UtcOffset, Weekday};
 
 use nfl_model::nfl_week_monday;
 
-use crate::slates::SlateProposal;
+use crate::slates::{SlateId, SlateProposal};
 use crate::{Game, SeasonType, SeasonWeek};
 
 /// One canonical slate definition for a week. Internal: callers never
@@ -42,6 +42,15 @@ impl Rule {
             Rule::WildCard => "Wild Card".into(),
             Rule::Divisional => "Divisional".into(),
             Rule::Championship => "Championship".into(),
+        }
+    }
+
+    /// The slate's id kind digit: `1` for main slates — regular weeks and the
+    /// postseason weeks — and `0` for holiday slates.
+    fn kind(self) -> i64 {
+        match self {
+            Rule::Main { .. } | Rule::WildCard | Rule::Divisional | Rule::Championship => 1,
+            Rule::Thanksgiving | Rule::Christmas => 0,
         }
     }
 
@@ -94,25 +103,28 @@ pub(crate) fn proposals(week: SeasonWeek, games: &[Game]) -> Vec<SlateProposal> 
     let season = week.season.0;
     let mut out = Vec::new();
     if let Some(primary) = primary_rule(&week) {
-        out.push(proposal(primary, season, &week_games));
+        out.push(proposal(primary, &week, &week_games));
     }
     for holiday in [Rule::Thanksgiving, Rule::Christmas] {
         if week_games.iter().any(|g| holiday.covers(season, g)) {
-            out.push(proposal(holiday, season, &week_games));
+            out.push(proposal(holiday, &week, &week_games));
         }
     }
     out
 }
 
-/// The proposal for one rule over the week's games: the canonical name, the
-/// earliest known selected kickoff normalized to UTC, and the selected ids.
-fn proposal(rule: Rule, season: u16, week_games: &[&Game]) -> SlateProposal {
+/// The proposal for one rule over the week's games: its derived id, the
+/// canonical name, the earliest known selected kickoff normalized to UTC, and
+/// the selected ids.
+fn proposal(rule: Rule, week: &SeasonWeek, week_games: &[&Game]) -> SlateProposal {
+    let season = week.season.0;
     let selected: Vec<&Game> = week_games
         .iter()
         .copied()
         .filter(|g| rule.covers(season, g))
         .collect();
     SlateProposal {
+        id: SlateId(i64::from(week.encode()) * 10 + rule.kind()),
         name: rule.name(),
         kickoff: selected
             .iter()
@@ -405,25 +417,25 @@ mod tests {
         // and each Monday night kickoff lands on Monday locally.
         let cases = [
             (
-                (19u8, "Wild Card"),
+                (19u8, "Wild Card", SlateId(20251191)),
                 datetime!(2026-01-10 21:30 UTC),
                 datetime!(2026-01-11 18:00 UTC),
                 datetime!(2026-01-13 01:00 UTC),
             ),
             (
-                (20, "Divisional"),
+                (20, "Divisional", SlateId(20251201)),
                 datetime!(2026-01-17 21:30 UTC),
                 datetime!(2026-01-18 18:00 UTC),
                 datetime!(2026-01-20 01:00 UTC),
             ),
             (
-                (21, "Championship"),
+                (21, "Championship", SlateId(20251211)),
                 datetime!(2026-01-24 21:30 UTC),
                 datetime!(2026-01-25 18:00 UTC),
                 datetime!(2026-01-27 01:00 UTC),
             ),
         ];
-        for ((week, name), saturday, sunday, monday) in cases {
+        for ((week, name, id), saturday, sunday, monday) in cases {
             let games = vec![
                 game("sat", 2025, week, SeasonType::Post, Some(saturday)),
                 game("sun", 2025, week, SeasonType::Post, Some(sunday)),
@@ -434,6 +446,7 @@ mod tests {
             assert_eq!(got.len(), 1, "postseason week {week} has exactly one slate");
             let playoff = proposal_named(&got, name);
             assert_eq!(playoff.name, name);
+            assert_eq!(playoff.id, id, "the playoff slate stamps its main-kind id");
             assert_eq!(sorted_ids(playoff), ["sat", "sun"]);
             assert_eq!(playoff.kickoff, Some(saturday));
         }
@@ -538,6 +551,13 @@ mod tests {
         assert_eq!(holiday.kickoff, Some(datetime!(2025-11-27 18:00 UTC)));
         assert_eq!(main.kickoff, Some(datetime!(2025-11-30 17:00 UTC)));
 
+        assert_eq!(holiday.id, SlateId(20250130));
+        assert_eq!(main.id, SlateId(20250131));
+        assert!(
+            holiday.id < main.id,
+            "the holiday id sorts below the main id"
+        );
+
         // The slates share the week but not a single game.
         for id in &holiday.game_ids {
             assert!(!main.game_ids.contains(id), "{id} belongs to both slates");
@@ -614,6 +634,29 @@ mod tests {
 
         // Weeks outside the canonical ranges have no primary slate.
         assert_eq!(proposals(post_week(2025, 22), &[]).len(), 0);
+    }
+
+    /// REG and POST weeks sharing a numeric week stamp ids from disjoint
+    /// families: the season-type digit in `SeasonWeek::encode` separates the
+    /// regular `2025019x` family from the postseason `2025119x` family.
+    #[test]
+    fn reg_and_post_ids_do_not_collide_for_the_same_numeric_week() {
+        let post = proposals(post_week(2025, 19), &[]);
+        let wild_card = proposal_named(&post, "Wild Card");
+        assert_eq!(wild_card.id, SlateId(20251191));
+
+        // What the regular family would stamp for the identical numeric week:
+        // the codec's REG 2025 week 19 encoding times ten, plus each kind.
+        let reg_family = i64::from(reg_week(2025, 19).encode()) * 10;
+        assert_ne!(
+            wild_card.id.0, reg_family,
+            "the POST id must not equal the REG family's holiday-kind value"
+        );
+        assert_ne!(
+            wild_card.id.0,
+            reg_family + 1,
+            "the POST id must not equal the REG family's main-kind value"
+        );
     }
 
     #[test]
