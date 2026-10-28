@@ -1,0 +1,19 @@
+{% extends "admin/layout.html" %}
+{% block title %}{{ name }}{% endblock %}
+{% block content %}
+<div class="mx-auto max-w-3xl">
+  <a class="link mb-4 inline-block" href="/nfl-data-admin/slates">← Back to slates</a>
+  <h1 class="mb-2 text-2xl font-bold">{{ name }}</h1>
+  <p class="mb-6 text-sm text-base-content/60">{{ week_label }} · kickoff {{ kickoff }}</p>
+  <h2 class="mb-3 text-lg font-semibold">Games</h2>
+  <ul class="flex flex-col gap-2">
+    {% for game in games %}
+    <li class="flex flex-wrap justify-between gap-2 rounded-box border border-base-300 p-4 sm:flex-nowrap">
+      <span class="sm:whitespace-nowrap">{{ game.matchup }}</span>
+      <span class="text-base-content/70 sm:text-right">{{ game.kickoff }}</span>
+    </li>
+    {% endfor %}
+    {% if games.is_empty() %}<li class="text-base-content/60">No games available for this slate.</li>{% endif %}
+  </ul>
+</div>
+{% endblock %}

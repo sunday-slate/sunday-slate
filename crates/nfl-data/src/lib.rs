@@ -57,6 +57,7 @@ pub struct NflData {
     fanduel: fanduel_data::FanduelData,
     store: store::Store,
     refresh_interval: Option<std::time::Duration>,
+    season: Season,
 }
 
 impl NflData {
@@ -151,6 +152,7 @@ impl NflData {
             fanduel,
             store,
             refresh_interval,
+            season: config.season,
         })
     }
 
@@ -170,7 +172,13 @@ impl NflData {
             fanduel,
             store,
             refresh_interval: None,
+            season: Season::default(),
         })
+    }
+
+    /// The application season this handle carries, from its configuration.
+    pub fn season(&self) -> Season {
+        self.season
     }
 
     /// Display facts per gsis id: `players` first, weekly rosters for the

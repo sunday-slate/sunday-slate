@@ -9,6 +9,8 @@ pub(super) enum AdminError {
     #[error(transparent)]
     Provider(#[from] crate::NflDataError),
     #[error(transparent)]
+    Slate(#[from] crate::slates::SlateError),
+    #[error(transparent)]
     Render(#[from] askama::Error),
 }
 

@@ -7,6 +7,9 @@ pub struct NflDataConfig {
     pub nflverse_database_url: String,
     pub fanduel_database_url: String,
     pub database_url: String,
+    /// Application season carried by connected [`NflData`](crate::NflData) handles; the
+    /// provider's `earliest_season` fetch bound is separate.
+    pub season: nfl_model::Season,
     /// Datasets fetch seasons >= this.
     pub earliest_season: u16,
     pub github_token: Option<Secret>,
@@ -33,6 +36,7 @@ impl Default for NflDataConfig {
             nflverse_database_url: config.database_url,
             fanduel_database_url: "sqlite://./storage/fanduel-data.db".to_owned(),
             database_url: "sqlite://./storage/nfl-data.db".to_owned(),
+            season: nfl_model::Season::default(),
             earliest_season: config.earliest_season,
             github_token: config.github_token,
             github_api_base: config.github_api_base,
@@ -68,6 +72,7 @@ mod tests {
             nflverse_database_url: "sqlite://cache.db".into(),
             fanduel_database_url: "sqlite://fanduel.db".into(),
             database_url: "sqlite://nfl-data.db".into(),
+            season: nfl_model::Season(2025),
             earliest_season: 2020,
             github_token: Some(Secret::new("sentinel")),
             github_api_base: "https://api.example.test".into(),

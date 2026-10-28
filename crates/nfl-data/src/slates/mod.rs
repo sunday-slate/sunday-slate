@@ -4,7 +4,7 @@ mod rule;
 
 pub use error::SlateError;
 pub use model::{Slate, SlateId};
-pub use service::{by_id, by_week, games};
+pub use service::{all, by_id, by_week, games};
 
 pub(crate) use model::SlateProposal;
 
