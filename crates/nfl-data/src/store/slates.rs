@@ -448,18 +448,20 @@ mod tests {
     async fn metadata_queries_are_week_scoped_and_chronological() {
         let store = store().await;
 
-        // Known kickoffs ascending: the week-13 holiday's Thursday games
-        // before the main slate's Sunday games.
+        // Known kickoffs ascending: names are storage labels here, and the
+        // fixture gives the main slate the earlier kickoff and the holiday
+        // the later one — the reverse of id order — so the listing order
+        // proves kickoff ordering, not id ordering.
         let week = reg_week(13);
         reconcile(
             &store,
             week,
             &[
-                proposal(week, "Week 13", Some(datetime!(2025-11-30 17:00 UTC)), &[]),
+                proposal(week, "Week 13", Some(datetime!(2025-11-27 18:00 UTC)), &[]),
                 proposal(
                     week,
                     "Thanksgiving",
-                    Some(datetime!(2025-11-27 18:00 UTC)),
+                    Some(datetime!(2025-11-30 17:00 UTC)),
                     &[],
                 ),
             ],
@@ -472,12 +474,14 @@ mod tests {
         let names: Vec<&str> = got.iter().map(|slate| slate.name.as_str()).collect();
         assert_eq!(
             names,
-            ["Thanksgiving", "Week 13"],
+            ["Week 13", "Thanksgiving"],
             "known kickoffs ascending"
         );
 
         // The tie pairs two equal kickoffs; the derived ids break it
         // deterministically: the holiday kind sorts before the main kind.
+        // The main label sorts before the holiday alphabetically, so the
+        // listing order proves id ordering, not name ordering.
         let tie_week = reg_week(12);
         reconcile(
             &store,
@@ -485,7 +489,7 @@ mod tests {
             &[
                 proposal(
                     tie_week,
-                    "Week 12",
+                    "Sunday Night",
                     Some(datetime!(2025-11-27 18:00 UTC)),
                     &[],
                 ),
@@ -506,25 +510,27 @@ mod tests {
             tied.iter()
                 .map(|slate| slate.name.as_str())
                 .collect::<Vec<_>>(),
-            ["Thanksgiving", "Week 12"],
+            ["Thanksgiving", "Sunday Night"],
             "the derived ids break the tie: holiday kind first"
         );
         assert_eq!(tied[0].kickoff, tied[1].kickoff, "both share a kickoff");
         assert!(tied[0].id < tied[1].id, "the id breaks the kickoff tie");
 
-        // Unknown kickoff is last.
+        // Unknown kickoff is last: the unknown kickoff sits on the holiday,
+        // whose derived id sorts first — the reverse of id order — so the
+        // listing order proves the nulls-last rule, not id ordering.
         let unknown_week = reg_week(11);
         reconcile(
             &store,
             unknown_week,
             &[
-                proposal(unknown_week, "Week 11", None, &[]),
                 proposal(
                     unknown_week,
-                    "Thanksgiving",
+                    "Week 11",
                     Some(datetime!(2025-11-27 18:00 UTC)),
                     &[],
                 ),
+                proposal(unknown_week, "Thanksgiving", None, &[]),
             ],
             &[],
             false,
