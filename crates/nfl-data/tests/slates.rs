@@ -171,13 +171,17 @@ async fn public_slate_is_metadata_only() {
         name,
         kickoff,
     } = named(&listed, "Week 13").clone();
-    assert!(id.0 > 0, "database-assigned ids are positive");
+    assert_eq!(
+        id,
+        SlateId(20250131),
+        "the derived main id for the seeded week"
+    );
     assert_eq!(season_week, WEEK_13);
     assert_eq!(name, "Week 13");
     assert_eq!(kickoff, Some(datetime!(2025-11-30 17:00 UTC)));
 
     let thanksgiving = named(&listed, "Thanksgiving");
-    assert!(thanksgiving.id.0 > 0);
+    assert_eq!(thanksgiving.id, SlateId(20250130), "the derived holiday id");
     assert_eq!(thanksgiving.season_week, WEEK_13);
     assert_eq!(thanksgiving.name, "Thanksgiving");
     assert_eq!(thanksgiving.kickoff, Some(datetime!(2025-11-27 17:30 UTC)));
@@ -186,7 +190,11 @@ async fn public_slate_is_metadata_only() {
     let unknown_kickoffs = nfl.slates(WEEK_16).await.unwrap();
     assert_eq!(names(&unknown_kickoffs), ["Week 16"]);
     let week_16 = named(&unknown_kickoffs, "Week 16");
-    assert!(week_16.id.0 > 0);
+    assert_eq!(
+        week_16.id,
+        SlateId(20250161),
+        "the derived main id for the unknown-kickoff week"
+    );
     assert_eq!(week_16.kickoff, None, "the stored kickoff is nullable");
 }
 
@@ -235,6 +243,8 @@ async fn fixed_ids_and_metadata_survive_reopen() {
     let listed = nfl.slates(WEEK_13).await.unwrap();
     let main_id = named(&listed, "Week 13").id;
     let thanksgiving_id = named(&listed, "Thanksgiving").id;
+    assert_eq!(main_id, SlateId(20250131), "the derived main id");
+    assert_eq!(thanksgiving_id, SlateId(20250130), "the derived holiday id");
     let main_games = game_ids(&nfl.slate_games(main_id).await.unwrap());
     let thanksgiving_games = game_ids(&nfl.slate_games(thanksgiving_id).await.unwrap());
     drop(nfl);

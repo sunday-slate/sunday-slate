@@ -74,9 +74,10 @@ FanDuel archive when rebuilding the nflverse cache.
 
 `nfl-data` derives shared, named slates for each NFL week from the cached
 schedule — for example `Week 13`, `Thanksgiving`, and `Wild Card` — and stores
-the slate metadata and each week's fixed membership snapshot in the durable
-`storage/nfl-data.db`. Like the persisted player links, they survive rebuilds
-of the nflverse cache and belong in the same backups as `nfl-data.db`.
+the slate metadata and each week's fixed membership snapshot in two durable
+tables of `storage/nfl-data.db`: `slates` and `slate_games`. Like the
+persisted player links, they survive rebuilds of the nflverse cache and belong
+in the same backups as `nfl-data.db`.
 
 Consumers read them through three `NflData` operations:
 
@@ -88,20 +89,23 @@ Consumers read them through three `NflData` operations:
   current schedule, ordered by known kickoff ascending, unknown kickoff last,
   or an empty vector when the id is unknown.
 
-Each slate is metadata only — a database-local auto-increment id, its exact
-NFL week, its canonical name, and a stored kickoff set to the slate's earliest
-known game kickoff or `NULL` when unknown. The id identifies a row in one
-database and is not stable across databases.
+Each slate is metadata only — a deterministic id derived from its week and
+kind, its exact NFL week, its canonical name, and a stored kickoff set to the
+slate's earliest known game kickoff or `NULL` when unknown. The id is derived
+rather than assigned: the same slate carries the identical numeric value in
+every database.
 
 Slate access has no salary prerequisite, no background job, and no admin UI:
 it touches only the provider cache and the slate tables. The first lookup for
 a week at or after its opening Monday (Eastern) fixes that week's membership
 durably; before that Monday, metadata and membership follow the current
-schedule. A late first lookup — the Monday has already passed when the first
-lookup happens — is accepted and captures the schedule as it stands. After
-fixation, schedule changes refresh stored kickoffs and returned game details
-for the fixed members but never change membership; a member whose schedule
-row is absent drops out of returned games while staying in the snapshot.
+schedule. Fixation is inferred from the stored membership rows — a week is
+fixed exactly while they exist. A late first lookup — the Monday has already
+passed when the first lookup happens — is accepted and captures the schedule
+as it stands. After fixation, schedule changes refresh stored kickoffs and
+returned game details for the fixed members but never change membership; a
+member whose schedule row is absent drops out of returned games while staying
+in the snapshot.
 
 Sunday Slate itself continues to use its existing contest slates; these shared
 slates are an independent `nfl-data` feature.

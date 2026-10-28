@@ -2,15 +2,15 @@ use time::OffsetDateTime;
 
 use nfl_model::SeasonWeek;
 
-/// A shared, named slate: database-assigned metadata without any games.
+/// A shared, named slate: stored metadata without any games.
 ///
 /// Ordinary construction reads metadata from its database row; games are
 /// retrieved separately and never embedded. The optional kickoff is the
 /// slate's earliest known game kickoff, stored rather than recomputed.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct Slate {
-    /// Database-assigned identifier. Auto-incrementing, so it identifies a row
-    /// in one database and is not a deterministic id shared across databases.
+    /// Derived identifier — the same numeric value in every database; see
+    /// [`SlateId`] for the derivation from the slate's week and kind.
     pub id: SlateId,
     /// The exact NFL week this slate belongs to.
     pub season_week: SeasonWeek,
