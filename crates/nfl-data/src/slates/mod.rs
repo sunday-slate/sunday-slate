@@ -60,7 +60,7 @@ impl NflData {
     }
 
     /// The week's stored slates at `now`, reconciling the week first.
-    async fn slates_at(
+    pub(crate) async fn slates_at(
         &self,
         week: SeasonWeek,
         now: OffsetDateTime,
@@ -71,7 +71,7 @@ impl NflData {
 
     /// The stored slate with this id at `now`, or `None` without side effects
     /// when the id is unknown.
-    async fn slate_at(
+    pub(crate) async fn slate_at(
         &self,
         id: SlateId,
         now: OffsetDateTime,
@@ -86,7 +86,7 @@ impl NflData {
     /// The slate's games at `now`: the stored snapshot after fixation, the
     /// current matching proposal before it. Unknown ids have no games and no
     /// side effects.
-    async fn slate_games_at(
+    pub(crate) async fn slate_games_at(
         &self,
         id: SlateId,
         now: OffsetDateTime,
@@ -109,20 +109,25 @@ impl NflData {
     }
 
     /// Reconcile one exact week against the season schedule loaded once, then
-    /// return the week's stored rows and that schedule for reuse. The week
-    /// fixes on the first lookup at or after its opening Monday in Eastern
-    /// time; an existing snapshot always wins regardless of the clock.
+    /// return the week's stored rows and that schedule for reuse. A fixed
+    /// week skips rule selection entirely — its stored snapshot always wins
+    /// regardless of the clock, and reconciliation only refreshes stored
+    /// kickoffs from the fixed members. Otherwise the week fixes on the first
+    /// lookup at or after its opening Monday in Eastern time.
     async fn resolve_week_at(
         &self,
         week: SeasonWeek,
         now: OffsetDateTime,
     ) -> Result<(Vec<Slate>, Vec<Game>), SlateError> {
         let schedule = self.provider.games(week.season).await?;
-        let week_proposals = proposals(week, &schedule);
-        let fix =
-            opening_monday(week, &schedule).is_some_and(|monday| to_eastern(now).date() >= monday);
-        let slates =
-            store::slates::reconcile(&self.store, week, &week_proposals, &schedule, fix).await?;
+        let slates = if store::slates::is_fixed(self.store.reader(), week).await? {
+            store::slates::reconcile(&self.store, week, &[], &schedule, false).await?
+        } else {
+            let week_proposals = proposals(week, &schedule);
+            let fix = opening_monday(week, &schedule)
+                .is_some_and(|monday| to_eastern(now).date() >= monday);
+            store::slates::reconcile(&self.store, week, &week_proposals, &schedule, fix).await?
+        };
         Ok((slates, schedule))
     }
 }
