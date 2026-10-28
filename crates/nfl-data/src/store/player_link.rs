@@ -1,6 +1,6 @@
 use crate::SalaryError;
 use crate::store::Store;
-use sqlx::SqliteConnection;
+use sqlx::{Sqlite, SqliteConnection};
 use std::collections::HashMap;
 
 /// A confirmed link between a FanDuel player and its GSIS identity.
@@ -10,46 +10,52 @@ pub struct PlayerLink {
     pub gsis_player_id: String,
 }
 
-impl Store {
-    /// Every persisted link as a FanDuel-id → GSIS-id map.
-    pub(crate) async fn links(&self) -> Result<HashMap<u32, String>, SalaryError> {
-        let rows = sqlx::query!(
-            r#"SELECT fd_player_id AS "fd_player_id: u32",
+/// Every persisted link as a FanDuel-id → GSIS-id map.
+pub(crate) async fn links<'e, E>(ex: E) -> Result<HashMap<u32, String>, SalaryError>
+where
+    E: sqlx::Executor<'e, Database = Sqlite>,
+{
+    let rows = sqlx::query!(
+        r#"SELECT fd_player_id AS "fd_player_id: u32",
                       gsis_player_id AS "gsis_player_id: String"
                FROM player_links"#
-        )
-        .fetch_all(&self.pool)
-        .await?;
-        Ok(rows
-            .into_iter()
-            .map(|row| (row.fd_player_id, row.gsis_player_id))
-            .collect())
-    }
-
-    /// Every linked GSIS id, deduplicated and sorted.
-    pub(crate) async fn gsis_ids(&self) -> Result<Vec<String>, SalaryError> {
-        let rows = sqlx::query!(
-            r#"SELECT DISTINCT gsis_player_id AS "gsis_player_id: String"
-               FROM player_links ORDER BY gsis_player_id"#
-        )
-        .fetch_all(&self.pool)
-        .await?;
-        Ok(rows.into_iter().map(|row| row.gsis_player_id).collect())
-    }
-
-    /// Upsert each link keyed on the GSIS id; empty set writes nothing.
-    /// A link is written once: saving an identical pair is a no-op, and a
-    /// conflicting save (already-linked GSIS id) is ignored.
-    pub(crate) async fn save_links(&self, links: &[PlayerLink]) -> Result<(), SalaryError> {
-        self.write_tx(async |conn| {
-            save_links_tx(conn, links).await?;
-            Ok(())
-        })
-        .await
-    }
+    )
+    .fetch_all(ex)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| (row.fd_player_id, row.gsis_player_id))
+        .collect())
 }
 
-pub(crate) async fn save_links_tx(
+/// Every linked GSIS id, deduplicated and sorted.
+pub(crate) async fn gsis_ids<'e, E>(ex: E) -> Result<Vec<String>, SalaryError>
+where
+    E: sqlx::Executor<'e, Database = Sqlite>,
+{
+    let rows = sqlx::query!(
+        r#"SELECT DISTINCT gsis_player_id AS "gsis_player_id: String"
+               FROM player_links ORDER BY gsis_player_id"#
+    )
+    .fetch_all(ex)
+    .await?;
+    Ok(rows.into_iter().map(|row| row.gsis_player_id).collect())
+}
+
+/// Upsert each link keyed on the GSIS id; empty set writes nothing. A link
+/// is written once: saving an identical pair is a no-op, and a conflicting
+/// save (already-linked GSIS id) is ignored. Runs in one BEGIN IMMEDIATE
+/// transaction via `Store::write_tx`.
+pub(crate) async fn save_links(store: &Store, links: &[PlayerLink]) -> Result<(), sqlx::Error> {
+    store
+        .write_tx(async |conn| save_links_tx(conn, links).await)
+        .await
+}
+
+/// Upsert the links on the caller's write connection, inside its
+/// transaction. Private: writes only happen via `save_links`, which owns the
+/// `write_tx` transaction.
+async fn save_links_tx(
     conn: &mut SqliteConnection,
     links: &[PlayerLink],
 ) -> Result<(), sqlx::Error> {
@@ -69,6 +75,7 @@ pub(crate) async fn save_links_tx(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::Store;
 
     async fn store() -> Store {
         Store::in_memory().await.expect("in-memory store")
@@ -77,10 +84,11 @@ mod tests {
     #[tokio::test]
     async fn links_round_trip_through_the_store() {
         let store = store().await;
-        assert!(store.links().await.unwrap().is_empty());
+        assert!(links(store.reader()).await.unwrap().is_empty());
 
-        store
-            .save_links(&[
+        save_links(
+            &store,
+            &[
                 PlayerLink {
                     fd_player_id: 166092,
                     gsis_player_id: "00-0036355".into(),
@@ -89,19 +97,20 @@ mod tests {
                     fd_player_id: 12543,
                     gsis_player_id: "00-0045678".into(),
                 },
-            ])
-            .await
-            .unwrap();
+            ],
+        )
+        .await
+        .unwrap();
 
         assert_eq!(
-            store.links().await.unwrap(),
+            links(store.reader()).await.unwrap(),
             HashMap::from([
                 (166092, "00-0036355".to_owned()),
                 (12543, "00-0045678".to_owned()),
             ])
         );
         assert_eq!(
-            store.gsis_ids().await.unwrap(),
+            gsis_ids(store.reader()).await.unwrap(),
             vec!["00-0036355".to_owned(), "00-0045678".to_owned()]
         );
     }
@@ -113,30 +122,36 @@ mod tests {
             fd_player_id: 166092,
             gsis_player_id: "00-0036355".into(),
         };
-        store.save_links(std::slice::from_ref(&link)).await.unwrap();
-        store.save_links(&[link]).await.unwrap();
-        assert_eq!(store.links().await.unwrap().len(), 1);
+        save_links(&store, std::slice::from_ref(&link))
+            .await
+            .unwrap();
+        save_links(&store, &[link]).await.unwrap();
+        assert_eq!(links(store.reader()).await.unwrap().len(), 1);
     }
 
     #[tokio::test]
     async fn a_conflicting_fd_id_does_not_move_an_existing_gsis_link() {
         let store = store().await;
-        store
-            .save_links(&[PlayerLink {
+        save_links(
+            &store,
+            &[PlayerLink {
                 fd_player_id: 111,
                 gsis_player_id: "00-x".into(),
-            }])
-            .await
-            .unwrap();
-        store
-            .save_links(&[PlayerLink {
+            }],
+        )
+        .await
+        .unwrap();
+        save_links(
+            &store,
+            &[PlayerLink {
                 fd_player_id: 222,
                 gsis_player_id: "00-x".into(),
-            }])
-            .await
-            .unwrap();
+            }],
+        )
+        .await
+        .unwrap();
         assert_eq!(
-            store.links().await.unwrap(),
+            links(store.reader()).await.unwrap(),
             HashMap::from([(111, "00-x".to_owned())])
         );
     }
@@ -144,7 +159,7 @@ mod tests {
     #[tokio::test]
     async fn empty_save_writes_nothing() {
         let store = store().await;
-        store.save_links(&[]).await.unwrap();
-        assert!(store.links().await.unwrap().is_empty());
+        save_links(&store, &[]).await.unwrap();
+        assert!(links(store.reader()).await.unwrap().is_empty());
     }
 }

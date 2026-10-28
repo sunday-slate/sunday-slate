@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use crate::store::player_link;
 use crate::web::AdminState;
 use crate::web::salary_imports::SalaryAdminError;
 use crate::web::salary_imports::handlers::default_season_week;
@@ -41,7 +42,11 @@ pub async fn index(State(state): State<AdminState>) -> Result<Html<String>, Sala
 async fn salary_week_summaries(
     state: &AdminState,
 ) -> Result<BTreeMap<SeasonWeek, SalaryCounts>, SalaryAdminError> {
-    let matched_ids: Vec<u32> = state.nfl.store.links().await?.keys().copied().collect();
+    let matched_ids: Vec<u32> = player_link::links(state.nfl.store.reader())
+        .await?
+        .keys()
+        .copied()
+        .collect();
     let summaries = state.nfl.fanduel_weekly_summaries(&matched_ids).await?;
 
     Ok(summaries

@@ -1,6 +1,7 @@
 pub(crate) mod error;
 pub(crate) mod handlers;
 
+use crate::store::player_link;
 use crate::web::AdminState;
 use crate::{SalaryError, SalaryWeekOverview};
 pub(crate) use error::SalaryAdminError;
@@ -15,7 +16,7 @@ async fn salary_week_overview(
     let salaries = state.nfl.fanduel.salaried_players_for(season_week).await?;
     let salary_count = salaries.len();
 
-    let links = state.nfl.store.links().await?;
+    let links = player_link::links(state.nfl.store.reader()).await?;
     let unmatched = salaries
         .into_iter()
         .filter(|salaried_player| match &salaried_player.player {

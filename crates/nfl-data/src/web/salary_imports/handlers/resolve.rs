@@ -1,3 +1,4 @@
+use crate::store::player_link;
 use crate::web::salary_imports::SalaryAdminError;
 use crate::web::{AdminState, salary_imports};
 use crate::{PlayerLink, SalaryError, SalaryWeekOverview};
@@ -52,19 +53,20 @@ async fn resolve_salary_player(
     }) {
         return Err(SalaryError::Schedule);
     }
-    state
-        .nfl
-        .store
-        .save_links(&[PlayerLink {
+    player_link::save_links(
+        &state.nfl.store,
+        &[PlayerLink {
             fd_player_id,
             gsis_player_id: gsis_player_id.to_owned(),
-        }])
-        .await?;
+        }],
+    )
+    .await?;
     salary_imports::salary_week_overview(state, season_week).await
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::store::player_link;
     use crate::web::tests::salary_fixture::{admin_state, upload_form};
     use axum::http::StatusCode;
 
@@ -111,7 +113,7 @@ mod tests {
             response.header("location"),
             "/nfl-data-admin/salary-imports/2025001"
         );
-        let links = state.nfl.store.links().await.unwrap();
+        let links = player_link::links(state.nfl.store.reader()).await.unwrap();
         assert_eq!(links.get(&999).map(String::as_str), Some("00-roster-only"));
         let overview = crate::web::salary_imports::salary_week_overview(
             &crate::web::AdminState {

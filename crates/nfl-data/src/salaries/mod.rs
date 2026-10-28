@@ -9,7 +9,7 @@ pub use schedule::resolve_slate_games;
 use std::collections::{BTreeSet, HashMap};
 
 use crate::salaries::matcher::{PlayerIndex, RosterIndex};
-use crate::store::PlayerLink;
+use crate::store::{PlayerLink, player_link};
 use crate::{DfsPosition, NflData, SalariedPlayer, SeasonWeek};
 
 /// One stored contest week and the source player IDs still needing a crosswalk.
@@ -71,7 +71,7 @@ impl NflData {
             );
         }
         let roster_index = RosterIndex::build(&roster_entries);
-        let links = self.store.links().await?;
+        let links = player_link::links(self.store.reader()).await?;
 
         let mut mapped = Vec::new();
         for salary in source {
@@ -112,7 +112,7 @@ impl NflData {
             }
             let _ = game_id;
         }
-        self.store.save_links(&mapped).await?;
+        player_link::save_links(&self.store, &mapped).await?;
         Ok(())
     }
 }

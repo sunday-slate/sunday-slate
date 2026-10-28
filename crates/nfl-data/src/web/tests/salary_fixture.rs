@@ -5,6 +5,7 @@ use axum_test::TestServer;
 use axum_test::multipart::{MultipartForm, Part};
 use time::macros::datetime;
 
+use crate::store::player_link;
 use crate::web::AdminConfig;
 use crate::{Game, NflData, Player, Season, SeasonType, Week};
 
@@ -226,7 +227,7 @@ async fn dashboard_lists_source_counts_and_resolves_roster_only_players_directly
         .await;
     resolved.assert_text_contains("Second Receiver");
     assert!(!resolved.text().contains("All player IDs are resolved"));
-    let links = state.nfl.store.links().await.unwrap();
+    let links = player_link::links(state.nfl.store.reader()).await.unwrap();
     assert_eq!(links.get(&999).map(String::as_str), Some("00-roster-only"));
 }
 

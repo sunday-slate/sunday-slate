@@ -1,5 +1,6 @@
 use super::players::{PlayerSearch, unmatched_salary};
 use crate::salaries::candidates::CandidateResults;
+use crate::store::player_link;
 use crate::web::AdminState;
 use crate::web::salary_imports::SalaryAdminError;
 use askama::Template;
@@ -25,7 +26,7 @@ pub async fn player_search(
 ) -> Result<Html<String>, SalaryAdminError> {
     let season_week = crate::SeasonWeek::decode(encoded).ok_or(SalaryAdminError::NotFound)?;
     let row = unmatched_salary(&state, &season_week, fd_player_id).await?;
-    let reconciled = state.nfl.store.gsis_ids().await?;
+    let reconciled = player_link::gsis_ids(state.nfl.store.reader()).await?;
     let results = crate::salaries::candidates::search(
         &state.nfl,
         &reconciled,
