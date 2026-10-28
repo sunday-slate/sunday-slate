@@ -1,15 +1,4 @@
 //! Durable slate metadata and atomic weekly membership snapshots.
-//!
-//! Slate metadata is keyed by its exact [`SeasonWeek`] and canonical name,
-//! with the proposal's derived [`SlateId`] as its primary key. A week is
-//! fixed iff membership rows exist for it — fixation is inferred from
-//! membership presence joined through `slates.season_week`, with no separate
-//! marker table. All writes run inside one [`Store::write_tx`] transaction:
-//! either the whole snapshot (metadata, memberships) lands or nothing does.
-//! Once a week is fixed, replacement proposals are ignored — the snapshot is
-//! the durable record. Metadata rows and membership game ids carry no foreign
-//! key to the disposable provider database: the slate tables are the only
-//! durable side.
 
 #![cfg_attr(not(test), expect(dead_code))]
 
@@ -46,7 +35,6 @@ where
     .await
 }
 
-/// The stored slate with this id, or `None` when absent.
 pub(crate) async fn by_id(pool: &SqlitePool, id: SlateId) -> Result<Option<Slate>, sqlx::Error> {
     sqlx::query_as::<_, Slate>(
         r#"SELECT id, season_week, name, kickoff
@@ -58,8 +46,8 @@ pub(crate) async fn by_id(pool: &SqlitePool, id: SlateId) -> Result<Option<Slate
     .await
 }
 
-/// Whether the week's membership snapshot is fixed: true iff membership rows
-/// exist for the week, joined through `slates.season_week`.
+/// True iff membership rows exist for the week; fixation is inferred from
+/// their presence.
 pub(crate) async fn is_fixed(pool: &SqlitePool, week: SeasonWeek) -> Result<bool, sqlx::Error> {
     is_fixed_on(pool, week).await
 }
@@ -94,21 +82,14 @@ pub(crate) async fn game_ids(pool: &SqlitePool, id: SlateId) -> Result<Vec<Strin
     .await
 }
 
-/// Reconcile one NFL week inside a single `BEGIN IMMEDIATE` transaction.
-///
-/// Fixation is rechecked inside the transaction by probing membership
-/// presence, so concurrent writers serialize: the first fixation wins and
-/// every later one sees it. Before fixation, each proposal's canonical
-/// metadata is upserted with its derived id, stored slates absent from the
-/// proposal set keep their ids but clear their stale kickoffs, and no
-/// tentative membership rows are stored. When `fix` is true, every
-/// proposal's membership rows are inserted in that same transaction. After
-/// fixation, proposals are ignored, no new memberships are created, and only
-/// the stored kickoffs are refreshed from the fixed ids and the supplied
-/// current schedule.
-///
-/// Returns the week's metadata ordered by known kickoff ascending, unknown
-/// kickoff last, id breaking ties.
+/// Reconciles one week inside a single `BEGIN IMMEDIATE` transaction,
+/// rechecking fixation inside it so concurrent writers serialize: the first
+/// fixation wins. Before fixation it upserts proposal metadata, clears stale
+/// kickoffs of slates absent from the proposal set, and, with `fix`, inserts
+/// membership rows in the same transaction; after fixation it ignores
+/// proposals and only refreshes stored kickoffs from the fixed ids. Returns
+/// the week's metadata in kickoff order (known ascending, unknown last, id
+/// breaking ties).
 pub(crate) async fn reconcile(
     store: &Store,
     week: SeasonWeek,
@@ -121,7 +102,6 @@ pub(crate) async fn reconcile(
         .await
 }
 
-/// The transaction body of [`reconcile`], which owns the `write_tx`.
 async fn reconcile_tx(
     conn: &mut SqliteConnection,
     week: SeasonWeek,
@@ -151,8 +131,6 @@ async fn reconcile_tx(
     for_week_on(&mut *conn, week).await
 }
 
-/// Upsert one proposal's canonical metadata row with its derived id: on
-/// `(season_week, name)` conflict the kickoff updates to the proposal's value.
 async fn upsert_metadata(
     conn: &mut SqliteConnection,
     week: SeasonWeek,
@@ -171,11 +149,10 @@ async fn upsert_metadata(
     Ok(())
 }
 
-/// Clear the kickoffs of the week's stored slates absent from the current
-/// proposal set: a proposal that disappeared — for example a holiday whose
-/// last matching game rescheduled off the holiday date — keeps its stored
-/// identity but drops its stale kickoff, so identical schedule data yields
-/// identical metadata on every lookup, including the first fixing one.
+/// Clears the kickoffs of stored slates absent from the proposal set: they
+/// keep their identity but drop the stale kickoff, so identical schedule
+/// data yields identical metadata on every lookup, including the first
+/// fixing one.
 async fn clear_absent_kickoffs(
     conn: &mut SqliteConnection,
     week: SeasonWeek,
@@ -198,9 +175,8 @@ async fn clear_absent_kickoffs(
     Ok(())
 }
 
-/// Refresh each stored kickoff from the slate's fixed member ids resolved
-/// against the supplied schedule: the earliest known member kickoff wins, or
-/// `None` when no member has a known kickoff.
+/// Refreshes each stored kickoff from its fixed members' earliest known
+/// kickoff in the supplied schedule; `None` when none is known.
 async fn refresh_fixed_kickoffs(
     conn: &mut SqliteConnection,
     week: SeasonWeek,
@@ -274,8 +250,6 @@ mod tests {
         }
     }
 
-    /// A fixture game with irrelevant teams and no scores: storage reads only
-    /// the gsis id and the kickoff.
     fn game(id: &str, kickoff: Option<OffsetDateTime>) -> Game {
         Game {
             gsis_game_id: id.into(),
@@ -290,9 +264,6 @@ mod tests {
         }
     }
 
-    /// A proposal carrying the derived id the storage reconciliation stores:
-    /// `week.encode() * 10 + kind`, mirroring the pure policy's stamping,
-    /// with the kind digit from the canonical name.
     fn proposal(
         week: SeasonWeek,
         name: &str,
@@ -307,8 +278,6 @@ mod tests {
         }
     }
 
-    /// The id kind digit a canonical name maps to: `0` for the holiday
-    /// slates, `1` for main slates, mirroring the pure policy.
     fn kind(name: &str) -> i64 {
         match name {
             "Thanksgiving" | "Christmas" => 0,
@@ -316,9 +285,6 @@ mod tests {
         }
     }
 
-    /// A stored slate round-trips all four public fields through the
-    /// database — including a `None` kickoff — with no provider or games
-    /// involved.
     #[tokio::test]
     async fn metadata_roundtrips_without_provider_or_games() {
         let store = store().await;
@@ -335,7 +301,6 @@ mod tests {
         .expect("reconcile");
         assert_eq!(first.len(), 1, "the proposal's metadata is stored");
 
-        // Reconstruct the slate from its row through `by_id` alone.
         let slate = by_id(store.reader(), first[0].id)
             .await
             .expect("by id")
@@ -349,14 +314,10 @@ mod tests {
         );
     }
 
-    /// Reconciling the same canonical proposals repeatedly yields identical
-    /// derived ids; REG 2025 week 13's metadata rows carry exactly the
-    /// derived values; and other weeks or names yield their own derived ids.
     #[tokio::test]
     async fn repeated_reconciliation_preserves_assigned_ids() {
         let store = store().await;
 
-        // Repeated reconciliation yields identical ids.
         let week = reg_week(5);
         let proposals = [proposal(week, "Week 5", None, &[])];
         let first = reconcile(&store, week, &proposals, &[], false)
@@ -372,8 +333,6 @@ mod tests {
             "REG 2025 week 5's main slate carries its derived id"
         );
 
-        // REG 2025 week 13: the metadata rows carry exactly the derived
-        // values — holiday kind 0 and main kind 1.
         let week_13 = reg_week(13);
         let established = reconcile(
             &store,
@@ -404,7 +363,6 @@ mod tests {
             SlateId(20250130)
         );
 
-        // Different weeks or names yield their own derived ids.
         let other_week = reconcile(
             &store,
             reg_week(6),
@@ -441,17 +399,10 @@ mod tests {
         );
     }
 
-    /// `for_week` orders known kickoffs ascending, unknown kickoffs last, and
-    /// breaks equal kickoffs by id; identical numeric weeks stay distinct
-    /// across season types.
     #[tokio::test]
     async fn metadata_queries_are_week_scoped_and_chronological() {
         let store = store().await;
 
-        // Known kickoffs ascending: names are storage labels here, and the
-        // fixture gives the main slate the earlier kickoff and the holiday
-        // the later one — the reverse of id order — so the listing order
-        // proves kickoff ordering, not id ordering.
         let week = reg_week(13);
         reconcile(
             &store,
@@ -478,10 +429,6 @@ mod tests {
             "known kickoffs ascending"
         );
 
-        // The tie pairs two equal kickoffs; the derived ids break it
-        // deterministically: the holiday kind sorts before the main kind.
-        // The main label sorts before the holiday alphabetically, so the
-        // listing order proves id ordering, not name ordering.
         let tie_week = reg_week(12);
         reconcile(
             &store,
@@ -516,9 +463,6 @@ mod tests {
         assert_eq!(tied[0].kickoff, tied[1].kickoff, "both share a kickoff");
         assert!(tied[0].id < tied[1].id, "the id breaks the kickoff tie");
 
-        // Unknown kickoff is last: the unknown kickoff sits on the holiday,
-        // whose derived id sorts first — the reverse of id order — so the
-        // listing order proves the nulls-last rule, not id ordering.
         let unknown_week = reg_week(11);
         reconcile(
             &store,
@@ -542,7 +486,6 @@ mod tests {
             .expect("unknown week");
         assert_eq!(unknown[1].kickoff, None, "unknown kickoff is last");
 
-        // The same numeric week under another season type is a separate set.
         reconcile(
             &store,
             reg_week(19),
@@ -585,9 +528,6 @@ mod tests {
         );
     }
 
-    /// A week with stored metadata but no membership rows reads unfixed:
-    /// fixation is inferred from membership presence, and tentative
-    /// reconciliation persists no membership rows.
     #[tokio::test]
     async fn metadata_without_memberships_reads_unfixed() {
         let store = store().await;
@@ -615,8 +555,6 @@ mod tests {
         );
     }
 
-    /// Once the week is fixed, replacement proposals cannot rewrite the
-    /// stored membership snapshot.
     #[tokio::test]
     async fn fixed_week_ignores_replacement_proposals() {
         let store = store().await;
@@ -640,7 +578,6 @@ mod tests {
         assert_eq!(game_ids(store.reader(), id).await.unwrap(), vec!["a", "b"]);
         assert!(is_fixed(store.reader(), week).await.unwrap());
 
-        // The week now offers a replacement membership.
         let replacement = [proposal(
             week,
             "Week 5",
@@ -665,8 +602,6 @@ mod tests {
         assert!(is_fixed(store.reader(), week).await.unwrap());
     }
 
-    /// After fixation the stored kickoff follows the earliest current kickoff
-    /// of the fixed members, never a replacement proposal's new match.
     #[tokio::test]
     async fn fixed_kickoff_tracks_members_not_new_rule_matches() {
         let store = store().await;
@@ -687,8 +622,6 @@ mod tests {
             .expect("fix");
         assert_eq!(first[0].kickoff, Some(datetime!(2025-10-05 17:00 UTC)));
 
-        // `a` moved to a later slot and a new, earlier game `c` matched the
-        // rule but is not a member.
         let current = [
             game("a", Some(datetime!(2025-10-05 21:30 UTC))),
             game("b", Some(datetime!(2025-10-05 20:25 UTC))),
@@ -715,17 +648,11 @@ mod tests {
         );
     }
 
-    /// A stored slate absent from the current proposal set keeps its assigned
-    /// id but loses its stale kickoff — on the unfixed lookup and on the
-    /// first fixing lookup alike — so identical schedule data yields
-    /// identical metadata on every lookup.
     #[tokio::test]
     async fn omitted_proposal_keeps_identity_and_clears_stale_kickoff() {
         let store = store().await;
         let week = reg_week(16);
 
-        // The tentative establishment: the Christmas slate beside the main
-        // slate, both with known kickoffs.
         let before = [
             game("xmas", Some(datetime!(2025-12-25 18:00 UTC))),
             game("sun_1", Some(datetime!(2025-12-28 17:00 UTC))),
@@ -759,8 +686,6 @@ mod tests {
             .expect("christmas slate")
             .id;
 
-        // The holiday's last game reschedules off December 25, so the current
-        // proposal set no longer contains Christmas.
         let after = [
             game("xmas", Some(datetime!(2025-12-27 18:00 UTC))),
             game("sun_1", Some(datetime!(2025-12-28 17:00 UTC))),
@@ -773,8 +698,6 @@ mod tests {
             &["sun_1", "sun_2"],
         )];
 
-        // The unfixed reconciliation clears the stale kickoff without
-        // deleting the row.
         let unfixed = reconcile(&store, week, &current, &after, false)
             .await
             .expect("unfixed reconcile");
@@ -794,9 +717,6 @@ mod tests {
             "by-id access agrees with the listing"
         );
 
-        // The first fixing lookup reports the same metadata: no membership is
-        // inserted for the omitted proposal, and the stale kickoff stays
-        // cleared.
         let fixed = reconcile(&store, week, &current, &after, true)
             .await
             .expect("fixing reconcile");
@@ -815,7 +735,6 @@ mod tests {
             "the omitted proposal gained no membership"
         );
 
-        // Later fixed lookups agree with the first fixing lookup.
         let later = reconcile(&store, week, &[], &after, false)
             .await
             .expect("fixed refresh");
@@ -827,15 +746,10 @@ mod tests {
         assert_eq!(later_leftover.kickoff, None);
     }
 
-    /// A membership failure aborts the whole reconciliation transaction: no
-    /// metadata and no memberships survive.
     #[tokio::test]
     async fn failed_snapshot_rolls_back_metadata_and_memberships() {
         let store = store().await;
         let week = reg_week(5);
-        // Two proposals sharing the canonical name resolve to one slate row,
-        // so the second proposal's overlapping game id violates the
-        // (slate_id, gsis_game_id) primary key.
         let proposals = [
             proposal(
                 week,
@@ -872,9 +786,6 @@ mod tests {
         );
     }
 
-    /// Two writer connections on one file serialize through BEGIN IMMEDIATE:
-    /// the losing reconcile sees the committed snapshot and cannot replace or
-    /// extend it.
     #[tokio::test]
     async fn concurrent_file_connections_cannot_replace_snapshot() {
         let dir = tempfile::tempdir().expect("temp dir");
@@ -934,7 +845,6 @@ mod tests {
             "one complete winning snapshot, not a union: {got:?}"
         );
 
-        // Later proposals from either connection leave the snapshot alone.
         let later = [proposal(week, "Week 5", None, &["e", "f"])];
         reconcile(&store_b, week, &later, &[], false)
             .await
@@ -946,8 +856,6 @@ mod tests {
         );
     }
 
-    /// SQLx migration bookkeeping survives the slate migration: a link stored
-    /// before `Store` runs the full migrator is untouched by it.
     #[tokio::test]
     async fn migration_preserves_existing_player_links() {
         const PLAYER_LINKS_UP: &str =
@@ -956,9 +864,6 @@ mod tests {
             include_str!("../../migrations/20261027000000_create_player_links.down.sql");
 
         let dir = tempfile::tempdir().expect("temp dir");
-        // A temporary migrations directory holding only the unchanged
-        // existing player-link pair: the pre-slate migration state real
-        // deployments carry.
         let migrations = dir.path().join("migrations");
         std::fs::create_dir(&migrations).expect("migrations dir");
         std::fs::write(
@@ -983,7 +888,6 @@ mod tests {
             .await
             .expect("legacy migration");
 
-        // Add a link through the real write path on the legacy schema.
         let legacy_store = Store {
             read: legacy.clone(),
             write: legacy,
@@ -999,9 +903,6 @@ mod tests {
         .expect("seed link");
         drop(legacy_store);
 
-        // Opening the store runs the full migrator: the bookkeeping already
-        // marks the player-link migration applied, so only the slate
-        // migration runs.
         let store = Store::open(&url).await.expect("store with full migrator");
         assert_eq!(
             links(store.reader()).await.expect("links"),

@@ -1,9 +1,3 @@
-//! External contract tests for shared, named slates. Every assertion runs
-//! through the public `NflData` API only: the internal `_at` seams and the
-//! slate storage are invisible here. The temporary three-database
-//! configuration and a historical 2025 week — whose opening Monday has long
-//! passed — make the real clock fix the week's snapshot on the first lookup.
-
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -16,24 +10,18 @@ use nfl_data::{
     Game, NflData, NflDataConfig, Season, SeasonType, SeasonWeek, Slate, SlateId, Week,
 };
 
-/// The Thanksgiving week of the 2025 season: its opening Monday, November 24
-/// 2025 Eastern, is long past, so the first public lookup fixes the week.
 const WEEK_13: SeasonWeek = SeasonWeek {
     season: Season(2025),
     season_type: SeasonType::Reg,
     week: Week(13),
 };
 
-/// A 2025 regular week whose seeded game carries no known kickoff: the slate's
-/// stored kickoff stays `None` no matter when it is first looked up.
 const WEEK_16: SeasonWeek = SeasonWeek {
     season: Season(2025),
     season_type: SeasonType::Reg,
     week: Week(16),
 };
 
-/// A fixture game with irrelevant teams and no scores: public membership
-/// depends only on the exact week and the kickoff's Eastern time.
 fn game(id: &str, week: u8, kickoff: Option<OffsetDateTime>) -> Game {
     Game {
         gsis_game_id: id.into(),
@@ -48,8 +36,6 @@ fn game(id: &str, week: u8, kickoff: Option<OffsetDateTime>) -> Game {
     }
 }
 
-/// The week-13 schedule: Thanksgiving on November 27 and main games on
-/// November 30, plus out-of-window and out-of-week games.
 fn week_13_games() -> Vec<Game> {
     vec![
         game("tg_1", 13, Some(datetime!(2025-11-27 17:30 UTC))),
@@ -64,13 +50,10 @@ fn week_13_games() -> Vec<Game> {
     ]
 }
 
-/// A week-16 game with no known kickoff: it joins no slate window, so the
-/// week's only canonical slate stores a null kickoff.
 fn week_16_games() -> Vec<Game> {
     vec![game("wk16_1", 16, None)]
 }
 
-/// Slate names in storage order: known kickoffs ascending, unknown last.
 fn names(slates: &[Slate]) -> Vec<&str> {
     slates.iter().map(|slate| slate.name.as_str()).collect()
 }
@@ -82,20 +65,13 @@ fn named<'a>(slates: &'a [Slate], name: &str) -> &'a Slate {
         .unwrap_or_else(|| panic!("no slate named {name} in {slates:?}"))
 }
 
-/// Membership as owned ids, independent of the returned games' ordering.
 fn game_ids(games: &[Game]) -> Vec<String> {
     games.iter().map(|game| game.gsis_game_id.clone()).collect()
 }
 
-/// A temporary three-database configuration whose files live in one temporary
-/// directory, so a reopened `NflData` observes the same durable data. Refresh
-/// is disabled: slate access reads only the seeded provider cache and the
-/// slate tables.
 struct TempDatabases {
     config: NflDataConfig,
-    /// The provider cache URL, for out-of-band schedule edits.
     provider_url: String,
-    /// Holds the three database files for the fixture's lifetime.
     _dir: TempDir,
 }
 
@@ -117,16 +93,12 @@ impl TempDatabases {
         }
     }
 
-    /// An independent `NflData` over the same temporary database files: each
-    /// call reads the durable state from disk.
     async fn open(&self) -> NflData {
         NflData::connect(self.config.clone())
             .await
             .expect("nfl data")
     }
 
-    /// Rewrite one cached game's kickoff through an independent connection to
-    /// the temporary provider cache.
     async fn change_kickoff(&self, game_id: &str, kickoff: OffsetDateTime) {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
@@ -163,8 +135,6 @@ async fn public_slate_is_metadata_only() {
         "the holiday and main slates, known kickoffs ascending"
     );
 
-    // Destructuring without `..` proves the public shape is exactly these
-    // four metadata fields: no games, scores, or rule payload.
     let Slate {
         id,
         season_week,
@@ -186,7 +156,6 @@ async fn public_slate_is_metadata_only() {
     assert_eq!(thanksgiving.name, "Thanksgiving");
     assert_eq!(thanksgiving.kickoff, Some(datetime!(2025-11-27 17:30 UTC)));
 
-    // The kickoff is optional: a week with no known kickoff stores null.
     let unknown_kickoffs = nfl.slates(WEEK_16).await.unwrap();
     assert_eq!(names(&unknown_kickoffs), ["Week 16"]);
     let week_16 = named(&unknown_kickoffs, "Week 16");
@@ -207,8 +176,6 @@ async fn public_access_returns_metadata_and_games_separately() {
     let listed = nfl.slates(WEEK_13).await.unwrap();
     assert_eq!(names(&listed), ["Thanksgiving", "Week 13"]);
 
-    // Listing and by-ID lookup agree: every listed slate is stored under its
-    // id, unchanged.
     for expected in &listed {
         assert_eq!(
             nfl.slate(expected.id).await.unwrap().as_ref(),
@@ -216,7 +183,6 @@ async fn public_access_returns_metadata_and_games_separately() {
         );
     }
 
-    // Games come back separately, ordered by known kickoff.
     let thanksgiving = named(&listed, "Thanksgiving");
     let main = named(&listed, "Week 13");
     assert_eq!(
@@ -228,7 +194,6 @@ async fn public_access_returns_metadata_and_games_separately() {
         ["sun_1", "sun_2"]
     );
 
-    // Unknown ids follow the documented convention: `None` and no games.
     let unknown = SlateId(999_999);
     assert!(nfl.slate(unknown).await.unwrap().is_none());
     assert!(nfl.slate_games(unknown).await.unwrap().is_empty());
@@ -249,8 +214,6 @@ async fn fixed_ids_and_metadata_survive_reopen() {
     let thanksgiving_games = game_ids(&nfl.slate_games(thanksgiving_id).await.unwrap());
     drop(nfl);
 
-    // Reconnecting to the same temporary URLs sees identical ids, metadata,
-    // and membership.
     let nfl = temp.open().await;
     let reopened = nfl.slates(WEEK_13).await.unwrap();
     assert_eq!(named(&reopened, "Week 13").id, main_id);
@@ -269,13 +232,10 @@ async fn fixed_ids_and_metadata_survive_reopen() {
     );
     drop(nfl);
 
-    // A schedule change in the temporary provider cache: the selected game
-    // moves from Sunday afternoon to Saturday. Reopen again.
     temp.change_kickoff("sun_1", datetime!(2025-11-29 21:30 UTC))
         .await;
     let nfl = temp.open().await;
 
-    // The fixed membership is stable; game details follow the new schedule.
     assert_eq!(
         game_ids(&nfl.slate_games(main_id).await.unwrap()),
         main_games
@@ -287,7 +247,6 @@ async fn fixed_ids_and_metadata_survive_reopen() {
         .expect("the moved member");
     assert_eq!(sun_1.kickoff, Some(datetime!(2025-11-29 21:30 UTC)));
 
-    // The stored kickoff refreshed from the fixed members.
     let found = nfl.slate(main_id).await.unwrap().expect("stored slate");
     assert_eq!(found.id, main_id);
     assert_eq!(found.kickoff, Some(datetime!(2025-11-29 21:30 UTC)));
@@ -304,7 +263,6 @@ async fn slate_access_has_no_salary_prerequisite() {
         "no stored salary summaries exist before slate access"
     );
 
-    // Successful access through every public slate operation.
     let listed = nfl.slates(WEEK_13).await.unwrap();
     let main_id = named(&listed, "Week 13").id;
     assert!(nfl.slate(main_id).await.unwrap().is_some());

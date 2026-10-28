@@ -1,6 +1,3 @@
-//! Deterministic facade tests: lazy Monday fixation, separate game retrieval,
-//! and the identity and persistence invariants around weekly snapshots.
-
 use time::OffsetDateTime;
 use time::macros::datetime;
 
@@ -8,19 +5,11 @@ use super::test_support::Fixture;
 use crate::store;
 use crate::{Game, NflData, Season, SeasonType, SeasonWeek, Slate, SlateId, Week};
 
-/// One second before the Eastern Monday that opens week 13: lookups stay
-/// tentative.
 const BEFORE: OffsetDateTime = datetime!(2025-11-24 04:59:59 UTC);
-/// Eastern Monday midnight: the instant the week-13 snapshot opens.
 const MONDAY: OffsetDateTime = datetime!(2025-11-24 05:00 UTC);
-/// Wednesday of week 13, after the opening Monday.
 const WEDNESDAY: OffsetDateTime = datetime!(2025-11-26 22:00 UTC);
-/// Thursday of week 13, after fixation.
 const THURSDAY: OffsetDateTime = datetime!(2025-11-27 12:00 UTC);
-/// UTC Monday midnight in September: Eastern Sunday, because EDT runs until
-/// November.
 const EDT_UTC_MONDAY: OffsetDateTime = datetime!(2025-09-01 00:00 UTC);
-/// 04:00 UTC on a September Monday: already Eastern Monday.
 const EDT_MONDAY: OffsetDateTime = datetime!(2025-09-01 04:00 UTC);
 
 const WEEK_13: SeasonWeek = SeasonWeek {
@@ -33,23 +22,15 @@ const WEEK_1: SeasonWeek = SeasonWeek {
     season_type: SeasonType::Reg,
     week: Week(1),
 };
-/// The Christmas week of the 2025 season: a December 25 game and main games
-/// on December 28, all with known kickoffs.
 const WEEK_16: SeasonWeek = SeasonWeek {
     season: Season(2025),
     season_type: SeasonType::Reg,
     week: Week(16),
 };
-/// One second before the Eastern Monday that opens week 16: lookups stay
-/// tentative.
 const BEFORE_WEEK_16: OffsetDateTime = datetime!(2025-12-22 04:59:59 UTC);
-/// Eastern Monday midnight: the instant the week-16 snapshot opens.
 const WEEK_16_MONDAY: OffsetDateTime = datetime!(2025-12-22 05:00 UTC);
-/// Wednesday of week 16, after the week-16 fixation.
 const XMAS_WEDNESDAY: OffsetDateTime = datetime!(2025-12-24 22:00 UTC);
 
-/// A fixture game with irrelevant teams and no scores: the facade's membership
-/// depends only on the exact week and the kickoff's Eastern time.
 fn game(id: &str, week: u8, kickoff: Option<OffsetDateTime>) -> Game {
     Game {
         gsis_game_id: id.into(),
@@ -64,8 +45,6 @@ fn game(id: &str, week: u8, kickoff: Option<OffsetDateTime>) -> Game {
     }
 }
 
-/// The week-13 schedule before any change: Thanksgiving on November 27 and
-/// main games on November 30, plus out-of-window and out-of-week games.
 fn week_13_games() -> Vec<Game> {
     vec![
         game("tg_1", 13, Some(datetime!(2025-11-27 17:30 UTC))),
@@ -80,8 +59,6 @@ fn week_13_games() -> Vec<Game> {
     ]
 }
 
-/// The week-13 schedule with a main game moved out of the Sunday window and a
-/// Monday-night game moved into it.
 fn changed_week_13_games() -> Vec<Game> {
     let mut games = week_13_games();
     for game in games.iter_mut() {
@@ -95,8 +72,6 @@ fn changed_week_13_games() -> Vec<Game> {
     games
 }
 
-/// The week-13 schedule after fixation: a selected game moved to Saturday and
-/// a new Sunday game added.
 fn rescheduled_after_fix_games() -> Vec<Game> {
     let mut games = week_13_games();
     for game in games.iter_mut() {
@@ -108,8 +83,6 @@ fn rescheduled_after_fix_games() -> Vec<Game> {
     games
 }
 
-/// The week-1 schedule in the EDT season: an opening Thursday and main games
-/// on September 7, so the week opens on Eastern Monday September 1.
 fn week_1_games() -> Vec<Game> {
     vec![
         game("op", 1, Some(datetime!(2025-09-05 00:15 UTC))),
@@ -120,8 +93,6 @@ fn week_1_games() -> Vec<Game> {
     ]
 }
 
-/// The week-16 schedule: one game on December 25 Eastern and main games on
-/// December 28.
 fn week_16_games() -> Vec<Game> {
     vec![
         game("xmas", 16, Some(datetime!(2025-12-25 18:00 UTC))),
@@ -130,9 +101,6 @@ fn week_16_games() -> Vec<Game> {
     ]
 }
 
-/// The week-16 schedule with the holiday game rescheduled off December 25 to
-/// Saturday December 27: the rule stops proposing Christmas while the rest of
-/// the schedule stays complete and known.
 fn moved_off_christmas_games() -> Vec<Game> {
     let mut games = week_16_games();
     for game in games.iter_mut() {
@@ -143,8 +111,6 @@ fn moved_off_christmas_games() -> Vec<Game> {
     games
 }
 
-/// A fixture whose week-13 slates were established tentatively, with the two
-/// canonical slate ids.
 async fn tentative_week_13() -> (Fixture, SlateId, SlateId) {
     let fixture = Fixture::connect().await;
     fixture
@@ -158,7 +124,6 @@ async fn tentative_week_13() -> (Fixture, SlateId, SlateId) {
     (fixture, main_id, thanksgiving_id)
 }
 
-/// Both week-13 memberships are stored and the week's snapshot is fixed.
 async fn assert_week_13_fixed(nfl: &NflData, main_id: SlateId, thanksgiving_id: SlateId) {
     assert!(
         store::slates::is_fixed(nfl.store.reader(), WEEK_13)
@@ -236,8 +201,6 @@ async fn tentative_membership_and_stored_kickoff_follow_schedule() {
         "the week stays tentative before its Eastern Monday"
     );
 
-    // A schedule change before fixation: a main game moves out of the Sunday
-    // window and a Monday-night game moves into it.
     fixture.replace_games(&changed_week_13_games()).await;
 
     let after = fixture.nfl.slates_at(WEEK_13, BEFORE).await.unwrap();
@@ -283,8 +246,6 @@ async fn eastern_monday_not_utc_monday_fixes_membership() {
         "00:00 Eastern Monday fixes the week"
     );
 
-    // EDT companion: in September the Eastern Monday starts at 04:00 UTC, so
-    // UTC Monday midnight is still Eastern Sunday.
     let edt = Fixture::connect().await;
     edt.nfl.seed_for_test(&[], &week_1_games()).await.unwrap();
 
@@ -306,12 +267,10 @@ async fn eastern_monday_not_utc_monday_fixes_membership() {
 
 #[tokio::test]
 async fn each_lookup_entry_point_fixes_every_slate_in_the_week() {
-    // Listing fixes both memberships.
     let (fixture, main_id, thanksgiving_id) = tentative_week_13().await;
     fixture.nfl.slates_at(WEEK_13, MONDAY).await.unwrap();
     assert_week_13_fixed(&fixture.nfl, main_id, thanksgiving_id).await;
 
-    // A metadata lookup by id fixes both memberships.
     let (fixture, main_id, thanksgiving_id) = tentative_week_13().await;
     let found = fixture
         .nfl
@@ -322,7 +281,6 @@ async fn each_lookup_entry_point_fixes_every_slate_in_the_week() {
     assert_eq!(found.id, main_id);
     assert_week_13_fixed(&fixture.nfl, main_id, thanksgiving_id).await;
 
-    // A game lookup fixes both memberships.
     let (fixture, main_id, thanksgiving_id) = tentative_week_13().await;
     assert_eq!(
         ids(&fixture.nfl.slate_games_at(main_id, MONDAY).await.unwrap()),
@@ -334,8 +292,6 @@ async fn each_lookup_entry_point_fixes_every_slate_in_the_week() {
 #[tokio::test]
 async fn late_first_lookup_uses_current_schedule() {
     let fixture = Fixture::connect().await;
-    // The schedule changed before any lookup ever touched the week: there is
-    // no earlier state to reconstruct.
     fixture
         .nfl
         .seed_for_test(&[], &changed_week_13_games())
@@ -368,9 +324,6 @@ async fn late_first_lookup_uses_current_schedule() {
     );
 }
 
-/// A disappearing holiday keeps its stored identity but loses its stale
-/// kickoff on every lookup — before Monday, on the first fixing lookup, and
-/// after — so identical schedule data yields identical metadata each time.
 #[tokio::test]
 async fn disappearing_holiday_keeps_identity_and_clears_stale_kickoff() {
     let fixture = Fixture::connect().await;
@@ -380,7 +333,6 @@ async fn disappearing_holiday_keeps_identity_and_clears_stale_kickoff() {
         .await
         .unwrap();
 
-    // The tentative Christmas slate is established before the opening Monday.
     let established = fixture
         .nfl
         .slates_at(WEEK_16, BEFORE_WEEK_16)
@@ -395,11 +347,8 @@ async fn disappearing_holiday_keeps_identity_and_clears_stale_kickoff() {
     assert_eq!(christmas.kickoff, Some(datetime!(2025-12-25 18:00 UTC)));
     let christmas_id = christmas.id;
 
-    // The holiday's last game reschedules off December 25: the rule stops
-    // proposing Christmas.
     fixture.replace_games(&moved_off_christmas_games()).await;
 
-    // Game access already returns no Christmas members...
     assert!(
         fixture
             .nfl
@@ -409,7 +358,6 @@ async fn disappearing_holiday_keeps_identity_and_clears_stale_kickoff() {
             .is_empty(),
         "the holiday game left the Christmas membership"
     );
-    // ...but the metadata must not keep reporting the stale kickoff.
     let after_move = fixture
         .nfl
         .slates_at(WEEK_16, BEFORE_WEEK_16)
@@ -426,7 +374,6 @@ async fn disappearing_holiday_keeps_identity_and_clears_stale_kickoff() {
         Some(datetime!(2025-12-28 17:00 UTC))
     );
 
-    // By-ID access agrees with the listing.
     let found = fixture
         .nfl
         .slate_at(christmas_id, BEFORE_WEEK_16)
@@ -435,9 +382,6 @@ async fn disappearing_holiday_keeps_identity_and_clears_stale_kickoff() {
         .expect("stored slate");
     assert_eq!(found.kickoff, None);
 
-    // The first lookup at or after the opening Monday fixes the week and
-    // reports the same metadata: no membership is inserted for the omitted
-    // proposal, and the stale kickoff stays cleared.
     let first_fixed = fixture
         .nfl
         .slates_at(WEEK_16, WEEK_16_MONDAY)
@@ -463,8 +407,6 @@ async fn disappearing_holiday_keeps_identity_and_clears_stale_kickoff() {
         "the omitted proposal gained no membership"
     );
 
-    // Identical schedule data now yields identical metadata on every later
-    // lookup.
     let later = fixture
         .nfl
         .slates_at(WEEK_16, XMAS_WEDNESDAY)
@@ -491,8 +433,6 @@ async fn rescheduling_after_fix_changes_details_not_membership() {
     let established = fixture.nfl.slates_at(WEEK_13, MONDAY).await.unwrap();
     let main_id = slate_named(&established, "Week 13").id;
 
-    // After fixation: a selected game moves to Saturday and a new Sunday game
-    // appears.
     fixture.replace_games(&rescheduled_after_fix_games()).await;
 
     let fixed_ids = store::slates::game_ids(fixture.nfl.store.reader(), main_id)

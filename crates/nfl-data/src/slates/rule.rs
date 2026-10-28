@@ -1,11 +1,4 @@
 //! Pure default membership policy for shared slates.
-//!
-//! The rule representation is internal: callers never construct or parse
-//! rules. [`proposals`] generates the canonical definitions for an NFL week —
-//! the Sunday main slate for regular weeks 1..=18, the named playoff slates
-//! for postseason weeks 19..=21, and holiday slates when games in the exact
-//! week fall on their Eastern holiday date. [`opening_monday`] derives the
-//! Monday that opens the week from the games' known Eastern kickoff dates.
 
 use time::{Date, Month, OffsetDateTime, Time, UtcOffset, Weekday};
 
@@ -14,8 +7,6 @@ use nfl_model::nfl_week_monday;
 use crate::slates::{SlateId, SlateProposal};
 use crate::{Game, SeasonType, SeasonWeek};
 
-/// One canonical slate definition for a week. Internal: callers never
-/// construct or parse rules; [`proposals`] generates them for the NFL week.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Rule {
     /// Regular-season weeks 1..=18: Sunday games kicking off noon–6pm Eastern.
@@ -45,8 +36,7 @@ impl Rule {
         }
     }
 
-    /// The slate's id kind digit: `1` for main slates — regular weeks and the
-    /// postseason weeks — and `0` for holiday slates.
+    /// The id kind digit: `1` for main slates, `0` for holiday slates.
     fn kind(self) -> i64 {
         match self {
             Rule::Main { .. } | Rule::WildCard | Rule::Divisional | Rule::Championship => 1,
@@ -54,9 +44,7 @@ impl Rule {
         }
     }
 
-    /// Whether `game` belongs on this rule's slate: Eastern calendar dates,
-    /// the Sunday noon–6pm window for main slates, the holiday date for
-    /// holidays, and Saturday/Sunday for playoffs. Games with unknown
+    /// Whether `game` belongs on this rule's slate; games with unknown
     /// kickoffs never match.
     fn covers(self, season: u16, game: &Game) -> bool {
         let noon = Time::from_hms(12, 0, 0).expect("noon");
@@ -81,9 +69,6 @@ impl Rule {
     }
 }
 
-/// The week's primary slate definition: the Sunday main slate for regular
-/// weeks 1..=18, or the named playoff slate for postseason weeks 19..=21.
-/// Weeks outside those ranges have no primary slate.
 fn primary_rule(week: &SeasonWeek) -> Option<Rule> {
     match (week.season_type, week.week.0) {
         (SeasonType::Reg, week @ 1..=18) => Some(Rule::Main { week }),
@@ -94,10 +79,8 @@ fn primary_rule(week: &SeasonWeek) -> Option<Rule> {
     }
 }
 
-/// Every canonical slate proposal for `week`, in canonical order: the week's
-/// main or playoff definition, then each holiday whose Eastern date has games
-/// in the exact week. Games from other seasons, season types, or weeks never
-/// contribute.
+/// The week's canonical proposals in canonical order: the primary rule's
+/// slate, then each holiday whose Eastern date has games in the week.
 pub(crate) fn proposals(week: SeasonWeek, games: &[Game]) -> Vec<SlateProposal> {
     let week_games: Vec<&Game> = games.iter().filter(|g| in_week(g, &week)).collect();
     let season = week.season.0;
@@ -113,9 +96,8 @@ pub(crate) fn proposals(week: SeasonWeek, games: &[Game]) -> Vec<SlateProposal> 
     out
 }
 
-/// The proposal for one rule over the week's games: its derived id, the
-/// canonical name, the earliest known selected kickoff normalized to UTC, and
-/// the selected ids.
+/// The proposal for one rule, with the earliest known kickoff normalized to
+/// UTC.
 fn proposal(rule: Rule, week: &SeasonWeek, week_games: &[&Game]) -> SlateProposal {
     let season = week.season.0;
     let selected: Vec<&Game> = week_games
@@ -136,10 +118,9 @@ fn proposal(rule: Rule, week: &SeasonWeek, week_games: &[&Game]) -> SlateProposa
 }
 
 /// The Monday that opens `week`'s NFL schedule window: the earliest known
-/// Eastern kickoff date among all of the exact week's games — including games
-/// outside the main slate — mapped through `nfl_week_monday` (Monday Night
-/// Football belongs to the preceding NFL week). `None` when no game in the
-/// week has a known kickoff.
+/// Eastern kickoff date among all of the exact week's games, mapped through
+/// `nfl_week_monday` (Monday night belongs to the preceding NFL week). `None`
+/// when no game in the week has a known kickoff.
 pub(crate) fn opening_monday(week: SeasonWeek, games: &[Game]) -> Option<Date> {
     games
         .iter()
@@ -149,20 +130,16 @@ pub(crate) fn opening_monday(week: SeasonWeek, games: &[Game]) -> Option<Date> {
         .map(nfl_week_monday)
 }
 
-/// Whether `game` belongs to the exact NFL week, regardless of any slate rule.
 fn in_week(game: &Game, week: &SeasonWeek) -> bool {
     game.season == week.season && game.season_type == week.season_type && game.week == week.week
 }
 
-/// Playoff membership: the rule's postseason week, Saturday and Sunday only.
 fn playoff_week_covers(game: &Game, et: OffsetDateTime, week: u8) -> bool {
     game.season_type == SeasonType::Post
         && game.week.0 == week
         && matches!(et.weekday(), Weekday::Saturday | Weekday::Sunday)
 }
 
-/// Thanksgiving: the fourth Thursday of November. It always falls on day
-/// 22..=28, so it can be computed directly instead of walking the calendar.
 fn fourth_thursday_of_november(year: i32) -> Date {
     let nov_1 = Date::from_calendar_date(year, Month::November, 1).expect("november 1");
     let days_to_first_thursday = (Weekday::Thursday.number_days_from_monday() + 7
@@ -186,8 +163,6 @@ mod tests {
     use crate::slates::SlateProposal;
     use crate::{Game, Season, SeasonType, SeasonWeek, Slate, SlateId, Week};
 
-    /// A fixture game with irrelevant teams and no scores: membership depends
-    /// only on the season week and the kickoff's Eastern time.
     fn game(
         id: &str,
         season: u16,
@@ -230,7 +205,6 @@ mod tests {
             .unwrap_or_else(|| panic!("no proposal named {name} in {all:?}"))
     }
 
-    /// Membership, independent of the unspecified game-id ordering.
     fn sorted_ids(proposal: &SlateProposal) -> Vec<&str> {
         let mut ids: Vec<&str> = proposal.game_ids.iter().map(String::as_str).collect();
         ids.sort_unstable();
@@ -239,9 +213,7 @@ mod tests {
 
     #[test]
     fn main_rule_matches_existing_eastern_window() {
-        // October 2025 is EDT (UTC-4), so noon ET is 16:00 UTC.
         let games = vec![
-            // Thursday night — outside the Sunday window.
             game(
                 "thu",
                 2025,
@@ -249,7 +221,6 @@ mod tests {
                 SeasonType::Reg,
                 Some(datetime!(2025-10-03 00:15 UTC)),
             ),
-            // Sunday 11:59 ET — one minute before the window.
             game(
                 "sun_1159",
                 2025,
@@ -257,9 +228,6 @@ mod tests {
                 SeasonType::Reg,
                 Some(datetime!(2025-10-05 15:59 UTC)),
             ),
-            // Sunday 12:00 ET — the lower boundary is inclusive. The fixture
-            // carries the Eastern-local offset the schedule still uses; the
-            // proposal must normalize it to UTC.
             game(
                 "sun_1200",
                 2025,
@@ -267,7 +235,6 @@ mod tests {
                 SeasonType::Reg,
                 Some(datetime!(2025-10-05 12:00 -04)),
             ),
-            // Sunday 4:25pm ET — an ordinary afternoon game.
             game(
                 "sun_1625",
                 2025,
@@ -275,7 +242,6 @@ mod tests {
                 SeasonType::Reg,
                 Some(datetime!(2025-10-05 20:25 UTC)),
             ),
-            // Sunday 18:00 ET — the upper boundary is inclusive.
             game(
                 "sun_1800",
                 2025,
@@ -283,7 +249,6 @@ mod tests {
                 SeasonType::Reg,
                 Some(datetime!(2025-10-05 22:00 UTC)),
             ),
-            // Sunday 18:01 ET — one minute past the window.
             game(
                 "sun_1801",
                 2025,
@@ -291,7 +256,6 @@ mod tests {
                 SeasonType::Reg,
                 Some(datetime!(2025-10-05 22:01 UTC)),
             ),
-            // Sunday night — after 6pm ET.
             game(
                 "snf",
                 2025,
@@ -299,7 +263,6 @@ mod tests {
                 SeasonType::Reg,
                 Some(datetime!(2025-10-06 00:20 UTC)),
             ),
-            // A different week — outside the requested season week entirely.
             game(
                 "wk6",
                 2025,
@@ -323,8 +286,6 @@ mod tests {
 
     #[test]
     fn holiday_rules_use_eastern_dates() {
-        // Thanksgiving is the fourth Thursday of November 2025 (EST, UTC-5):
-        // the night game at 2025-11-28 01:20 UTC is still Thursday locally.
         let thanksgiving = vec![
             game(
                 "tg_1",
@@ -365,8 +326,6 @@ mod tests {
         assert_eq!(sorted_ids(holiday), ["tg_1", "tg_2", "tg_3"]);
         assert_eq!(holiday.kickoff, Some(datetime!(2025-11-27 18:00 UTC)));
 
-        // Christmas uses December 25 in Eastern local time: 2025-12-26 01:15
-        // UTC is still Christmas Day locally, while 06:00 UTC already is not.
         let christmas = vec![
             game(
                 "xmas_early",
@@ -410,8 +369,6 @@ mod tests {
 
     #[test]
     fn playoff_rules_exclude_monday() {
-        // Postseason weeks are EST (UTC-5): Saturday 21:30 UTC is 4:30pm ET,
-        // and each Monday night kickoff lands on Monday locally.
         let cases = [
             (
                 (19u8, "Wild Card", SlateId(20251191)),
@@ -452,7 +409,6 @@ mod tests {
     #[test]
     fn proposals_are_scoped_to_exact_season_week() {
         let games = vec![
-            // 2025 REG 13 — the only game for the requested week.
             game(
                 "own_week",
                 2025,
@@ -460,7 +416,6 @@ mod tests {
                 SeasonType::Reg,
                 Some(datetime!(2025-11-30 18:00 UTC)),
             ),
-            // Same numeric week, previous season.
             game(
                 "other_season",
                 2024,
@@ -468,7 +423,6 @@ mod tests {
                 SeasonType::Reg,
                 Some(datetime!(2024-12-01 18:00 UTC)),
             ),
-            // Same numeric week, postseason type.
             game(
                 "other_type",
                 2025,
@@ -487,7 +441,6 @@ mod tests {
             "foreign games contribute neither games nor kickoffs"
         );
 
-        // The previous season's week 13 resolves only its own game.
         let got = proposals(reg_week(2024, 13), &games);
         assert_eq!(
             sorted_ids(proposal_named(&got, "Week 13")),
@@ -555,7 +508,6 @@ mod tests {
             "the holiday id sorts below the main id"
         );
 
-        // The slates share the week but not a single game.
         for id in &holiday.game_ids {
             assert!(!main.game_ids.contains(id), "{id} belongs to both slates");
         }
@@ -564,9 +516,6 @@ mod tests {
     #[test]
     fn opening_monday_uses_game_dates_not_the_clock() {
         let week = reg_week(2025, 1);
-        // The Thursday opener, a Sunday game, and MNF, all within NFL week 1.
-        // Monday kickoffs belong to the preceding NFL week, so every known
-        // game date maps to the same opening Monday.
         let thursday = game(
             "thu",
             2025,
@@ -589,7 +538,6 @@ mod tests {
             Some(datetime!(2025-09-09 00:15 UTC)),
         );
         let unknown = game("unknown", 2025, 1, SeasonType::Reg, None);
-        // The previous season's week 1 must not move the opening Monday.
         let other_season = game(
             "other_season",
             2024,
@@ -614,8 +562,6 @@ mod tests {
 
     #[test]
     fn proposals_generate_the_primary_slate_even_without_games() {
-        // The week's primary definition exists before any game is known; only
-        // its membership waits for the schedule.
         let got = proposals(reg_week(2025, 5), &[]);
         assert_eq!(got.len(), 1);
         let main = &got[0];
@@ -629,21 +575,15 @@ mod tests {
         assert!(got[0].game_ids.is_empty());
         assert_eq!(got[0].kickoff, None);
 
-        // Weeks outside the canonical ranges have no primary slate.
         assert_eq!(proposals(post_week(2025, 22), &[]).len(), 0);
     }
 
-    /// REG and POST weeks sharing a numeric week stamp ids from disjoint
-    /// families: the season-type digit in `SeasonWeek::encode` separates the
-    /// regular `2025019x` family from the postseason `2025119x` family.
     #[test]
     fn reg_and_post_ids_do_not_collide_for_the_same_numeric_week() {
         let post = proposals(post_week(2025, 19), &[]);
         let wild_card = proposal_named(&post, "Wild Card");
         assert_eq!(wild_card.id, SlateId(20251191));
 
-        // What the regular family would stamp for the identical numeric week:
-        // the codec's REG 2025 week 19 encoding times ten, plus each kind.
         let reg_family = i64::from(reg_week(2025, 19).encode()) * 10;
         assert_ne!(
             wild_card.id.0, reg_family,

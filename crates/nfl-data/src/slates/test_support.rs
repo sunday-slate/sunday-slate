@@ -1,7 +1,3 @@
-//! Deterministic testbed for the slate facade: a temporary `NflData` whose
-//! three databases live under one temporary directory, plus an independent
-//! connection to its provider cache for transactional schedule replacement.
-
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -10,13 +6,12 @@ use tempfile::TempDir;
 
 use crate::{Game, NflData, NflDataConfig};
 
-/// A slate facade connected to three fresh file databases under one temporary
-/// directory, refresh disabled, with an independent connection to the
-/// temporary provider cache for schedule replacement.
+/// A temporary `NflData` over fresh file databases with an independent
+/// connection to its provider cache for schedule replacement.
 pub(crate) struct Fixture {
     pub(crate) nfl: NflData,
     provider: SqlitePool,
-    /// Holds the three database files on disk for the fixture's lifetime.
+    /// Holds the database files for the fixture's lifetime.
     _dir: TempDir,
 }
 
@@ -52,9 +47,8 @@ impl Fixture {
         }
     }
 
-    /// Replace the provider cache's game rows with `games`, transactionally:
-    /// schedule changes rewrite kickoffs and membership inputs without
-    /// duplicating game ids and without touching `storage/` databases.
+    /// Replaces the provider cache's game rows with `games`, transactionally,
+    /// without touching `storage/` databases.
     pub(crate) async fn replace_games(&self, games: &[Game]) {
         let mut tx = self.provider.begin().await.expect("provider transaction");
         sqlx::query("DELETE FROM games")

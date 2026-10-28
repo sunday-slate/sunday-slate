@@ -1,7 +1,3 @@
-//! Shared, named slates: public metadata types, the pure default membership
-//! policy, and the `NflData` facade that lazily establishes and fixes weekly
-//! snapshots.
-
 use std::collections::HashMap;
 
 use time::OffsetDateTime;
@@ -28,21 +24,18 @@ impl NflData {
     /// The week's stored slates, ordered by known kickoff ascending, unknown
     /// kickoff last, id breaking ties.
     ///
-    /// The first lookup for a week lazily establishes it: before the week's
-    /// opening Monday (Eastern) the canonical slates exist as tentative
-    /// metadata whose kickoffs follow the current schedule, and the first
-    /// lookup at or after that Monday fixes the membership snapshot durably.
-    /// Once fixed, later lookups refresh stored kickoffs from the fixed
-    /// members' current schedule; they never change membership.
+    /// Tentative before the week's opening Monday (Eastern), with kickoffs
+    /// following the current schedule; the first lookup at or after that
+    /// Monday durably fixes the membership snapshot, and later lookups only
+    /// refresh stored kickoffs from the fixed members.
     pub async fn slates(&self, week: SeasonWeek) -> Result<Vec<Slate>, SlateError> {
         self.slates_at(week, OffsetDateTime::now_utc()).await
     }
 
     /// The stored slate with this id, or `None` when the id is unknown.
     ///
-    /// A known id resolves its week exactly like [`Self::slates`]: the first
-    /// lookup at or after the week's opening Monday (Eastern) fixes that
-    /// week's snapshot. Unknown ids have no side effects.
+    /// A known id resolves its week exactly like [`Self::slates`]; unknown
+    /// ids have no side effects.
     pub async fn slate(&self, id: SlateId) -> Result<Option<Slate>, SlateError> {
         self.slate_at(id, OffsetDateTime::now_utc()).await
     }
@@ -51,15 +44,14 @@ impl NflData {
     /// last, game id breaking ties. Unknown ids have no games.
     ///
     /// After fixation the membership is the stored snapshot resolved against
-    /// the current schedule: a rescheduled game keeps its slate and carries
-    /// its current kickoff, and a game whose schedule row is absent drops out
-    /// of the returned list without leaving the snapshot. Before fixation the
-    /// membership is the current matching proposal.
+    /// the current schedule; before fixation it is the current matching
+    /// proposal. Rescheduled games keep their slate and current kickoff, and
+    /// games whose schedule row is absent drop out of the list without
+    /// leaving the snapshot.
     pub async fn slate_games(&self, id: SlateId) -> Result<Vec<Game>, SlateError> {
         self.slate_games_at(id, OffsetDateTime::now_utc()).await
     }
 
-    /// The week's stored slates at `now`, reconciling the week first.
     pub(crate) async fn slates_at(
         &self,
         week: SeasonWeek,
@@ -69,8 +61,6 @@ impl NflData {
         Ok(slates)
     }
 
-    /// The stored slate with this id at `now`, or `None` without side effects
-    /// when the id is unknown.
     pub(crate) async fn slate_at(
         &self,
         id: SlateId,
@@ -83,9 +73,6 @@ impl NflData {
         Ok(slates.into_iter().find(|slate| slate.id == id))
     }
 
-    /// The slate's games at `now`: the stored snapshot after fixation, the
-    /// current matching proposal before it. Unknown ids have no games and no
-    /// side effects.
     pub(crate) async fn slate_games_at(
         &self,
         id: SlateId,
@@ -108,12 +95,9 @@ impl NflData {
         })
     }
 
-    /// Reconcile one exact week against the season schedule loaded once, then
-    /// return the week's stored rows and that schedule for reuse. A fixed
-    /// week skips rule selection entirely — its stored snapshot always wins
-    /// regardless of the clock, and reconciliation only refreshes stored
-    /// kickoffs from the fixed members. Otherwise the week fixes on the first
-    /// lookup at or after its opening Monday in Eastern time.
+    /// Reconciles the week once and returns its stored rows plus the loaded
+    /// schedule for reuse; a fixed week's stored snapshot wins regardless of
+    /// the clock.
     async fn resolve_week_at(
         &self,
         week: SeasonWeek,
@@ -132,9 +116,8 @@ impl NflData {
     }
 }
 
-/// The current schedule's games for `ids`, ordered by known kickoff ascending,
-/// unknown kickoff last, game id breaking ties. Ids absent from the schedule
-/// contribute nothing.
+/// The schedule's games for `ids`, ordered by known kickoff ascending,
+/// unknown last, id breaking ties; absent ids contribute nothing.
 fn selected_games(schedule: &[Game], ids: &[String]) -> Vec<Game> {
     let by_id: HashMap<&str, &Game> = schedule
         .iter()
