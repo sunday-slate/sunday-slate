@@ -7,10 +7,6 @@
 //! week fall on their Eastern holiday date. [`opening_monday`] derives the
 //! Monday that opens the week from the games' known Eastern kickoff dates.
 
-// The facade that consumes this policy lands in a later task; until then only
-// its own unit tests reach it.
-#![cfg_attr(not(test), expect(dead_code))]
-
 use time::{Date, Month, OffsetDateTime, Time, UtcOffset, Weekday};
 
 use nfl_model::nfl_week_monday;

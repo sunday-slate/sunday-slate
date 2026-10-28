@@ -28,9 +28,8 @@ pub struct Slate {
 #[sqlx(transparent)]
 pub struct SlateId(pub i64);
 
-/// Tentative slate content produced by the pure membership policy and consumed
-/// by storage reconciliation in a later task. Not public API.
-#[cfg_attr(not(test), expect(dead_code))]
+/// Tentative slate content produced by the pure membership policy and
+/// consumed by storage reconciliation. Not public API.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SlateProposal {
     pub name: String,
