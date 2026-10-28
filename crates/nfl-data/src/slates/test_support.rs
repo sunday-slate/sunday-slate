@@ -23,6 +23,7 @@ impl Fixture {
             fanduel_database_url: url("fanduel.db"),
             database_url: url("store.db"),
             refresh_interval: None,
+            season: crate::Season(2025),
             ..NflDataConfig::default()
         })
         .await

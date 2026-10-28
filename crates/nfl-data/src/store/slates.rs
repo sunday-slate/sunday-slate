@@ -1,7 +1,5 @@
 //! Durable slate metadata and atomic weekly membership snapshots.
 
-#![cfg_attr(not(test), expect(dead_code))]
-
 use std::collections::HashMap;
 
 use sqlx::{Executor, Sqlite, SqliteConnection, SqlitePool};
@@ -9,7 +7,60 @@ use time::{OffsetDateTime, UtcOffset};
 
 use crate::slates::{Slate, SlateId, SlateProposal};
 use crate::store::Store;
-use crate::{Game, SeasonWeek};
+use crate::{Game, Season, SeasonWeek};
+
+/// Every stored slate for a season, ordered by slate id.
+pub(crate) async fn for_season(
+    pool: &SqlitePool,
+    season: Season,
+) -> Result<Vec<Slate>, sqlx::Error> {
+    let Some((first, last)) = season_bounds(season) else {
+        return Ok(Vec::new());
+    };
+    sqlx::query_as::<_, Slate>(
+        r#"SELECT id, season_week, name, kickoff
+               FROM slates
+               WHERE season_week BETWEEN ? AND ?
+               ORDER BY id"#,
+    )
+    .bind(first)
+    .bind(last)
+    .fetch_all(pool)
+    .await
+}
+
+/// Games per slate for a season; a slate with no membership counts zero.
+pub(crate) async fn counts_for_season(
+    pool: &SqlitePool,
+    season: Season,
+) -> Result<HashMap<SlateId, usize>, sqlx::Error> {
+    let Some((first, last)) = season_bounds(season) else {
+        return Ok(HashMap::new());
+    };
+    let rows: Vec<(i64, i64)> = sqlx::query_as(
+        r#"SELECT slates.id, COUNT(slate_games.gsis_game_id)
+               FROM slates
+               LEFT JOIN slate_games ON slate_games.slate_id = slates.id
+               WHERE slates.season_week BETWEEN ? AND ?
+               GROUP BY slates.id"#,
+    )
+    .bind(first)
+    .bind(last)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, count)| (SlateId(id), count as usize))
+        .collect())
+}
+
+/// The encoded week range a season spans, or `None` with no weeks.
+fn season_bounds(season: Season) -> Option<(i64, i64)> {
+    let mut weeks = SeasonWeek::for_season(season);
+    let first = i64::from(weeks.next()?.encode());
+    let last = i64::from(weeks.last()?.encode());
+    Some((first, last))
+}
 
 /// Every stored slate for an NFL week, ordered by known kickoff ascending,
 /// unknown kickoff last, id breaking ties.
@@ -28,7 +79,7 @@ where
         r#"SELECT id, season_week, name, kickoff
                FROM slates
                WHERE season_week = ?
-               ORDER BY kickoff IS NULL, kickoff, id"#,
+               ORDER BY id"#,
     )
     .bind(week)
     .fetch_all(ex)
@@ -46,8 +97,8 @@ pub(crate) async fn by_id(pool: &SqlitePool, id: SlateId) -> Result<Option<Slate
     .await
 }
 
-/// True iff membership rows exist for the week; fixation is inferred from
-/// their presence.
+/// True iff the week's slates have been fixed; membership rows exist for
+/// tentative weeks too, so presence alone no longer means fixed.
 pub(crate) async fn is_fixed(pool: &SqlitePool, week: SeasonWeek) -> Result<bool, sqlx::Error> {
     is_fixed_on(pool, week).await
 }
@@ -59,9 +110,8 @@ where
     let fixed: i64 = sqlx::query_scalar(
         r#"SELECT EXISTS (
                SELECT 1
-                   FROM slate_games
-                   JOIN slates ON slates.id = slate_games.slate_id
-                   WHERE slates.season_week = ?)"#,
+                   FROM slates
+                   WHERE season_week = ? AND fixed = 1)"#,
     )
     .bind(week)
     .fetch_one(ex)
@@ -109,19 +159,40 @@ async fn reconcile_tx(
             upsert_metadata(&mut *conn, week, proposal).await?;
         }
         clear_absent_kickoffs(&mut *conn, week, proposals).await?;
-        if fix {
-            for proposal in proposals {
-                for game_id in &proposal.game_ids {
-                    sqlx::query("INSERT INTO slate_games (slate_id, gsis_game_id) VALUES (?, ?)")
-                        .bind(proposal.id)
-                        .bind(game_id)
-                        .execute(&mut *conn)
-                        .await?;
-                }
+        clear_week_membership(&mut *conn, week).await?;
+        for proposal in proposals {
+            for game_id in &proposal.game_ids {
+                sqlx::query("INSERT INTO slate_games (slate_id, gsis_game_id) VALUES (?, ?)")
+                    .bind(proposal.id)
+                    .bind(game_id)
+                    .execute(&mut *conn)
+                    .await?;
             }
+        }
+        if fix {
+            sqlx::query("UPDATE slates SET fixed = 1 WHERE season_week = ?")
+                .bind(week)
+                .execute(&mut *conn)
+                .await?;
         }
     }
     for_week_on(&mut *conn, week).await
+}
+
+/// Drops the week's tentative membership before it is rewritten, so games that
+/// left a proposal leave the snapshot too.
+async fn clear_week_membership(
+    conn: &mut SqliteConnection,
+    week: SeasonWeek,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"DELETE FROM slate_games
+               WHERE slate_id IN (SELECT id FROM slates WHERE season_week = ?)"#,
+    )
+    .bind(week)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
 }
 
 async fn upsert_metadata(
@@ -142,7 +213,7 @@ async fn upsert_metadata(
     Ok(())
 }
 
-/// Clears stored kickoffs for week rows absent from the current proposals.
+/// Clears stored kickoffs for week rows absent from the current slate game proposal
 async fn clear_absent_kickoffs(
     conn: &mut SqliteConnection,
     week: SeasonWeek,
@@ -478,8 +549,8 @@ mod tests {
 
         reconcile(
             &store,
-            reg_week(19),
-            &[proposal(reg_week(19), "Week 19", None, &[])],
+            reg_week(18),
+            &[proposal(reg_week(18), "Week 18", None, &[])],
             &[],
             false,
         )
@@ -494,7 +565,7 @@ mod tests {
         )
         .await
         .expect("postseason reconcile");
-        let reg = for_week(store.reader(), reg_week(19))
+        let reg = for_week(store.reader(), reg_week(18))
             .await
             .expect("reg week");
         let post = for_week(store.reader(), post_week(19))
@@ -504,7 +575,7 @@ mod tests {
             reg.iter()
                 .map(|slate| slate.name.as_str())
                 .collect::<Vec<_>>(),
-            ["Week 19"]
+            ["Week 18"]
         );
         assert_eq!(
             post.iter()
@@ -514,7 +585,7 @@ mod tests {
         );
         assert_ne!(
             reg[0].id, post[0].id,
-            "REG and POST with the same numeric week stay distinct"
+            "the last regular week and the first postseason week stay distinct"
         );
     }
 

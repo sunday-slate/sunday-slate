@@ -13,6 +13,8 @@ pub use refresh::RefreshStatus;
 
 use std::{collections::HashMap, sync::Arc};
 
+use tokio::sync::mpsc;
+
 use store::Store;
 
 pub use config::NflDataConfig as NflverseDataConfig;
@@ -39,17 +41,29 @@ struct Inner {
     store: Store,
     config: NflDataConfig,
     refresh: refresh::Refresh,
+    /// Notified after each successful sync
+    sync_notify: Option<mpsc::UnboundedSender<()>>,
 }
 
 impl NflverseData {
     /// Opens (creating if missing) the cache database and runs migrations.
     pub async fn connect(config: NflverseDataConfig) -> Result<Self, NflverseDataError> {
+        Self::connect_with_sync_notify(config, None).await
+    }
+
+    /// [`Self::connect`], also notifying `sync_notify` after each fully
+    /// successful sync.
+    pub async fn connect_with_sync_notify(
+        config: NflverseDataConfig,
+        sync_notify: Option<mpsc::UnboundedSender<()>>,
+    ) -> Result<Self, NflverseDataError> {
         let store = Store::open(&config.database_url).await?;
         Ok(Self {
             inner: Arc::new(Inner {
                 store,
                 config,
                 refresh: refresh::Refresh::default(),
+                sync_notify,
             }),
         })
     }
@@ -63,6 +77,7 @@ impl NflverseData {
                 store: Store::in_memory().await?,
                 config: NflDataConfig::default(),
                 refresh: refresh::Refresh::default(),
+                sync_notify: None,
             }),
         })
     }
@@ -213,7 +228,20 @@ impl NflverseData {
     /// asset doesn't block the other seasons in the same dataset from
     /// updating.
     pub async fn sync(&self) -> Result<SyncReport, NflverseDataError> {
-        sync::run(&self.inner.store, &self.inner.config).await
+        let report = sync::run(&self.inner.store, &self.inner.config).await?;
+        if report.all_ok() {
+            self.notify_sync_success();
+        }
+        Ok(report)
+    }
+
+    /// Sends one `()` per fully successful sync. The notification happens
+    /// inside the sync, so receivers do their work on their own task.
+    fn notify_sync_success(&self) {
+        if let Some(sync_notify) = &self.inner.sync_notify {
+            // A closed receiver is not an error: nobody is listening.
+            let _ = sync_notify.send(());
+        }
     }
 
     /// Seed player and team week stats directly, for tests and tooling. Reuses the

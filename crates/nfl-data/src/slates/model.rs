@@ -3,7 +3,7 @@ use time::OffsetDateTime;
 use nfl_model::SeasonWeek;
 
 /// A shared, named slate: stored metadata without any games.
-#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, sqlx::FromRow)]
 pub struct Slate {
     /// Derived identifier; see [`SlateId`].
     pub id: SlateId,

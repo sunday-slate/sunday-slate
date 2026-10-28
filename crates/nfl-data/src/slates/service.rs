@@ -1,131 +1,96 @@
 use crate::slates::{Slate, SlateError, SlateId, rule};
-use crate::{NflData, store};
-use nfl_model::{Game, SeasonWeek, to_eastern};
-use std::collections::HashMap;
+use crate::store::Store;
+use crate::store::slates as slates_store;
+use crate::{NflData, NflverseData};
+use nfl_model::{Game, Season, SeasonWeek, to_eastern};
+use std::collections::{BTreeSet, HashMap};
 use time::OffsetDateTime;
 
-/// Every slate for the handle's season, in ascending slate-id order, each
-/// with its game count.
-///
-/// Enumerates the season's weeks in canonical order (regular weeks 1–18,
-/// then postseason 19–21) and merges each week's slates, regardless of the
-/// NFL schedule. The count is the games in the week's resolved slate: the
-/// stored snapshot for a fixed week, the current proposal otherwise.
-/// Errors propagate and leave no partial results. Season comes from the
-/// connected [`NflData`]; there is no season argument or clock override.
-pub async fn all(nfl: &NflData) -> Result<Vec<(Slate, usize)>, SlateError> {
-    let mut slates: Vec<(Slate, usize)> = Vec::new();
-    for week in SeasonWeek::for_season(nfl.season()) {
-        let (week_slates, schedule) = resolve_week_at(nfl, week, OffsetDateTime::now_utc()).await?;
-        for slate in week_slates {
-            let count = if store::slates::is_fixed(nfl.store.reader(), week).await? {
-                store::slates::game_ids(nfl.store.reader(), slate.id).await?.len()
-            } else {
-                rule::proposals(week, &schedule)
-                    .into_iter()
-                    .find(|proposal| proposal.name == slate.name)
-                    .map(|proposal| proposal.game_ids.len())
-                    .unwrap_or(0)
-            };
-            slates.push((slate, count));
-        }
-    }
-    slates.sort_unstable_by_key(|(slate, _)| slate.id);
-    Ok(slates)
+/// Every stored slate for the handle's season, in ascending order.
+pub async fn all(nfl: &NflData) -> Result<BTreeSet<Slate>, SlateError> {
+    Ok(slates_store::for_season(nfl.store.reader(), nfl.season())
+        .await?
+        .into_iter()
+        .collect())
 }
 
-/// The week's stored slates, ordered by known kickoff ascending, unknown
-/// kickoff last, id breaking ties.
-///
-/// Tentative before the week's opening Monday (Eastern), with kickoffs
-/// following the current schedule; the first lookup at or after that
-/// Monday durably fixes the membership snapshot, and later lookups only
-/// refresh stored kickoffs from the fixed members.
+/// The week's stored slates, ordered by kickoff
 pub async fn by_week(nfl: &NflData, week: SeasonWeek) -> Result<Vec<Slate>, SlateError> {
-    slates_at(nfl, week, OffsetDateTime::now_utc()).await
+    Ok(slates_store::for_week(nfl.store.reader(), week).await?)
 }
 
 /// The stored slate with this id, or `None` when the id is unknown.
-///
-/// A known id resolves its week exactly like [`Self::slates`]; unknown
-/// ids have no side effects.
 pub async fn by_id(nfl: &NflData, id: SlateId) -> Result<Option<Slate>, SlateError> {
-    slate_at(nfl, id, OffsetDateTime::now_utc()).await
+    Ok(slates_store::by_id(nfl.store.reader(), id).await?)
 }
 
 /// The slate's games, ordered by known kickoff ascending, unknown kickoff
-/// last, game id breaking ties. Unknown ids have no games.
+/// last, game id breaking ties.
 ///
-/// After fixation the membership is the stored snapshot resolved against
-/// the current schedule; before fixation it is the current matching
-/// proposal. Rescheduled games keep their slate and current kickoff, and
-/// games whose schedule row is absent drop out of the list without
-/// leaving the snapshot.
+/// Membership is the stored snapshot resolved against the current schedule, so
+/// rescheduled games keep their slate and current kickoff. Games whose schedule
+/// row is absent drop out without leaving the snapshot, and an id with no
+/// stored membership has no games.
 pub async fn games(nfl: &NflData, id: SlateId) -> Result<Vec<Game>, SlateError> {
-    slate_games_at(nfl, id, OffsetDateTime::now_utc()).await
+    let Some(stored) = slates_store::by_id(nfl.store.reader(), id).await? else {
+        return Ok(Vec::new());
+    };
+    let schedule = nfl.provider.games(stored.season_week.season).await?;
+    let ids = slates_store::game_ids(nfl.store.reader(), id).await?;
+    Ok(selected_games(&schedule, &ids))
 }
 
-pub(crate) async fn slates_at(
-    nfl: &NflData,
-    week: SeasonWeek,
+/// Games per stored slate for the handle's season; slates with no membership
+/// count zero.
+pub(crate) async fn counts(nfl: &NflData) -> Result<HashMap<SlateId, usize>, SlateError> {
+    Ok(slates_store::counts_for_season(nfl.store.reader(), nfl.season()).await?)
+}
+
+/// Reconcile every week of the handle's season; the only writer of slate rows.
+///
+/// Callers that already hold populated tables do not need this: reads answer
+/// from storage, and the handle populates at startup and after each successful
+/// sync. It exists for a deliberate rebuild.
+pub async fn refresh(nfl: &NflData) -> Result<BTreeSet<Slate>, SlateError> {
+    populate_at(
+        &nfl.provider,
+        &nfl.store,
+        nfl.season(),
+        OffsetDateTime::now_utc(),
+    )
+    .await
+}
+
+/// [`refresh`] against explicitly supplied parts and clock, for the background
+/// worker, which cannot borrow the handle, and for tests that pin the fixation
+/// boundary.
+pub(crate) async fn populate_at(
+    provider: &NflverseData,
+    store: &Store,
+    season: Season,
     now: OffsetDateTime,
-) -> Result<Vec<Slate>, SlateError> {
-    let (slates, _) = resolve_week_at(nfl, week, now).await?;
+) -> Result<BTreeSet<Slate>, SlateError> {
+    let schedule = provider.games(season).await?;
+    let mut slates = BTreeSet::new();
+    for week in SeasonWeek::for_season(season) {
+        slates.extend(reconcile_week_at(store, week, &schedule, now).await?);
+    }
     Ok(slates)
 }
 
-pub(crate) async fn slate_at(
-    nfl: &NflData,
-    id: SlateId,
-    now: OffsetDateTime,
-) -> Result<Option<Slate>, SlateError> {
-    let Some(stored) = store::slates::by_id(nfl.store.reader(), id).await? else {
-        return Ok(None);
-    };
-    let (slates, _) = resolve_week_at(nfl, stored.season_week, now).await?;
-    Ok(slates.into_iter().find(|slate| slate.id == id))
-}
-
-pub(crate) async fn slate_games_at(
-    nfl: &NflData,
-    id: SlateId,
-    now: OffsetDateTime,
-) -> Result<Vec<Game>, SlateError> {
-    let Some(stored) = store::slates::by_id(nfl.store.reader(), id).await? else {
-        return Ok(Vec::new());
-    };
-    let (_, schedule) = resolve_week_at(nfl, stored.season_week, now).await?;
-    if store::slates::is_fixed(nfl.store.reader(), stored.season_week).await? {
-        let ids = store::slates::game_ids(nfl.store.reader(), id).await?;
-        return Ok(selected_games(&schedule, &ids));
-    }
-    let proposal = rule::proposals(stored.season_week, &schedule)
-        .into_iter()
-        .find(|proposal| proposal.name == stored.name);
-    Ok(match proposal {
-        Some(proposal) => selected_games(&schedule, &proposal.game_ids),
-        None => Vec::new(),
-    })
-}
-
-/// Reconciles the week once and returns its stored rows plus the loaded
-/// schedule for reuse; a fixed week's stored snapshot wins regardless of
-/// the clock.
-async fn resolve_week_at(
-    nfl_data: &NflData,
+async fn reconcile_week_at(
+    store: &Store,
     week: SeasonWeek,
+    schedule: &[Game],
     now: OffsetDateTime,
-) -> Result<(Vec<Slate>, Vec<Game>), SlateError> {
-    let schedule = nfl_data.provider.games(week.season).await?;
-    let slates = if store::slates::is_fixed(nfl_data.store.reader(), week).await? {
-        store::slates::reconcile(&nfl_data.store, week, &[], &schedule, false).await?
-    } else {
-        let week_proposals = rule::proposals(week, &schedule);
-        let fix = rule::opening_monday(week, &schedule)
-            .is_some_and(|monday| to_eastern(now).date() >= monday);
-        store::slates::reconcile(&nfl_data.store, week, &week_proposals, &schedule, fix).await?
-    };
-    Ok((slates, schedule))
+) -> Result<Vec<Slate>, SlateError> {
+    if slates_store::is_fixed(store.reader(), week).await? {
+        return Ok(slates_store::reconcile(store, week, &[], schedule, false).await?);
+    }
+    let proposals = rule::proposals(week, schedule);
+    let fix =
+        rule::opening_monday(week, schedule).is_some_and(|monday| to_eastern(now).date() >= monday);
+    Ok(slates_store::reconcile(store, week, &proposals, schedule, fix).await?)
 }
 
 /// The schedule's games for `ids`, ordered by known kickoff ascending,

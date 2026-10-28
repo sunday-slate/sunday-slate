@@ -6,7 +6,7 @@ use time::OffsetDateTime;
 use time::format_description::FormatItem;
 use time::macros::format_description;
 
-use crate::slates::{SlateId, all, by_id, games};
+use crate::slates::{SlateId, all, by_id, counts, games};
 use crate::web::AdminState;
 use crate::web::error::AdminError;
 use nfl_model::{SeasonWeek, to_eastern};
@@ -72,19 +72,19 @@ fn game_kickoff_label(kickoff: Option<OffsetDateTime>) -> String {
 
 const KICKOFF_FORMAT: &[FormatItem] = format_description!("[month repr:short] [day padding:none]");
 
-const GAME_KICKOFF_FORMAT: &[FormatItem] = format_description!(
-    "[weekday repr:short] @ [hour repr:12 padding:none]:[minute] [period]"
-);
+const GAME_KICKOFF_FORMAT: &[FormatItem] =
+    format_description!("[weekday repr:short] @ [hour repr:12 padding:none]:[minute] [period]");
 
 pub(super) async fn index(State(state): State<AdminState>) -> Result<Html<String>, AdminError> {
     let slates = all(&state.nfl).await?;
+    let counts = counts(&state.nfl).await?;
 
     let rows = slates
         .into_iter()
-        .map(|(slate, count)| SlateRow {
+        .map(|slate| SlateRow {
             id: slate.id.0,
             name: slate.name,
-            game_count: count,
+            game_count: counts.get(&slate.id).copied().unwrap_or(0),
             kickoff: kickoff_label(slate.kickoff),
         })
         .collect();

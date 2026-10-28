@@ -84,6 +84,7 @@ impl TempDatabases {
             fanduel_database_url: url("fanduel.db"),
             database_url: url("store.db"),
             refresh_interval: None,
+            season: Season(2025),
             ..NflDataConfig::default()
         };
         Self {
@@ -127,6 +128,7 @@ async fn public_slate_is_metadata_only() {
     let mut games = week_13_games();
     games.extend(week_16_games());
     nfl.seed_for_test(&[], &games).await.unwrap();
+    nfl.refresh_slates().await.unwrap();
 
     let listed = slates::by_week(&nfl, WEEK_13).await.unwrap();
     assert_eq!(
@@ -172,6 +174,7 @@ async fn public_access_returns_metadata_and_games_separately() {
     let temp = TempDatabases::connect().await;
     let nfl = temp.open().await;
     nfl.seed_for_test(&[], &week_13_games()).await.unwrap();
+    nfl.refresh_slates().await.unwrap();
 
     let listed = slates::by_week(&nfl, WEEK_13).await.unwrap();
     assert_eq!(names(&listed), ["Thanksgiving", "Week 13"]);
@@ -204,6 +207,7 @@ async fn fixed_ids_and_metadata_survive_reopen() {
     let temp = TempDatabases::connect().await;
     let nfl = temp.open().await;
     nfl.seed_for_test(&[], &week_13_games()).await.unwrap();
+    nfl.refresh_slates().await.unwrap();
 
     let listed = slates::by_week(&nfl, WEEK_13).await.unwrap();
     let main_id = named(&listed, "Week 13").id;
@@ -215,6 +219,7 @@ async fn fixed_ids_and_metadata_survive_reopen() {
     drop(nfl);
 
     let nfl = temp.open().await;
+    nfl.refresh_slates().await.unwrap();
     let reopened = slates::by_week(&nfl, WEEK_13).await.unwrap();
     assert_eq!(named(&reopened, "Week 13").id, main_id);
     assert_eq!(named(&reopened, "Thanksgiving").id, thanksgiving_id);
@@ -235,6 +240,7 @@ async fn fixed_ids_and_metadata_survive_reopen() {
     temp.change_kickoff("sun_1", datetime!(2025-11-29 21:30 UTC))
         .await;
     let nfl = temp.open().await;
+    nfl.refresh_slates().await.unwrap();
 
     assert_eq!(
         game_ids(&slates::games(&nfl, main_id).await.unwrap()),
@@ -260,6 +266,7 @@ async fn slate_access_has_no_salary_prerequisite() {
     let temp = TempDatabases::connect().await;
     let nfl = temp.open().await;
     nfl.seed_for_test(&[], &week_13_games()).await.unwrap();
+    nfl.refresh_slates().await.unwrap();
 
     assert!(
         nfl.fanduel_weekly_summaries(&[]).await.unwrap().is_empty(),

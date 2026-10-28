@@ -33,12 +33,12 @@ fanduel-data = { path = "../fanduel-data" }
 nflverse-data = { path = "../nflverse-data" }
 nfl-model = { path = "../nfl-model" }
 utils = { path = "../utils" }
+tokio = { workspace = true }
 time = { workspace = true }
 urlencoding = "2"
 
 [dev-dependencies]
 axum-test = { workspace = true }
-tokio = { workspace = true }
 tempfile = { workspace = true }
 wiremock = { workspace = true }
 sqlx = { workspace = true }
