@@ -35,10 +35,10 @@ nfl-model = { path = "../nfl-model" }
 utils = { path = "../utils" }
 time = { workspace = true }
 urlencoding = "2"
-tempfile = { workspace = true }
 
 [dev-dependencies]
 axum-test = { workspace = true }
 tokio = { workspace = true }
+tempfile = { workspace = true }
 wiremock = { workspace = true }
 sqlx = { workspace = true }

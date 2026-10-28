@@ -153,9 +153,7 @@ impl NflData {
         })
     }
 
-    /// A fresh, empty store backed by a temporary file: migrations applied,
-    /// nothing synced. The temporary directory is removed when the store
-    /// drops.
+    /// A fresh, empty, in-memory cache: migrations applied, nothing synced.
     pub async fn in_memory() -> Result<Self, NflDataConnectError> {
         let provider = NflverseData::in_memory()
             .await

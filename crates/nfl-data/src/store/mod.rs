@@ -5,7 +5,6 @@ pub(crate) mod player_link;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{SqliteConnection, SqlitePool};
 use std::str::FromStr;
-use std::sync::Arc;
 use std::time::Duration;
 
 use crate::salaries::SalaryError;
@@ -13,18 +12,14 @@ pub use player_link::PlayerLink;
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
-/// A read-only reader pool and a single-connection writer pool: writes only
-/// happen inside `write_tx` on the writer, and the reader rejects writes at
-/// the database level, so nothing outside `write_tx` can mutate the store.
+/// A read-only reader pool and a single-connection writer pool for file
+/// databases: writes only happen inside `write_tx` on the writer, and the
+/// reader rejects writes at the database level. Fresh in-memory stores (test
+/// only) alias one shared pool instead, like sunday-slate's `Db::test`.
 #[derive(Clone)]
 pub(crate) struct Store {
     read: SqlitePool,
     write: SqlitePool,
-    /// Keeps a fresh store's temporary directory alive until the last clone
-    /// drops, which then removes it. Never read; held purely for its
-    /// `Drop`.
-    #[allow(dead_code)]
-    temp_dir: Option<Arc<tempfile::TempDir>>,
 }
 
 impl Store {
@@ -35,35 +30,21 @@ impl Store {
         Self::connect_options(database_url).await
     }
 
-    /// A fresh, empty store on a temporary file. The writer pool creates and
-    /// migrates it while the reader pool opens the same file read-only —
-    /// shared-cache in-memory databases cannot enforce this, because a
-    /// reader joining a shared cache opened read-write inherits the writer's
-    /// access. The temporary directory is removed when the last `Store`
-    /// clone drops.
+    /// Fresh, empty, test-only store: one shared in-memory pool serving both
+    /// reads and writes. Separate `:memory:` connections would be distinct
+    /// databases, so — like sunday-slate's `Db::test` — both accessors alias
+    /// the same pool and the reader/writer split does not apply here.
     pub(crate) async fn in_memory() -> Result<Self, SalaryError> {
-        let temp_dir =
-            Arc::new(tempfile::tempdir().map_err(|e| SalaryError::Database(sqlx::Error::Io(e)))?);
-        let url = format!("sqlite:{}", temp_dir.path().join("store.db").display());
-
-        let write = SqlitePoolOptions::new()
+        let pool = SqlitePoolOptions::new()
             .max_connections(1)
-            .acquire_timeout(Duration::from_secs(30))
-            .connect_with(Self::options(&url)?)
+            .connect_with(Self::options("sqlite::memory:")?)
             .await?;
 
-        MIGRATOR.run(&write).await?;
-
-        let read = SqlitePoolOptions::new()
-            .max_connections(8)
-            .acquire_timeout(Duration::from_secs(5))
-            .connect_with(Self::options(&url)?.read_only(true))
-            .await?;
+        MIGRATOR.run(&pool).await?;
 
         Ok(Self {
-            read,
-            write,
-            temp_dir: Some(temp_dir),
+            read: pool.clone(),
+            write: pool,
         })
     }
 
@@ -82,11 +63,7 @@ impl Store {
             .connect_with(Self::options(database_url)?.read_only(true))
             .await?;
 
-        Ok(Self {
-            read,
-            write,
-            temp_dir: None,
-        })
+        Ok(Self { read, write })
     }
 
     fn options(database_url: &str) -> Result<SqliteConnectOptions, SalaryError> {
@@ -187,37 +164,6 @@ mod tests {
 
         // The write path works and leaves the schema and WAL ready for
         // readers.
-        player_link::save_links(
-            &store,
-            &[PlayerLink {
-                fd_player_id: 1,
-                gsis_player_id: "00-1".into(),
-            }],
-        )
-        .await
-        .expect("save");
-
-        let direct = sqlx::query(
-            "INSERT INTO player_links (fd_player_id, gsis_player_id) VALUES (2, '00-2')",
-        )
-        .execute(store.reader())
-        .await;
-        let err = direct.expect_err("writes outside write_tx must fail");
-        assert!(
-            err.to_string().to_lowercase().contains("readonly"),
-            "expected a read-only rejection, got: {err}"
-        );
-        assert_eq!(
-            player_link::links(store.reader()).await.unwrap().len(),
-            1,
-            "the direct write did not land"
-        );
-    }
-
-    #[tokio::test]
-    async fn the_in_memory_reader_rejects_writes() {
-        let store = store().await;
-
         player_link::save_links(
             &store,
             &[PlayerLink {
