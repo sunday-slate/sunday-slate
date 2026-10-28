@@ -14,17 +14,13 @@ use nfl_model::{SeasonWeek, to_eastern};
 #[derive(Template)]
 #[template(path = "admin/slates/index.html", config = "src/web/askama.toml")]
 pub(crate) struct IndexTemplate {
-    pub(crate) weeks: Vec<WeekGroup>,
-}
-
-pub(crate) struct WeekGroup {
-    pub(crate) week: SeasonWeek,
     pub(crate) slates: Vec<SlateRow>,
 }
 
 pub(crate) struct SlateRow {
     pub(crate) id: i64,
     pub(crate) name: String,
+    pub(crate) game_count: usize,
     pub(crate) kickoff: String,
 }
 
@@ -51,7 +47,7 @@ fn week_label(week: SeasonWeek) -> String {
     }
 }
 
-/// Eastern kickoffs like `Sun, Sep 7, 1:00 PM ET`; `None` is `Kickoff unknown`.
+/// Eastern kickoffs like `Oct 18`; `None` is `Kickoff unknown`.
 fn kickoff_label(kickoff: Option<OffsetDateTime>) -> String {
     kickoff
         .map(|kickoff| {
@@ -62,33 +58,38 @@ fn kickoff_label(kickoff: Option<OffsetDateTime>) -> String {
         .unwrap_or_else(|| "Kickoff unknown".into())
 }
 
-const KICKOFF_FORMAT: &[FormatItem] = format_description!(
-    "[weekday repr:short], [month repr:short] [day padding:none], [year], [hour repr:12 padding:none]:[minute] [period] ET"
+/// Game kickoffs like `Sun @ 1:00pm`; `None` is `Kickoff unknown`.
+fn game_kickoff_label(kickoff: Option<OffsetDateTime>) -> String {
+    kickoff
+        .map(|kickoff| {
+            to_eastern(kickoff)
+                .format(&GAME_KICKOFF_FORMAT)
+                .unwrap_or_else(|_| kickoff.to_string())
+                .to_lowercase()
+        })
+        .unwrap_or_else(|| "Kickoff unknown".into())
+}
+
+const KICKOFF_FORMAT: &[FormatItem] = format_description!("[month repr:short] [day padding:none]");
+
+const GAME_KICKOFF_FORMAT: &[FormatItem] = format_description!(
+    "[weekday repr:short] @ [hour repr:12 padding:none]:[minute] [period]"
 );
 
 pub(super) async fn index(State(state): State<AdminState>) -> Result<Html<String>, AdminError> {
     let slates = all(&state.nfl).await?;
 
-    let mut weeks: Vec<WeekGroup> = Vec::new();
-    for slate in &slates {
-        if weeks
-            .last()
-            .is_none_or(|group| group.week != slate.season_week)
-        {
-            weeks.push(WeekGroup {
-                week: slate.season_week,
-                slates: Vec::new(),
-            });
-        }
-        let group = weeks.last_mut().expect("group just pushed");
-        group.slates.push(SlateRow {
+    let rows = slates
+        .into_iter()
+        .map(|(slate, count)| SlateRow {
             id: slate.id.0,
-            name: slate.name.clone(),
+            name: slate.name,
+            game_count: count,
             kickoff: kickoff_label(slate.kickoff),
-        });
-    }
+        })
+        .collect();
 
-    Ok(Html(IndexTemplate { weeks }.render()?))
+    Ok(Html(IndexTemplate { slates: rows }.render()?))
 }
 
 pub(super) async fn show(
@@ -108,7 +109,7 @@ pub(super) async fn show(
         .into_iter()
         .map(|game| GameRow {
             matchup: format!("{} at {}", game.away_team, game.home_team),
-            kickoff: kickoff_label(game.kickoff),
+            kickoff: game_kickoff_label(game.kickoff),
         })
         .collect();
 

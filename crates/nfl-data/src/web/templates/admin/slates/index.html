@@ -4,19 +4,17 @@
 <div class="mx-auto max-w-3xl">
   <a class="link mb-4 inline-block" href="/nfl-data-admin">← Back to NFL Data Admin</a>
   <h1 class="mb-4 text-2xl font-bold">Slates</h1>
-  {% for group in weeks %}
-  <h2 class="mb-3 mt-6 text-lg font-semibold">{{ group.week.season }} · {{ group.week.season_type }} · week {{ group.week.week }}</h2>
   <ul class="flex flex-col gap-2">
-    {% for row in group.slates %}
+    {% for row in slates %}
     <li>
       <a class="flex flex-wrap justify-between gap-2 rounded-box border border-base-300 p-4" href="/nfl-data-admin/slates/{{ row.id }}">
         <span>{{ row.name }}</span>
+        <span>{{ row.game_count }} games</span>
         <span>{{ row.kickoff }}</span>
       </a>
     </li>
     {% endfor %}
+    {% if slates.is_empty() %}<li class="text-base-content/60">No slates available.</li>{% endif %}
   </ul>
-  {% endfor %}
-  {% if weeks.is_empty() %}<p class="text-base-content/60">No slates available.</p>{% endif %}
 </div>
 {% endblock %}

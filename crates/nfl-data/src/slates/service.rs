@@ -4,19 +4,33 @@ use nfl_model::{Game, SeasonWeek, to_eastern};
 use std::collections::HashMap;
 use time::OffsetDateTime;
 
-/// Every slate for the handle's season, in ascending slate-id order.
+/// Every slate for the handle's season, in ascending slate-id order, each
+/// with its game count.
 ///
 /// Enumerates the season's weeks in canonical order (regular weeks 1–18,
-/// then postseason 19–21) and merges each week's [`Self::by_week`] result,
-/// regardless of the NFL schedule. Errors propagate and leave no partial
-/// results. Season comes from the connected [`NflData`]; there is no
-/// season argument or clock override.
-pub async fn all(nfl: &NflData) -> Result<Vec<Slate>, SlateError> {
-    let mut slates = Vec::new();
+/// then postseason 19–21) and merges each week's slates, regardless of the
+/// NFL schedule. The count is the games in the week's resolved slate: the
+/// stored snapshot for a fixed week, the current proposal otherwise.
+/// Errors propagate and leave no partial results. Season comes from the
+/// connected [`NflData`]; there is no season argument or clock override.
+pub async fn all(nfl: &NflData) -> Result<Vec<(Slate, usize)>, SlateError> {
+    let mut slates: Vec<(Slate, usize)> = Vec::new();
     for week in SeasonWeek::for_season(nfl.season()) {
-        slates.extend(by_week(nfl, week).await?);
+        let (week_slates, schedule) = resolve_week_at(nfl, week, OffsetDateTime::now_utc()).await?;
+        for slate in week_slates {
+            let count = if store::slates::is_fixed(nfl.store.reader(), week).await? {
+                store::slates::game_ids(nfl.store.reader(), slate.id).await?.len()
+            } else {
+                rule::proposals(week, &schedule)
+                    .into_iter()
+                    .find(|proposal| proposal.name == slate.name)
+                    .map(|proposal| proposal.game_ids.len())
+                    .unwrap_or(0)
+            };
+            slates.push((slate, count));
+        }
     }
-    slates.sort_unstable_by_key(|slate| slate.id);
+    slates.sort_unstable_by_key(|(slate, _)| slate.id);
     Ok(slates)
 }
 
