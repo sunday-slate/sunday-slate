@@ -62,8 +62,7 @@ fn season_bounds(season: Season) -> Option<(i64, i64)> {
     Some((first, last))
 }
 
-/// Every stored slate for an NFL week, ordered by known kickoff ascending,
-/// unknown kickoff last, id breaking ties.
+/// Every stored slate for an NFL week, ordered by slate id.
 pub(crate) async fn for_week(
     pool: &SqlitePool,
     week: SeasonWeek,
@@ -484,11 +483,7 @@ mod tests {
         .expect("reconcile");
         let got = for_week(store.reader(), week).await.expect("for week");
         let names: Vec<&str> = got.iter().map(|slate| slate.name.as_str()).collect();
-        assert_eq!(
-            names,
-            ["Week 13", "Thanksgiving"],
-            "known kickoffs ascending"
-        );
+        assert_eq!(names, ["Thanksgiving", "Week 13"], "slate id ascending");
 
         let tie_week = reg_week(12);
         reconcile(
@@ -545,7 +540,14 @@ mod tests {
         let unknown = for_week(store.reader(), unknown_week)
             .await
             .expect("unknown week");
-        assert_eq!(unknown[1].kickoff, None, "unknown kickoff is last");
+        assert_eq!(
+            unknown
+                .iter()
+                .map(|slate| slate.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Thanksgiving", "Week 11"],
+            "slate id ascending"
+        );
 
         reconcile(
             &store,
