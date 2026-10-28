@@ -19,11 +19,10 @@ salaries, and identifier links remain in `storage/sunday-slate.db`. Original
 FanDuel salary uploads are retained separately in the durable
 `storage/fanduel-data.db` source archive; deleting or rebuilding the nflverse
 cache does not change the FanDuel archive. `nfl-data` owns the durable
-`storage/nfl-data.db`, which holds the persisted FanDuel→GSIS player links and
-the shared slates; it is created and migrated on startup or by
-`just db-migrate`, and rebuilding the nflverse cache never touches it. Back up
-`fanduel-data.db` and `nfl-data.db` alongside `sunday-slate.db`; only the
-nflverse cache is disposable.
+`storage/nfl-data.db`, which holds the persisted FanDuel→GSIS player links; it
+is created and migrated on startup or by `just db-migrate`, and rebuilding the
+nflverse cache never touches it. Back up `fanduel-data.db` and `nfl-data.db`
+alongside `sunday-slate.db`; only the nflverse cache is disposable.
 
 For Rust consumers, `nfl-data` retains canonical read operations and re-exports shared model types, live contracts, and time helpers from `nfl-model`. Provider synchronization operations and status types remain private to the crate; callers use its lifecycle methods and opaque `DataRevision` instead. Its distinct `NflDataConfig` takes default values from `NflverseDataConfig` so cache settings stay aligned.
 
@@ -69,46 +68,6 @@ The nflverse database is a rebuildable cache and may be recreated from source.
 The FanDuel database is durable source data and belongs in routine backups with
 the Sunday Slate database. Keep all three stores separate; do not remove the
 FanDuel archive when rebuilding the nflverse cache.
-
-## Shared Slates
-
-`nfl-data` derives shared, named slates for each NFL week from the cached
-schedule — for example `Week 13`, `Thanksgiving`, and `Wild Card` — and stores
-the slate metadata and each week's fixed membership snapshot in two durable
-tables of `storage/nfl-data.db`: `slates` and `slate_games`. Like the
-persisted player links, they survive rebuilds of the nflverse cache and belong
-in the same backups as `nfl-data.db`.
-
-Consumers read them through three `NflData` operations:
-
-- `NflData::slates(week)` returns the week's stored slates, ordered by known
-  kickoff ascending, unknown kickoff last.
-- `NflData::slate(id)` returns one stored slate by id, or `None` when the id
-  is unknown.
-- `NflData::slate_games(id)` returns the slate's games resolved against the
-  current schedule, ordered by known kickoff ascending, unknown kickoff last,
-  or an empty vector when the id is unknown.
-
-Each slate is metadata only — a deterministic id derived from its week and
-kind, its exact NFL week, its canonical name, and a stored kickoff set to the
-slate's earliest known game kickoff or `NULL` when unknown. The id is derived
-rather than assigned: the same slate carries the identical numeric value in
-every database.
-
-Slate access has no salary prerequisite, no background job, and no admin UI:
-it touches only the provider cache and the slate tables. The first lookup for
-a week at or after its opening Monday (Eastern) fixes that week's membership
-durably; before that Monday, metadata and membership follow the current
-schedule. Fixation is inferred from the stored membership rows — a week is
-fixed exactly while they exist. A late first lookup — the Monday has already
-passed when the first lookup happens — is accepted and captures the schedule
-as it stands. After fixation, schedule changes refresh stored kickoffs and
-returned game details for the fixed members but never change membership; a
-member whose schedule row is absent drops out of returned games while staying
-in the snapshot.
-
-Sunday Slate itself continues to use its existing contest slates; these shared
-slates are an independent `nfl-data` feature.
 
 ## Command-Line Refresh
 
