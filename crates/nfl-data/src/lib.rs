@@ -2,6 +2,7 @@ mod config;
 mod data_revision;
 mod identity;
 mod salaries;
+mod slates;
 mod store;
 #[cfg(test)]
 mod test;
@@ -31,6 +32,7 @@ pub use nflverse_data::{
     RefreshStatus, SyncReport,
 };
 pub use salaries::{SalaryError, SalaryWeekOverview};
+pub use slates::{Slate, SlateError, SlateId};
 pub use store::PlayerLink;
 pub use web::AdminConfig;
 pub use web::router as admin_router;
