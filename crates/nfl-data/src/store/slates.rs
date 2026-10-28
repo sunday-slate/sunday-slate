@@ -1,13 +1,15 @@
 //! Durable slate metadata and atomic weekly membership snapshots.
 //!
-//! Slate metadata is keyed by its exact [`SeasonWeek`] and canonical name; a
-//! week's fixed membership snapshot is guarded by one `slate_week_snapshots`
-//! row. All writes run inside one [`Store::write_tx`] transaction: either the
-//! whole snapshot (metadata, memberships, marker) lands or nothing does. Once
-//! a week is fixed, replacement proposals are ignored — the snapshot is the
-//! durable record. Metadata rows and membership game ids carry no foreign key
-//! to the disposable provider database: the slate tables are the only durable
-//! side.
+//! Slate metadata is keyed by its exact [`SeasonWeek`] and canonical name,
+//! with the proposal's derived [`SlateId`] as its primary key. A week is
+//! fixed iff membership rows exist for it — fixation is inferred from
+//! membership presence joined through `slates.season_week`, with no separate
+//! marker table. All writes run inside one [`Store::write_tx`] transaction:
+//! either the whole snapshot (metadata, memberships) lands or nothing does.
+//! Once a week is fixed, replacement proposals are ignored — the snapshot is
+//! the durable record. Metadata rows and membership game ids carry no foreign
+//! key to the disposable provider database: the slate tables are the only
+//! durable side.
 
 #![cfg_attr(not(test), expect(dead_code))]
 
@@ -56,7 +58,8 @@ pub(crate) async fn by_id(pool: &SqlitePool, id: SlateId) -> Result<Option<Slate
     .await
 }
 
-/// Whether the week's membership snapshot is fixed.
+/// Whether the week's membership snapshot is fixed: true iff membership rows
+/// exist for the week, joined through `slates.season_week`.
 pub(crate) async fn is_fixed(pool: &SqlitePool, week: SeasonWeek) -> Result<bool, sqlx::Error> {
     is_fixed_on(pool, week).await
 }
@@ -66,7 +69,11 @@ where
     E: Executor<'e, Database = Sqlite>,
 {
     let fixed: i64 = sqlx::query_scalar(
-        r#"SELECT EXISTS (SELECT 1 FROM slate_week_snapshots WHERE season_week = ?)"#,
+        r#"SELECT EXISTS (
+               SELECT 1
+                   FROM slate_games
+                   JOIN slates ON slates.id = slate_games.slate_id
+                   WHERE slates.season_week = ?)"#,
     )
     .bind(week)
     .fetch_one(ex)
@@ -89,16 +96,16 @@ pub(crate) async fn game_ids(pool: &SqlitePool, id: SlateId) -> Result<Vec<Strin
 
 /// Reconcile one NFL week inside a single `BEGIN IMMEDIATE` transaction.
 ///
-/// The snapshot marker is rechecked inside the transaction, so concurrent
-/// writers serialize: the first fixation wins and every later one sees it.
-/// Before fixation, each proposal's canonical metadata is upserted without
-/// replacing ids, stored slates absent from the proposal set keep their ids
-/// but clear their stale kickoffs, and no tentative membership rows are
-/// stored. When `fix` is
-/// true, every proposal's membership rows and the week marker are inserted in
-/// that same transaction. After fixation, proposals are ignored, no new
-/// memberships are created, and only the stored kickoffs are refreshed from
-/// the fixed ids and the supplied current schedule.
+/// Fixation is rechecked inside the transaction by probing membership
+/// presence, so concurrent writers serialize: the first fixation wins and
+/// every later one sees it. Before fixation, each proposal's canonical
+/// metadata is upserted with its derived id, stored slates absent from the
+/// proposal set keep their ids but clear their stale kickoffs, and no
+/// tentative membership rows are stored. When `fix` is true, every
+/// proposal's membership rows are inserted in that same transaction. After
+/// fixation, proposals are ignored, no new memberships are created, and only
+/// the stored kickoffs are refreshed from the fixed ids and the supplied
+/// current schedule.
 ///
 /// Returns the week's metadata ordered by known kickoff ascending, unknown
 /// kickoff last, id breaking ties.
@@ -131,35 +138,31 @@ async fn reconcile_tx(
         clear_absent_kickoffs(&mut *conn, week, proposals).await?;
         if fix {
             for proposal in proposals {
-                let id = slate_id(&mut *conn, week, &proposal.name).await?;
                 for game_id in &proposal.game_ids {
                     sqlx::query("INSERT INTO slate_games (slate_id, gsis_game_id) VALUES (?, ?)")
-                        .bind(id)
+                        .bind(proposal.id)
                         .bind(game_id)
                         .execute(&mut *conn)
                         .await?;
                 }
             }
-            sqlx::query("INSERT INTO slate_week_snapshots (season_week) VALUES (?)")
-                .bind(week)
-                .execute(&mut *conn)
-                .await?;
         }
     }
     for_week_on(&mut *conn, week).await
 }
 
-/// Upsert one proposal's canonical metadata row without replacing its id: the
-/// kickoff updates to the proposal's value on conflict.
+/// Upsert one proposal's canonical metadata row with its derived id: on
+/// `(season_week, name)` conflict the kickoff updates to the proposal's value.
 async fn upsert_metadata(
     conn: &mut SqliteConnection,
     week: SeasonWeek,
     proposal: &SlateProposal,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
-        r#"INSERT INTO slates (season_week, name, kickoff) VALUES (?, ?, ?)
+        r#"INSERT INTO slates (id, season_week, name, kickoff) VALUES (?, ?, ?, ?)
                ON CONFLICT (season_week, name) DO UPDATE SET kickoff = excluded.kickoff"#,
     )
+    .bind(proposal.id)
     .bind(week)
     .bind(&proposal.name)
     .bind(proposal.kickoff)
@@ -193,20 +196,6 @@ async fn clear_absent_kickoffs(
         }
     }
     Ok(())
-}
-
-/// The id of the week's stored slate with this canonical name.
-async fn slate_id(
-    conn: &mut SqliteConnection,
-    week: SeasonWeek,
-    name: &str,
-) -> Result<SlateId, sqlx::Error> {
-    let id: i64 = sqlx::query_scalar(r#"SELECT id FROM slates WHERE season_week = ? AND name = ?"#)
-        .bind(week)
-        .bind(name)
-        .fetch_one(&mut *conn)
-        .await?;
-    Ok(SlateId(id))
 }
 
 /// Refresh each stored kickoff from the slate's fixed member ids resolved
@@ -301,14 +290,29 @@ mod tests {
         }
     }
 
-    fn proposal(name: &str, kickoff: Option<OffsetDateTime>, ids: &[&str]) -> SlateProposal {
+    /// A proposal carrying the derived id the storage reconciliation stores:
+    /// `week.encode() * 10 + kind`, mirroring the pure policy's stamping,
+    /// with the kind digit from the canonical name.
+    fn proposal(
+        week: SeasonWeek,
+        name: &str,
+        kickoff: Option<OffsetDateTime>,
+        ids: &[&str],
+    ) -> SlateProposal {
         SlateProposal {
-            // Reconciliation keys metadata on the week and name; it does not
-            // read the proposal's id.
-            id: SlateId(0),
+            id: SlateId(i64::from(week.encode()) * 10 + kind(name)),
             name: name.into(),
             kickoff,
             game_ids: ids.iter().map(|id| id.to_string()).collect(),
+        }
+    }
+
+    /// The id kind digit a canonical name maps to: `0` for the holiday
+    /// slates, `1` for main slates, mirroring the pure policy.
+    fn kind(name: &str) -> i64 {
+        match name {
+            "Thanksgiving" | "Christmas" => 0,
+            _ => 1,
         }
     }
 
@@ -320,9 +324,15 @@ mod tests {
         let store = store().await;
         let week = reg_week(5);
 
-        let first = reconcile(&store, week, &[proposal("Week 5", None, &[])], &[], false)
-            .await
-            .expect("reconcile");
+        let first = reconcile(
+            &store,
+            week,
+            &[proposal(week, "Week 5", None, &[])],
+            &[],
+            false,
+        )
+        .await
+        .expect("reconcile");
         assert_eq!(first.len(), 1, "the proposal's metadata is stored");
 
         // Reconstruct the slate from its row through `by_id` alone.
@@ -339,43 +349,82 @@ mod tests {
         );
     }
 
-    /// Reconciling the same canonical proposals repeatedly preserves the
-    /// database-assigned ids, while other weeks and names get their own
-    /// positive ids.
+    /// Reconciling the same canonical proposals repeatedly yields identical
+    /// derived ids; REG 2025 week 13's metadata rows carry exactly the
+    /// derived values; and other weeks or names yield their own derived ids.
     #[tokio::test]
     async fn repeated_reconciliation_preserves_assigned_ids() {
         let store = store().await;
-        let week = reg_week(5);
 
-        let first = reconcile(&store, week, &[proposal("Week 5", None, &[])], &[], false)
+        // Repeated reconciliation yields identical ids.
+        let week = reg_week(5);
+        let proposals = [proposal(week, "Week 5", None, &[])];
+        let first = reconcile(&store, week, &proposals, &[], false)
             .await
             .expect("first reconcile");
-        let second = reconcile(&store, week, &[proposal("Week 5", None, &[])], &[], false)
+        let second = reconcile(&store, week, &proposals, &[], false)
             .await
             .expect("second reconcile");
         assert_eq!(first[0].id, second[0].id);
-        assert!(first[0].id.0 > 0, "database-assigned ids are positive");
+        assert_eq!(
+            first[0].id,
+            SlateId(20250051),
+            "REG 2025 week 5's main slate carries its derived id"
+        );
 
+        // REG 2025 week 13: the metadata rows carry exactly the derived
+        // values — holiday kind 0 and main kind 1.
+        let week_13 = reg_week(13);
+        let established = reconcile(
+            &store,
+            week_13,
+            &[
+                proposal(week_13, "Week 13", None, &[]),
+                proposal(week_13, "Thanksgiving", None, &[]),
+            ],
+            &[],
+            false,
+        )
+        .await
+        .expect("week 13 reconcile");
+        assert_eq!(
+            established
+                .iter()
+                .find(|slate| slate.name == "Week 13")
+                .expect("the main slate")
+                .id,
+            SlateId(20250131)
+        );
+        assert_eq!(
+            established
+                .iter()
+                .find(|slate| slate.name == "Thanksgiving")
+                .expect("the holiday slate")
+                .id,
+            SlateId(20250130)
+        );
+
+        // Different weeks or names yield their own derived ids.
         let other_week = reconcile(
             &store,
             reg_week(6),
-            &[proposal("Week 6", None, &[])],
+            &[proposal(reg_week(6), "Week 6", None, &[])],
             &[],
             false,
         )
         .await
         .expect("other week reconcile");
         assert_eq!(other_week.len(), 1);
+        assert_eq!(other_week[0].id, SlateId(20250061));
         assert_ne!(
             first[0].id, other_week[0].id,
             "a different week gets its own id"
         );
-        assert!(other_week[0].id.0 > 0);
 
         let other_name = reconcile(
             &store,
             week,
-            &[proposal("Thanksgiving", None, &[])],
+            &[proposal(week, "Thanksgiving", None, &[])],
             &[],
             false,
         )
@@ -385,11 +434,11 @@ mod tests {
             .iter()
             .find(|slate| slate.name == "Thanksgiving")
             .expect("the thanksgiving slate");
+        assert_eq!(thanksgiving.id, SlateId(20250050));
         assert_ne!(
             first[0].id, thanksgiving.id,
             "a different name gets its own id"
         );
-        assert!(thanksgiving.id.0 > 0);
     }
 
     /// `for_week` orders known kickoffs ascending, unknown kickoffs last, and
@@ -398,43 +447,100 @@ mod tests {
     #[tokio::test]
     async fn metadata_queries_are_week_scoped_and_chronological() {
         let store = store().await;
+
+        // Known kickoffs ascending: the week-13 holiday's Thursday games
+        // before the main slate's Sunday games.
         let week = reg_week(13);
         reconcile(
             &store,
             week,
             &[
-                proposal("Week 13", Some(datetime!(2025-11-30 17:00 UTC)), &[]),
-                proposal("Thanksgiving", Some(datetime!(2025-11-27 18:00 UTC)), &[]),
-                // The tie pairs two equal kickoffs; names are storage labels
-                // here.
-                proposal("Christmas", Some(datetime!(2025-11-27 18:00 UTC)), &[]),
-                proposal("Sunday Night", None, &[]),
+                proposal(week, "Week 13", Some(datetime!(2025-11-30 17:00 UTC)), &[]),
+                proposal(
+                    week,
+                    "Thanksgiving",
+                    Some(datetime!(2025-11-27 18:00 UTC)),
+                    &[],
+                ),
             ],
             &[],
             false,
         )
         .await
         .expect("reconcile");
-
         let got = for_week(store.reader(), week).await.expect("for week");
         let names: Vec<&str> = got.iter().map(|slate| slate.name.as_str()).collect();
         assert_eq!(
             names,
-            ["Thanksgiving", "Christmas", "Week 13", "Sunday Night"],
-            "known kickoffs ascending, unknown last"
+            ["Thanksgiving", "Week 13"],
+            "known kickoffs ascending"
         );
+
+        // The tie pairs two equal kickoffs; the derived ids break it
+        // deterministically: the holiday kind sorts before the main kind.
+        let tie_week = reg_week(12);
+        reconcile(
+            &store,
+            tie_week,
+            &[
+                proposal(
+                    tie_week,
+                    "Week 12",
+                    Some(datetime!(2025-11-27 18:00 UTC)),
+                    &[],
+                ),
+                proposal(
+                    tie_week,
+                    "Thanksgiving",
+                    Some(datetime!(2025-11-27 18:00 UTC)),
+                    &[],
+                ),
+            ],
+            &[],
+            false,
+        )
+        .await
+        .expect("tie reconcile");
+        let tied = for_week(store.reader(), tie_week).await.expect("tie week");
         assert_eq!(
-            got[0].kickoff, got[1].kickoff,
-            "the first two share a kickoff"
+            tied.iter()
+                .map(|slate| slate.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Thanksgiving", "Week 12"],
+            "the derived ids break the tie: holiday kind first"
         );
-        assert!(got[0].id < got[1].id, "the id breaks the kickoff tie");
-        assert_eq!(got[3].kickoff, None, "unknown kickoff is last");
+        assert_eq!(tied[0].kickoff, tied[1].kickoff, "both share a kickoff");
+        assert!(tied[0].id < tied[1].id, "the id breaks the kickoff tie");
+
+        // Unknown kickoff is last.
+        let unknown_week = reg_week(11);
+        reconcile(
+            &store,
+            unknown_week,
+            &[
+                proposal(unknown_week, "Week 11", None, &[]),
+                proposal(
+                    unknown_week,
+                    "Thanksgiving",
+                    Some(datetime!(2025-11-27 18:00 UTC)),
+                    &[],
+                ),
+            ],
+            &[],
+            false,
+        )
+        .await
+        .expect("unknown reconcile");
+        let unknown = for_week(store.reader(), unknown_week)
+            .await
+            .expect("unknown week");
+        assert_eq!(unknown[1].kickoff, None, "unknown kickoff is last");
 
         // The same numeric week under another season type is a separate set.
         reconcile(
             &store,
             reg_week(19),
-            &[proposal("Week 19", None, &[])],
+            &[proposal(reg_week(19), "Week 19", None, &[])],
             &[],
             false,
         )
@@ -443,7 +549,7 @@ mod tests {
         reconcile(
             &store,
             post_week(19),
-            &[proposal("Wild Card", None, &[])],
+            &[proposal(post_week(19), "Wild Card", None, &[])],
             &[],
             false,
         )
@@ -473,6 +579,36 @@ mod tests {
         );
     }
 
+    /// A week with stored metadata but no membership rows reads unfixed:
+    /// fixation is inferred from membership presence, and tentative
+    /// reconciliation persists no membership rows.
+    #[tokio::test]
+    async fn metadata_without_memberships_reads_unfixed() {
+        let store = store().await;
+        let week = reg_week(5);
+
+        reconcile(
+            &store,
+            week,
+            &[proposal(week, "Week 5", None, &[])],
+            &[],
+            false,
+        )
+        .await
+        .expect("tentative reconcile");
+        assert!(
+            !for_week(store.reader(), week)
+                .await
+                .expect("for week")
+                .is_empty(),
+            "the metadata row is stored"
+        );
+        assert!(
+            !is_fixed(store.reader(), week).await.unwrap(),
+            "no membership rows exist, so the week reads unfixed"
+        );
+    }
+
     /// Once the week is fixed, replacement proposals cannot rewrite the
     /// stored membership snapshot.
     #[tokio::test]
@@ -484,6 +620,7 @@ mod tests {
             game("b", Some(datetime!(2025-10-05 20:25 UTC))),
         ];
         let initial = [proposal(
+            week,
             "Week 5",
             Some(datetime!(2025-10-05 17:00 UTC)),
             &["a", "b"],
@@ -499,6 +636,7 @@ mod tests {
 
         // The week now offers a replacement membership.
         let replacement = [proposal(
+            week,
             "Week 5",
             Some(datetime!(2025-10-05 16:00 UTC)),
             &["b", "c"],
@@ -532,6 +670,7 @@ mod tests {
             game("b", Some(datetime!(2025-10-05 20:25 UTC))),
         ];
         let proposals = [proposal(
+            week,
             "Week 5",
             Some(datetime!(2025-10-05 17:00 UTC)),
             &["a", "b"],
@@ -550,6 +689,7 @@ mod tests {
             game("c", Some(datetime!(2025-10-05 16:00 UTC))),
         ];
         let replacement = [proposal(
+            week,
             "Week 5",
             Some(datetime!(2025-10-05 16:00 UTC)),
             &["b", "c"],
@@ -590,11 +730,13 @@ mod tests {
             week,
             &[
                 proposal(
+                    week,
                     "Week 16",
                     Some(datetime!(2025-12-28 17:00 UTC)),
                     &["sun_1", "sun_2"],
                 ),
                 proposal(
+                    week,
                     "Christmas",
                     Some(datetime!(2025-12-25 18:00 UTC)),
                     &["xmas"],
@@ -619,6 +761,7 @@ mod tests {
             game("sun_2", Some(datetime!(2025-12-28 20:25 UTC))),
         ];
         let current = [proposal(
+            week,
             "Week 16",
             Some(datetime!(2025-12-28 17:00 UTC)),
             &["sun_1", "sun_2"],
@@ -679,17 +822,27 @@ mod tests {
     }
 
     /// A membership failure aborts the whole reconciliation transaction: no
-    /// metadata, no memberships, and no snapshot marker survive.
+    /// metadata and no memberships survive.
     #[tokio::test]
-    async fn failed_snapshot_rolls_back_metadata_memberships_and_marker() {
+    async fn failed_snapshot_rolls_back_metadata_and_memberships() {
         let store = store().await;
         let week = reg_week(5);
         // Two proposals sharing the canonical name resolve to one slate row,
         // so the second proposal's overlapping game id violates the
         // (slate_id, gsis_game_id) primary key.
         let proposals = [
-            proposal("Week 5", Some(datetime!(2025-10-05 17:00 UTC)), &["a"]),
-            proposal("Week 5", Some(datetime!(2025-10-05 17:00 UTC)), &["a", "b"]),
+            proposal(
+                week,
+                "Week 5",
+                Some(datetime!(2025-10-05 17:00 UTC)),
+                &["a"],
+            ),
+            proposal(
+                week,
+                "Week 5",
+                Some(datetime!(2025-10-05 17:00 UTC)),
+                &["a", "b"],
+            ),
         ];
 
         let err = reconcile(&store, week, &proposals, &[], true)
@@ -709,7 +862,7 @@ mod tests {
         );
         assert!(
             !is_fixed(store.reader(), week).await.unwrap(),
-            "no snapshot marker was written"
+            "no membership rows were written"
         );
     }
 
@@ -733,11 +886,13 @@ mod tests {
             game("d", Some(datetime!(2025-10-05 20:25 UTC))),
         ];
         let proposals_a = [proposal(
+            week,
             "Week 5",
             Some(datetime!(2025-10-05 17:00 UTC)),
             &["a", "b"],
         )];
         let proposals_b = [proposal(
+            week,
             "Week 5",
             Some(datetime!(2025-10-05 17:00 UTC)),
             &["c", "d"],
@@ -774,7 +929,7 @@ mod tests {
         );
 
         // Later proposals from either connection leave the snapshot alone.
-        let later = [proposal("Week 5", None, &["e", "f"])];
+        let later = [proposal(week, "Week 5", None, &["e", "f"])];
         reconcile(&store_b, week, &later, &[], false)
             .await
             .expect("later reconcile");
