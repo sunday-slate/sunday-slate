@@ -81,6 +81,7 @@ mod tests {
             nflverse_database_url: "sqlite::memory:".into(),
             fanduel_database_url: "sqlite::memory:".into(),
             database_url: "sqlite::memory:".into(),
+            season: nfl_model::Season(2025),
             earliest_season: 2025,
             github_token: Some(Secret::new("sentinel")),
             github_api_base: server.uri(),

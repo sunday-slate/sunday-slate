@@ -40,26 +40,53 @@ pub struct SeasonWeek {
 }
 
 impl SeasonWeek {
+    /// Create a validated week from a season, season type, and week number.
+    ///
+    /// Accepts regular-season weeks 1–18. For postseason weeks, accepts 1–3 as aliases of
+    /// 19–21 (mapping 1 → 19, 2 → 20, 3 → 21), accepts 19–21 unchanged, and rejects every
+    /// other value, including 0, 4–18, and 22. The Super Bowl is not a valid postseason week
+    /// here. Returns `None` for any invalid combination.
+    pub fn new(season: Season, season_type: SeasonType, week_num: u8) -> Option<Self> {
+        let week = match (season_type, week_num) {
+            (SeasonType::Reg, 1..=18) => Week(week_num),
+            (SeasonType::Post, 1..=3) => Week(week_num + 18),
+            (SeasonType::Post, 19..=21) => Week(week_num),
+            _ => return None,
+        };
+
+        Some(Self {
+            season,
+            season_type,
+            week,
+        })
+    }
+
+    /// Enumerate the weeks of a season in schedule-independent order: regular-season weeks
+    /// 1–18 followed by postseason weeks 19–21. Excludes the Super Bowl.
+    ///
+    /// Postseason weeks keep the supplied season year even when played in the next calendar
+    /// year. Order reflects this canonical enumeration, not the NFL schedule.
+    pub fn for_season(season: Season) -> impl Iterator<Item = Self> {
+        (1..=18)
+            .map(move |week_num| Self::new(season, SeasonType::Reg, week_num))
+            .chain((19..=21).map(move |week_num| Self::new(season, SeasonType::Post, week_num)))
+            .map(Option::unwrap)
+    }
+
     /// Create a regular-season week using the default [`Season`].
     ///
-    /// The week number is not validated against the NFL schedule.
+    /// Accepts weeks 1–18; panics otherwise.
     pub fn reg(week_num: u8) -> Self {
-        Self {
-            season: Season::default(),
-            season_type: SeasonType::Reg,
-            week: Week(week_num),
-        }
+        Self::new(Season::default(), SeasonType::Reg, week_num)
+            .expect("invalid regular-season week")
     }
 
     /// Create a postseason week using the default [`Season`].
     ///
-    /// The week number is not validated against the NFL schedule.
+    /// Accepts weeks 1–3 (aliases of 19–21) and 19–21; `post(1)` and `post(19)` both produce
+    /// canonical postseason week 19. Panics otherwise.
     pub fn post(week_num: u8) -> Self {
-        Self {
-            season: Season::default(),
-            season_type: SeasonType::Post,
-            week: Week(week_num),
-        }
+        Self::new(Season::default(), SeasonType::Post, week_num).expect("invalid postseason week")
     }
 
     /// Encode as `season * 1_000 + season_type * 100 + week`.
@@ -73,8 +100,9 @@ impl SeasonWeek {
 
     /// Decode a value in the integer format produced by [`encode`](Self::encode).
     ///
-    /// Returns `None` if the season-type digit is neither `0` nor `1`. The season year and
-    /// week number are not validated against the NFL schedule.
+    /// Returns `None` if the season-type digit is neither `0` nor `1` or the week is not a
+    /// valid regular-season or postseason week. Stored postseason aliases 1–3 normalize to
+    /// canonical weeks 19–21.
     pub fn decode(value: u32) -> Option<Self> {
         let year = (value / 1_000) as u16;
         let choice = ((value / 100) % 10) as u8;
@@ -82,11 +110,7 @@ impl SeasonWeek {
 
         let season_type = SeasonType::try_from(choice).ok()?;
 
-        Some(Self {
-            season: Season(year),
-            season_type,
-            week: Week(week),
-        })
+        Self::new(Season(year), season_type, week)
     }
 }
 

@@ -34,6 +34,7 @@ impl App {
                 nflverse_database_url: config.nflverse_database_url.clone(),
                 fanduel_database_url: config.fanduel_database_url.clone(),
                 database_url: config.nfl_data_database_url.clone(),
+                season: nfl_model::Season(config.season),
                 github_token: config.nflverse_github_token.clone(),
                 refresh_interval: config.nflverse_sync_interval(),
                 ..Default::default()

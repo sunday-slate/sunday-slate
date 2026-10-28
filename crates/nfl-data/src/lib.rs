@@ -2,14 +2,19 @@ mod config;
 mod data_revision;
 mod identity;
 mod salaries;
+pub mod slates;
 mod store;
 #[cfg(test)]
 mod test;
 mod web;
 
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 use nflverse_data::NflverseData;
+use time::OffsetDateTime;
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 
 pub use config::NflDataConfig;
 pub use data_revision::DataRevision;
@@ -31,6 +36,7 @@ pub use nflverse_data::{
     RefreshStatus, SyncReport,
 };
 pub use salaries::{SalaryError, SalaryWeekOverview};
+pub use slates::SlateError;
 pub use store::PlayerLink;
 pub use web::AdminConfig;
 pub use web::router as admin_router;
@@ -56,19 +62,80 @@ pub struct NflData {
     fanduel: fanduel_data::FanduelData,
     store: store::Store,
     refresh_interval: Option<std::time::Duration>,
+    season: Season,
+    /// Receive end of the provider's sync notification channel, taken once by
+    /// [`Self::start_background_tasks`]; `None` before start and after it.
+    nflverse_sync_notify: Mutex<Option<mpsc::UnboundedReceiver<()>>>,
+    /// The task draining that channel; aborted on drop.
+    slate_worker: Mutex<Option<JoinHandle<()>>>,
+}
+
+impl Drop for NflData {
+    fn drop(&mut self) {
+        if let Some(worker) = self
+            .slate_worker
+            .get_mut()
+            .unwrap_or_else(|error| error.into_inner())
+            .take()
+        {
+            // Dropping a JoinHandle only detaches; the worker holds provider
+            // and store clones and would otherwise outlive the handle.
+            worker.abort();
+        }
+    }
 }
 
 impl NflData {
     /// Start configured internal background work. Repeated calls are safe.
+    ///
+    /// Also fills the slate tables and keeps them current: once here, then
+    /// again after each sync that reports no failed dataset.
     pub fn start_background_tasks(&self) {
         if let Some(interval) = self.refresh_interval {
             self.provider.start_scheduler(interval);
         }
+        self.start_slate_worker();
     }
 
     /// Stop future automatic task triggers without cancelling an active refresh.
+    ///
+    /// The slate worker keeps running: with no trigger left it idles on its
+    /// channel, and aborting it here would make a later start unable to
+    /// restore the receiver.
     pub fn stop_background_tasks(&self) {
         self.provider.stop_scheduler();
+    }
+
+    /// Populate slates once and keep doing so after each successful sync. The
+    /// receiver is taken on the first call, so later calls are no-ops.
+    fn start_slate_worker(&self) {
+        let Some(mut sync_notify) = self
+            .nflverse_sync_notify
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take()
+        else {
+            return;
+        };
+        let provider = self.provider.clone();
+        let store = self.store.clone();
+        let season = self.season;
+        let worker = tokio::spawn(async move {
+            loop {
+                if let Err(error) =
+                    slates::populate_at(&provider, &store, season, OffsetDateTime::now_utc()).await
+                {
+                    tracing::warn!(%error, "slate population failed");
+                }
+                if sync_notify.recv().await.is_none() {
+                    return;
+                }
+            }
+        });
+        *self
+            .slate_worker
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some(worker);
     }
 
     /// Read an opaque hint for changes in the complete provider freshness snapshot.
@@ -133,9 +200,11 @@ impl NflData {
         let refresh_interval = config
             .refresh_interval
             .filter(|interval| !interval.is_zero());
-        let provider = NflverseData::connect(config.clone().into())
-            .await
-            .map_err(NflDataConnectError::Nflverse)?;
+        let (sync_notify, sync_receiver) = mpsc::unbounded_channel();
+        let provider =
+            NflverseData::connect_with_sync_notify(config.clone().into(), Some(sync_notify))
+                .await
+                .map_err(NflDataConnectError::Nflverse)?;
         let fanduel = if config.fanduel_database_url == "sqlite::memory:" {
             fanduel_data::FanduelData::in_memory().await
         } else {
@@ -150,6 +219,9 @@ impl NflData {
             fanduel,
             store,
             refresh_interval,
+            season: config.season,
+            nflverse_sync_notify: Mutex::new(Some(sync_receiver)),
+            slate_worker: Mutex::new(None),
         })
     }
 
@@ -169,7 +241,27 @@ impl NflData {
             fanduel,
             store,
             refresh_interval: None,
+            season: Season::default(),
+            nflverse_sync_notify: Mutex::new(None),
+            slate_worker: Mutex::new(None),
         })
+    }
+
+    /// The application season this handle carries, from its configuration.
+    pub fn season(&self) -> Season {
+        self.season
+    }
+
+    /// Reconcile this handle's season into the store now, returning every
+    /// stored slate.
+    ///
+    /// Not needed for reads: slates populate at startup and after each
+    /// successful sync, and lookups answer from storage. This is the explicit
+    /// rebuild path.
+    pub async fn refresh_slates(
+        &self,
+    ) -> Result<std::collections::BTreeSet<slates::Slate>, SlateError> {
+        slates::refresh(self).await
     }
 
     /// Display facts per gsis id: `players` first, weekly rosters for the

@@ -1,6 +1,7 @@
 mod assets;
 mod error;
 mod nflverse;
+mod slates;
 mod view;
 
 use std::sync::Arc;
@@ -39,6 +40,8 @@ where
     Router::new()
         .nest("/salary-imports", salary_imports::router())
         .route("/", axum::routing::get(view::index))
+        .route("/slates", axum::routing::get(slates::index))
+        .route("/slates/{id}", axum::routing::get(slates::show))
         .route(
             "/nflverse",
             axum::routing::get(nflverse::show).post(nflverse::start),

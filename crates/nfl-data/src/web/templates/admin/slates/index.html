@@ -1,0 +1,20 @@
+{% extends "admin/layout.html" %}
+{% block title %}Slates{% endblock %}
+{% block content %}
+<div class="mx-auto max-w-3xl">
+  <a class="link mb-4 inline-block" href="/nfl-data-admin">← Back to NFL Data Admin</a>
+  <h1 class="mb-4 text-2xl font-bold">Slates</h1>
+  <ul class="flex flex-col gap-2">
+    {% for row in slates %}
+    <li>
+      <a class="flex flex-wrap justify-between gap-2 rounded-box border border-base-300 p-4" href="/nfl-data-admin/slates/{{ row.id }}">
+        <span>{{ row.name }}</span>
+        <span>{{ row.game_count }} games</span>
+        <span>{{ row.kickoff }}</span>
+      </a>
+    </li>
+    {% endfor %}
+    {% if slates.is_empty() %}<li class="text-base-content/60">No slates available.</li>{% endif %}
+  </ul>
+</div>
+{% endblock %}

@@ -1,0 +1,1 @@
+ALTER TABLE slates DROP COLUMN fixed;

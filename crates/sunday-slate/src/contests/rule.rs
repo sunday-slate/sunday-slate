@@ -31,18 +31,15 @@ impl Rule {
     }
 }
 
+/// Thanksgiving: the fourth Thursday of November. It always falls on day
+/// 22..=28, so it can be computed directly instead of walking the calendar.
 fn fourth_thursday_of_november(year: i32) -> Date {
-    let mut date = Date::from_calendar_date(year, Month::November, 1).expect("nov 1");
-    let mut seen = 0;
-    loop {
-        if date.weekday() == Weekday::Thursday {
-            seen += 1;
-            if seen == 4 {
-                return date;
-            }
-        }
-        date = date.next_day().expect("within november");
-    }
+    let nov_1 = Date::from_calendar_date(year, Month::November, 1).expect("november 1");
+    let days_to_first_thursday = (Weekday::Thursday.number_days_from_monday() + 7
+        - nov_1.weekday().number_days_from_monday())
+        % 7;
+    Date::from_calendar_date(year, Month::November, 22 + days_to_first_thursday)
+        .expect("the fourth Thursday is November 22..=28")
 }
 
 fn holiday_date(holiday: Holiday, season: u16) -> Date {
