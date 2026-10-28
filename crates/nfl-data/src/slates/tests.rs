@@ -2,8 +2,10 @@ use time::OffsetDateTime;
 use time::macros::datetime;
 
 use super::test_support::Fixture;
+use crate::slates;
+use crate::slates::{Slate, SlateId};
 use crate::store;
-use crate::{Game, NflData, Season, SeasonType, SeasonWeek, Slate, SlateId, Week};
+use crate::{Game, NflData, Season, SeasonType, SeasonWeek, Week};
 
 const BEFORE: OffsetDateTime = datetime!(2025-11-24 04:59:59 UTC);
 const MONDAY: OffsetDateTime = datetime!(2025-11-24 05:00 UTC);
@@ -118,7 +120,9 @@ async fn tentative_week_13() -> (Fixture, SlateId, SlateId) {
         .seed_for_test(&[], &week_13_games())
         .await
         .unwrap();
-    let established = fixture.nfl.slates_at(WEEK_13, BEFORE).await.unwrap();
+    let established = slates::slates_at(&fixture.nfl, WEEK_13, BEFORE)
+        .await
+        .unwrap();
     let main_id = slate_named(&established, "Week 13").id;
     let thanksgiving_id = slate_named(&established, "Thanksgiving").id;
     (fixture, main_id, thanksgiving_id)
@@ -172,7 +176,9 @@ async fn tentative_membership_and_stored_kickoff_follow_schedule() {
         .await
         .unwrap();
 
-    let established = fixture.nfl.slates_at(WEEK_13, BEFORE).await.unwrap();
+    let established = slates::slates_at(&fixture.nfl, WEEK_13, BEFORE)
+        .await
+        .unwrap();
     assert_eq!(
         names(&established),
         ["Thanksgiving", "Week 13"],
@@ -183,15 +189,17 @@ async fn tentative_membership_and_stored_kickoff_follow_schedule() {
     let thanksgiving = slate_named(&established, "Thanksgiving");
     assert_eq!(thanksgiving.kickoff, Some(datetime!(2025-11-27 17:30 UTC)));
     assert_eq!(
-        ids(&fixture.nfl.slate_games_at(main.id, BEFORE).await.unwrap()),
+        ids(&slates::slate_games_at(&fixture.nfl, main.id, BEFORE)
+            .await
+            .unwrap()),
         ["sun_1", "sun_2"]
     );
     assert_eq!(
-        ids(&fixture
-            .nfl
-            .slate_games_at(thanksgiving.id, BEFORE)
-            .await
-            .unwrap()),
+        ids(
+            &slates::slate_games_at(&fixture.nfl, thanksgiving.id, BEFORE)
+                .await
+                .unwrap()
+        ),
         ["tg_1", "tg_2", "tg_3"]
     );
     assert!(
@@ -203,7 +211,9 @@ async fn tentative_membership_and_stored_kickoff_follow_schedule() {
 
     fixture.replace_games(&changed_week_13_games()).await;
 
-    let after = fixture.nfl.slates_at(WEEK_13, BEFORE).await.unwrap();
+    let after = slates::slates_at(&fixture.nfl, WEEK_13, BEFORE)
+        .await
+        .unwrap();
     let after_main = slate_named(&after, "Week 13");
     assert_eq!(after_main.id, main.id, "the slate ID does not change");
     assert_eq!(
@@ -212,9 +222,7 @@ async fn tentative_membership_and_stored_kickoff_follow_schedule() {
         "the stored kickoff follows the schedule"
     );
     assert_eq!(
-        ids(&fixture
-            .nfl
-            .slate_games_at(after_main.id, BEFORE)
+        ids(&slates::slate_games_at(&fixture.nfl, after_main.id, BEFORE)
             .await
             .unwrap()),
         ["sun_2", "mnf"],
@@ -231,14 +239,18 @@ async fn eastern_monday_not_utc_monday_fixes_membership() {
         .await
         .unwrap();
 
-    fixture.nfl.slates_at(WEEK_13, BEFORE).await.unwrap();
+    slates::slates_at(&fixture.nfl, WEEK_13, BEFORE)
+        .await
+        .unwrap();
     assert!(
         !store::slates::is_fixed(fixture.nfl.store.reader(), WEEK_13)
             .await
             .unwrap(),
         "23:59:59 Eastern Sunday has not reached the opening Monday"
     );
-    fixture.nfl.slates_at(WEEK_13, MONDAY).await.unwrap();
+    slates::slates_at(&fixture.nfl, WEEK_13, MONDAY)
+        .await
+        .unwrap();
     assert!(
         store::slates::is_fixed(fixture.nfl.store.reader(), WEEK_13)
             .await
@@ -249,14 +261,18 @@ async fn eastern_monday_not_utc_monday_fixes_membership() {
     let edt = Fixture::connect().await;
     edt.nfl.seed_for_test(&[], &week_1_games()).await.unwrap();
 
-    edt.nfl.slates_at(WEEK_1, EDT_UTC_MONDAY).await.unwrap();
+    slates::slates_at(&edt.nfl, WEEK_1, EDT_UTC_MONDAY)
+        .await
+        .unwrap();
     assert!(
         !store::slates::is_fixed(edt.nfl.store.reader(), WEEK_1)
             .await
             .unwrap(),
         "UTC Monday midnight is Eastern Sunday in September"
     );
-    edt.nfl.slates_at(WEEK_1, EDT_MONDAY).await.unwrap();
+    slates::slates_at(&edt.nfl, WEEK_1, EDT_MONDAY)
+        .await
+        .unwrap();
     assert!(
         store::slates::is_fixed(edt.nfl.store.reader(), WEEK_1)
             .await
@@ -268,13 +284,13 @@ async fn eastern_monday_not_utc_monday_fixes_membership() {
 #[tokio::test]
 async fn each_lookup_entry_point_fixes_every_slate_in_the_week() {
     let (fixture, main_id, thanksgiving_id) = tentative_week_13().await;
-    fixture.nfl.slates_at(WEEK_13, MONDAY).await.unwrap();
+    slates::slates_at(&fixture.nfl, WEEK_13, MONDAY)
+        .await
+        .unwrap();
     assert_week_13_fixed(&fixture.nfl, main_id, thanksgiving_id).await;
 
     let (fixture, main_id, thanksgiving_id) = tentative_week_13().await;
-    let found = fixture
-        .nfl
-        .slate_at(main_id, MONDAY)
+    let found = slates::slate_at(&fixture.nfl, main_id, MONDAY)
         .await
         .unwrap()
         .expect("stored slate");
@@ -283,7 +299,9 @@ async fn each_lookup_entry_point_fixes_every_slate_in_the_week() {
 
     let (fixture, main_id, thanksgiving_id) = tentative_week_13().await;
     assert_eq!(
-        ids(&fixture.nfl.slate_games_at(main_id, MONDAY).await.unwrap()),
+        ids(&slates::slate_games_at(&fixture.nfl, main_id, MONDAY)
+            .await
+            .unwrap()),
         ["sun_1", "sun_2"]
     );
     assert_week_13_fixed(&fixture.nfl, main_id, thanksgiving_id).await;
@@ -298,12 +316,12 @@ async fn late_first_lookup_uses_current_schedule() {
         .await
         .unwrap();
 
-    let got = fixture.nfl.slates_at(WEEK_13, WEDNESDAY).await.unwrap();
+    let got = slates::slates_at(&fixture.nfl, WEEK_13, WEDNESDAY)
+        .await
+        .unwrap();
     let main = slate_named(&got, "Week 13");
     assert_eq!(
-        ids(&fixture
-            .nfl
-            .slate_games_at(main.id, WEDNESDAY)
+        ids(&slates::slate_games_at(&fixture.nfl, main.id, WEDNESDAY)
             .await
             .unwrap()),
         ["sun_2", "mnf"],
@@ -333,9 +351,7 @@ async fn disappearing_holiday_keeps_identity_and_clears_stale_kickoff() {
         .await
         .unwrap();
 
-    let established = fixture
-        .nfl
-        .slates_at(WEEK_16, BEFORE_WEEK_16)
+    let established = slates::slates_at(&fixture.nfl, WEEK_16, BEFORE_WEEK_16)
         .await
         .unwrap();
     assert_eq!(
@@ -350,17 +366,13 @@ async fn disappearing_holiday_keeps_identity_and_clears_stale_kickoff() {
     fixture.replace_games(&moved_off_christmas_games()).await;
 
     assert!(
-        fixture
-            .nfl
-            .slate_games_at(christmas_id, BEFORE_WEEK_16)
+        slates::slate_games_at(&fixture.nfl, christmas_id, BEFORE_WEEK_16)
             .await
             .unwrap()
             .is_empty(),
         "the holiday game left the Christmas membership"
     );
-    let after_move = fixture
-        .nfl
-        .slates_at(WEEK_16, BEFORE_WEEK_16)
+    let after_move = slates::slates_at(&fixture.nfl, WEEK_16, BEFORE_WEEK_16)
         .await
         .unwrap();
     let leftover = slate_named(&after_move, "Christmas");
@@ -374,17 +386,13 @@ async fn disappearing_holiday_keeps_identity_and_clears_stale_kickoff() {
         Some(datetime!(2025-12-28 17:00 UTC))
     );
 
-    let found = fixture
-        .nfl
-        .slate_at(christmas_id, BEFORE_WEEK_16)
+    let found = slates::slate_at(&fixture.nfl, christmas_id, BEFORE_WEEK_16)
         .await
         .unwrap()
         .expect("stored slate");
     assert_eq!(found.kickoff, None);
 
-    let first_fixed = fixture
-        .nfl
-        .slates_at(WEEK_16, WEEK_16_MONDAY)
+    let first_fixed = slates::slates_at(&fixture.nfl, WEEK_16, WEEK_16_MONDAY)
         .await
         .unwrap();
     let fixed_leftover = slate_named(&first_fixed, "Christmas");
@@ -407,9 +415,7 @@ async fn disappearing_holiday_keeps_identity_and_clears_stale_kickoff() {
         "the omitted proposal gained no membership"
     );
 
-    let later = fixture
-        .nfl
-        .slates_at(WEEK_16, XMAS_WEDNESDAY)
+    let later = slates::slates_at(&fixture.nfl, WEEK_16, XMAS_WEDNESDAY)
         .await
         .unwrap();
     assert_eq!(
@@ -430,7 +436,9 @@ async fn rescheduling_after_fix_changes_details_not_membership() {
         .seed_for_test(&[], &week_13_games())
         .await
         .unwrap();
-    let established = fixture.nfl.slates_at(WEEK_13, MONDAY).await.unwrap();
+    let established = slates::slates_at(&fixture.nfl, WEEK_13, MONDAY)
+        .await
+        .unwrap();
     let main_id = slate_named(&established, "Week 13").id;
 
     fixture.replace_games(&rescheduled_after_fix_games()).await;
@@ -443,7 +451,9 @@ async fn rescheduling_after_fix_changes_details_not_membership() {
         ["sun_1", "sun_2"],
         "selected IDs remain unchanged"
     );
-    let got = fixture.nfl.slate_games_at(main_id, THURSDAY).await.unwrap();
+    let got = slates::slate_games_at(&fixture.nfl, main_id, THURSDAY)
+        .await
+        .unwrap();
     assert_eq!(
         fixed_ids,
         ids(&got),
@@ -455,9 +465,7 @@ async fn rescheduling_after_fix_changes_details_not_membership() {
         "returned Game kickoffs follow the current schedule"
     );
     assert_eq!(
-        fixture
-            .nfl
-            .slate_at(main_id, THURSDAY)
+        slates::slate_at(&fixture.nfl, main_id, THURSDAY)
             .await
             .unwrap()
             .unwrap()
@@ -466,9 +474,7 @@ async fn rescheduling_after_fix_changes_details_not_membership() {
         "the stored kickoff refreshed from the fixed members"
     );
     assert_eq!(
-        fixture
-            .nfl
-            .slate_at(main_id, THURSDAY)
+        slates::slate_at(&fixture.nfl, main_id, THURSDAY)
             .await
             .unwrap()
             .unwrap()
@@ -485,12 +491,16 @@ async fn week_snapshot_is_not_reopened_by_a_backdated_clock() {
         .seed_for_test(&[], &week_13_games())
         .await
         .unwrap();
-    let established = fixture.nfl.slates_at(WEEK_13, MONDAY).await.unwrap();
+    let established = slates::slates_at(&fixture.nfl, WEEK_13, MONDAY)
+        .await
+        .unwrap();
     let main_id = slate_named(&established, "Week 13").id;
 
     fixture.replace_games(&changed_week_13_games()).await;
 
-    let got = fixture.nfl.slate_games_at(main_id, BEFORE).await.unwrap();
+    let got = slates::slate_games_at(&fixture.nfl, main_id, BEFORE)
+        .await
+        .unwrap();
     assert_eq!(
         ids(&got),
         ["sun_2", "sun_1"],
@@ -519,18 +529,14 @@ async fn unknown_id_has_no_side_effects() {
     let unknown = SlateId(999_999);
 
     assert!(
-        fixture
-            .nfl
-            .slate_at(unknown, MONDAY)
+        slates::slate_at(&fixture.nfl, unknown, MONDAY)
             .await
             .unwrap()
             .is_none(),
         "absent ids have no metadata"
     );
     assert!(
-        fixture
-            .nfl
-            .slate_games_at(unknown, MONDAY)
+        slates::slate_games_at(&fixture.nfl, unknown, MONDAY)
             .await
             .unwrap()
             .is_empty(),

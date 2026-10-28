@@ -157,8 +157,8 @@ mod tests {
     use time::macros::{date, datetime};
 
     use super::{opening_monday, proposals};
-    use crate::slates::SlateProposal;
-    use crate::{Game, Season, SeasonType, SeasonWeek, Slate, SlateId, Week};
+    use crate::slates::{Slate, SlateId, SlateProposal};
+    use crate::{Game, Season, SeasonType, SeasonWeek, Week};
 
     fn game(
         id: &str,
