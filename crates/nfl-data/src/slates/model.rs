@@ -22,8 +22,9 @@ pub struct Slate {
 
 /// Opaque wrapper around a slate's auto-incrementing database integer.
 ///
-/// Not a deterministic identifier: the same named slate gets a different id
-/// in each database.
+/// Not a deterministic identifier shared across databases: ids are local to
+/// each database, and the same named slate can carry coincidentally equal
+/// numeric values in different databases.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, sqlx::Type)]
 #[sqlx(transparent)]
 pub struct SlateId(pub i64);

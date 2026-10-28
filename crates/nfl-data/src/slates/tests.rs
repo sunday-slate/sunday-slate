@@ -33,6 +33,20 @@ const WEEK_1: SeasonWeek = SeasonWeek {
     season_type: SeasonType::Reg,
     week: Week(1),
 };
+/// The Christmas week of the 2025 season: a December 25 game and main games
+/// on December 28, all with known kickoffs.
+const WEEK_16: SeasonWeek = SeasonWeek {
+    season: Season(2025),
+    season_type: SeasonType::Reg,
+    week: Week(16),
+};
+/// One second before the Eastern Monday that opens week 16: lookups stay
+/// tentative.
+const BEFORE_WEEK_16: OffsetDateTime = datetime!(2025-12-22 04:59:59 UTC);
+/// Eastern Monday midnight: the instant the week-16 snapshot opens.
+const WEEK_16_MONDAY: OffsetDateTime = datetime!(2025-12-22 05:00 UTC);
+/// Wednesday of week 16, after the week-16 fixation.
+const XMAS_WEDNESDAY: OffsetDateTime = datetime!(2025-12-24 22:00 UTC);
 
 /// A fixture game with irrelevant teams and no scores: the facade's membership
 /// depends only on the exact week and the kickoff's Eastern time.
@@ -104,6 +118,29 @@ fn week_1_games() -> Vec<Game> {
         game("snf", 1, Some(datetime!(2025-09-08 00:20 UTC))),
         game("mnf", 1, Some(datetime!(2025-09-09 00:15 UTC))),
     ]
+}
+
+/// The week-16 schedule: one game on December 25 Eastern and main games on
+/// December 28.
+fn week_16_games() -> Vec<Game> {
+    vec![
+        game("xmas", 16, Some(datetime!(2025-12-25 18:00 UTC))),
+        game("sun_1", 16, Some(datetime!(2025-12-28 17:00 UTC))),
+        game("sun_2", 16, Some(datetime!(2025-12-28 20:25 UTC))),
+    ]
+}
+
+/// The week-16 schedule with the holiday game rescheduled off December 25 to
+/// Saturday December 27: the rule stops proposing Christmas while the rest of
+/// the schedule stays complete and known.
+fn moved_off_christmas_games() -> Vec<Game> {
+    let mut games = week_16_games();
+    for game in games.iter_mut() {
+        if game.gsis_game_id == "xmas" {
+            game.kickoff = Some(datetime!(2025-12-27 18:00 UTC));
+        }
+    }
+    games
 }
 
 /// A fixture whose week-13 slates were established tentatively, with the two
@@ -328,6 +365,118 @@ async fn late_first_lookup_uses_current_schedule() {
             .await
             .unwrap(),
         ["mnf", "sun_2"]
+    );
+}
+
+/// A disappearing holiday keeps its stored identity but loses its stale
+/// kickoff on every lookup — before Monday, on the first fixing lookup, and
+/// after — so identical schedule data yields identical metadata each time.
+#[tokio::test]
+async fn disappearing_holiday_keeps_identity_and_clears_stale_kickoff() {
+    let fixture = Fixture::connect().await;
+    fixture
+        .nfl
+        .seed_for_test(&[], &week_16_games())
+        .await
+        .unwrap();
+
+    // The tentative Christmas slate is established before the opening Monday.
+    let established = fixture
+        .nfl
+        .slates_at(WEEK_16, BEFORE_WEEK_16)
+        .await
+        .unwrap();
+    assert_eq!(
+        names(&established),
+        ["Christmas", "Week 16"],
+        "known kickoffs ascending"
+    );
+    let christmas = slate_named(&established, "Christmas");
+    assert_eq!(christmas.kickoff, Some(datetime!(2025-12-25 18:00 UTC)));
+    let christmas_id = christmas.id;
+
+    // The holiday's last game reschedules off December 25: the rule stops
+    // proposing Christmas.
+    fixture.replace_games(&moved_off_christmas_games()).await;
+
+    // Game access already returns no Christmas members...
+    assert!(
+        fixture
+            .nfl
+            .slate_games_at(christmas_id, BEFORE_WEEK_16)
+            .await
+            .unwrap()
+            .is_empty(),
+        "the holiday game left the Christmas membership"
+    );
+    // ...but the metadata must not keep reporting the stale kickoff.
+    let after_move = fixture
+        .nfl
+        .slates_at(WEEK_16, BEFORE_WEEK_16)
+        .await
+        .unwrap();
+    let leftover = slate_named(&after_move, "Christmas");
+    assert_eq!(leftover.id, christmas_id, "the row and its id survive");
+    assert_eq!(
+        leftover.kickoff, None,
+        "the stale kickoff cleared before fixation"
+    );
+    assert_eq!(
+        slate_named(&after_move, "Week 16").kickoff,
+        Some(datetime!(2025-12-28 17:00 UTC))
+    );
+
+    // By-ID access agrees with the listing.
+    let found = fixture
+        .nfl
+        .slate_at(christmas_id, BEFORE_WEEK_16)
+        .await
+        .unwrap()
+        .expect("stored slate");
+    assert_eq!(found.kickoff, None);
+
+    // The first lookup at or after the opening Monday fixes the week and
+    // reports the same metadata: no membership is inserted for the omitted
+    // proposal, and the stale kickoff stays cleared.
+    let first_fixed = fixture
+        .nfl
+        .slates_at(WEEK_16, WEEK_16_MONDAY)
+        .await
+        .unwrap();
+    let fixed_leftover = slate_named(&first_fixed, "Christmas");
+    assert_eq!(fixed_leftover.id, christmas_id);
+    assert_eq!(fixed_leftover.kickoff, None);
+    assert_eq!(
+        slate_named(&first_fixed, "Week 16").kickoff,
+        Some(datetime!(2025-12-28 17:00 UTC))
+    );
+    assert!(
+        store::slates::is_fixed(fixture.nfl.store.reader(), WEEK_16)
+            .await
+            .unwrap()
+    );
+    assert!(
+        store::slates::game_ids(fixture.nfl.store.reader(), christmas_id)
+            .await
+            .unwrap()
+            .is_empty(),
+        "the omitted proposal gained no membership"
+    );
+
+    // Identical schedule data now yields identical metadata on every later
+    // lookup.
+    let later = fixture
+        .nfl
+        .slates_at(WEEK_16, XMAS_WEDNESDAY)
+        .await
+        .unwrap();
+    assert_eq!(
+        slate_named(&later, "Christmas").clone(),
+        fixed_leftover.clone()
+    );
+    assert_eq!(
+        slate_named(&later, "Week 16").clone(),
+        slate_named(&first_fixed, "Week 16").clone()
     );
 }
 

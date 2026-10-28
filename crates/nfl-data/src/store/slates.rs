@@ -92,7 +92,9 @@ pub(crate) async fn game_ids(pool: &SqlitePool, id: SlateId) -> Result<Vec<Strin
 /// The snapshot marker is rechecked inside the transaction, so concurrent
 /// writers serialize: the first fixation wins and every later one sees it.
 /// Before fixation, each proposal's canonical metadata is upserted without
-/// replacing ids and no tentative membership rows are stored. When `fix` is
+/// replacing ids, stored slates absent from the proposal set keep their ids
+/// but clear their stale kickoffs, and no tentative membership rows are
+/// stored. When `fix` is
 /// true, every proposal's membership rows and the week marker are inserted in
 /// that same transaction. After fixation, proposals are ignored, no new
 /// memberships are created, and only the stored kickoffs are refreshed from
@@ -126,6 +128,7 @@ async fn reconcile_tx(
         for proposal in proposals {
             upsert_metadata(&mut *conn, week, proposal).await?;
         }
+        clear_absent_kickoffs(&mut *conn, week, proposals).await?;
         if fix {
             for proposal in proposals {
                 let id = slate_id(&mut *conn, week, &proposal.name).await?;
@@ -162,6 +165,33 @@ async fn upsert_metadata(
     .bind(proposal.kickoff)
     .execute(&mut *conn)
     .await?;
+    Ok(())
+}
+
+/// Clear the kickoffs of the week's stored slates absent from the current
+/// proposal set: a proposal that disappeared — for example a holiday whose
+/// last matching game rescheduled off the holiday date — keeps its stored
+/// identity but drops its stale kickoff, so identical schedule data yields
+/// identical metadata on every lookup, including the first fixing one.
+async fn clear_absent_kickoffs(
+    conn: &mut SqliteConnection,
+    week: SeasonWeek,
+    proposals: &[SlateProposal],
+) -> Result<(), sqlx::Error> {
+    let stored: Vec<String> =
+        sqlx::query_scalar(r#"SELECT name FROM slates WHERE season_week = ?"#)
+            .bind(week)
+            .fetch_all(&mut *conn)
+            .await?;
+    for name in stored {
+        if !proposals.iter().any(|proposal| proposal.name == name) {
+            sqlx::query("UPDATE slates SET kickoff = NULL WHERE season_week = ? AND name = ?")
+                .bind(week)
+                .bind(&name)
+                .execute(&mut *conn)
+                .await?;
+        }
+    }
     Ok(())
 }
 
@@ -534,6 +564,115 @@ mod tests {
             game_ids(store.reader(), second[0].id).await.unwrap(),
             vec!["a", "b"]
         );
+    }
+
+    /// A stored slate absent from the current proposal set keeps its assigned
+    /// id but loses its stale kickoff — on the unfixed lookup and on the
+    /// first fixing lookup alike — so identical schedule data yields
+    /// identical metadata on every lookup.
+    #[tokio::test]
+    async fn omitted_proposal_keeps_identity_and_clears_stale_kickoff() {
+        let store = store().await;
+        let week = reg_week(16);
+
+        // The tentative establishment: the Christmas slate beside the main
+        // slate, both with known kickoffs.
+        let before = [
+            game("xmas", Some(datetime!(2025-12-25 18:00 UTC))),
+            game("sun_1", Some(datetime!(2025-12-28 17:00 UTC))),
+            game("sun_2", Some(datetime!(2025-12-28 20:25 UTC))),
+        ];
+        let established = reconcile(
+            &store,
+            week,
+            &[
+                proposal(
+                    "Week 16",
+                    Some(datetime!(2025-12-28 17:00 UTC)),
+                    &["sun_1", "sun_2"],
+                ),
+                proposal(
+                    "Christmas",
+                    Some(datetime!(2025-12-25 18:00 UTC)),
+                    &["xmas"],
+                ),
+            ],
+            &before,
+            false,
+        )
+        .await
+        .expect("establish");
+        let christmas_id = established
+            .iter()
+            .find(|slate| slate.name == "Christmas")
+            .expect("christmas slate")
+            .id;
+
+        // The holiday's last game reschedules off December 25, so the current
+        // proposal set no longer contains Christmas.
+        let after = [
+            game("xmas", Some(datetime!(2025-12-27 18:00 UTC))),
+            game("sun_1", Some(datetime!(2025-12-28 17:00 UTC))),
+            game("sun_2", Some(datetime!(2025-12-28 20:25 UTC))),
+        ];
+        let current = [proposal(
+            "Week 16",
+            Some(datetime!(2025-12-28 17:00 UTC)),
+            &["sun_1", "sun_2"],
+        )];
+
+        // The unfixed reconciliation clears the stale kickoff without
+        // deleting the row.
+        let unfixed = reconcile(&store, week, &current, &after, false)
+            .await
+            .expect("unfixed reconcile");
+        let leftover = unfixed
+            .iter()
+            .find(|slate| slate.name == "Christmas")
+            .expect("the omitted row survives");
+        assert_eq!(leftover.id, christmas_id, "the assigned id is preserved");
+        assert_eq!(leftover.kickoff, None, "the stale kickoff cleared");
+        assert_eq!(
+            by_id(store.reader(), christmas_id)
+                .await
+                .expect("by id")
+                .expect("stored slate")
+                .kickoff,
+            None,
+            "by-id access agrees with the listing"
+        );
+
+        // The first fixing lookup reports the same metadata: no membership is
+        // inserted for the omitted proposal, and the stale kickoff stays
+        // cleared.
+        let fixed = reconcile(&store, week, &current, &after, true)
+            .await
+            .expect("fixing reconcile");
+        let fixed_leftover = fixed
+            .iter()
+            .find(|slate| slate.name == "Christmas")
+            .expect("the omitted row survives fixation");
+        assert_eq!(fixed_leftover.id, christmas_id);
+        assert_eq!(fixed_leftover.kickoff, None);
+        assert!(is_fixed(store.reader(), week).await.unwrap());
+        assert!(
+            game_ids(store.reader(), christmas_id)
+                .await
+                .unwrap()
+                .is_empty(),
+            "the omitted proposal gained no membership"
+        );
+
+        // Later fixed lookups agree with the first fixing lookup.
+        let later = reconcile(&store, week, &[], &after, false)
+            .await
+            .expect("fixed refresh");
+        let later_leftover = later
+            .iter()
+            .find(|slate| slate.name == "Christmas")
+            .expect("the omitted row survives");
+        assert_eq!(later_leftover.id, christmas_id);
+        assert_eq!(later_leftover.kickoff, None);
     }
 
     /// A membership failure aborts the whole reconciliation transaction: no

@@ -1,4 +1,5 @@
-//! Durable FanDuel→GSIS player links, owned by the nfl-data store.
+//! Durable FanDuel→GSIS player links, slate metadata, and weekly membership
+//! snapshots, owned by the nfl-data store.
 
 pub(crate) mod player_link;
 pub(crate) mod slates;
@@ -76,7 +77,8 @@ impl Store {
     }
 
     /// Read-only executor for the store's read functions. Writes are only
-    /// possible through `write_tx` (via `player_link::save_links`).
+    /// possible through `write_tx` (via `player_link::save_links` and
+    /// `slates::reconcile`).
     pub(crate) fn reader(&self) -> &SqlitePool {
         &self.read
     }
