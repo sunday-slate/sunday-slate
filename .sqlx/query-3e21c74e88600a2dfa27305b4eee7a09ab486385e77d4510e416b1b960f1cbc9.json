@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO player_links (fd_player_id, gsis_player_id) VALUES (?, ?)\n               ON CONFLICT (gsis_player_id) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "3e21c74e88600a2dfa27305b4eee7a09ab486385e77d4510e416b1b960f1cbc9"
+}

@@ -1,0 +1,20 @@
+<p class="mb-3 text-sm text-base-content/60">{{ results.total }} candidates {{ results.scope_label }}</p>
+{% if results.widened %}
+  <a class="link mb-3 inline-block" href="/nfl-data-admin/salary-imports/{{ week }}/players/{{ fd_player_id }}?q={{ query_encoded }}">Back to {{ team }} players</a>
+{% else %}
+  <a class="link mb-3 inline-block" href="/nfl-data-admin/salary-imports/{{ week }}/players/{{ fd_player_id }}?q={{ query_encoded }}&amp;scope=all">Search all teams</a>
+{% endif %}
+<ul class="flex flex-col gap-2">
+  {% for player in results.candidates %}
+  <li>
+    <form method="post" action="/nfl-data-admin/salary-imports/{{ week }}/players/{{ fd_player_id }}/resolve">
+      <input type="hidden" name="gsis_player_id" value="{{ player.gsis_id }}">
+      <button class="btn btn-outline w-full justify-start" type="submit">{{ player.label }}</button>
+    </form>
+  </li>
+  {% endfor %}
+  {% if results.candidates.is_empty() %}
+  <li class="text-base-content/60">No matching players found.</li>
+  {% endif %}
+</ul>
+{% if results.total > 100 %}<p class="mt-3 text-sm text-base-content/60">Showing the first 100 candidates. Refine the search to see more.</p>{% endif %}

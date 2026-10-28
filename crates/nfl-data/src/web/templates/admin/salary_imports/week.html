@@ -1,0 +1,20 @@
+{% extends "admin/layout.html" %}
+{% block content %}
+<div class="mx-auto max-w-3xl">
+  <a class="link mb-4 inline-block" href="/nfl-data-admin/salary-imports">← Salary weeks</a>
+  <h1 class="mb-2 text-2xl font-bold">{{ overview.season }} · {{ overview.season_type }} · week {{ overview.week }}</h1>
+  <p class="mb-6 text-sm text-base-content/60">{{ overview.salary_count }} source salaries · {{ overview.unmatched.len() }} unresolved</p>
+  <h2 class="mb-3 text-lg font-semibold">Unresolved FanDuel players</h2>
+  <ul class="flex flex-col gap-2">
+    {% for player in overview.unmatched %}
+    <li>
+      <a class="flex flex-wrap justify-between gap-2 rounded-box border border-base-300 p-4" href="/nfl-data-admin/salary-imports/{{ overview.encoded }}/players/{{ player.player_id }}">
+        <span>{{ player.first_name }} {{ player.last_name }} · {{ player.team }} · {{ player.position }}</span>
+        <span>{{ player.salary }}</span>
+      </a>
+    </li>
+    {% endfor %}
+    {% if overview.unmatched.is_empty() %}<li class="text-base-content/60">All player IDs are resolved.</li>{% endif %}
+  </ul>
+</div>
+{% endblock %}

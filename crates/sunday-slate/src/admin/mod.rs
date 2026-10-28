@@ -66,7 +66,13 @@ pub(crate) fn nfl_data_router(state: AppState) -> Router<AppState> {
     Router::new()
         .nest(
             "/nfl-data-admin",
-            nfl_data::admin_router::<AppState>(std::sync::Arc::clone(&state.nfl)),
+            nfl_data::admin_router::<AppState>(
+                std::sync::Arc::clone(&state.nfl),
+                nfl_data::AdminConfig {
+                    season: nfl_data::Season(state.config.season),
+                    now_override: state.config.now_override,
+                },
+            ),
         )
         .route_layer(axum::middleware::from_fn_with_state(state, require_admin))
 }

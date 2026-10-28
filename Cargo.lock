@@ -2160,6 +2160,7 @@ dependencies = [
  "nfl-model",
  "nflverse-data",
  "rust-embed",
+ "serde",
  "sha2 0.11.0",
  "sqlx",
  "tempfile",
@@ -2167,6 +2168,7 @@ dependencies = [
  "time",
  "tokio",
  "tracing",
+ "urlencoding",
  "utils",
  "wiremock",
 ]

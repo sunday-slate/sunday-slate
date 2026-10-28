@@ -31,8 +31,9 @@ impl App {
 
         let nfl = Arc::new(
             nfl_data::NflData::connect(nfl_data::NflDataConfig {
-                database_url: config.nflverse_database_url.clone(),
+                nflverse_database_url: config.nflverse_database_url.clone(),
                 fanduel_database_url: config.fanduel_database_url.clone(),
+                database_url: config.nfl_data_database_url.clone(),
                 github_token: config.nflverse_github_token.clone(),
                 refresh_interval: config.nflverse_sync_interval(),
                 ..Default::default()
@@ -201,7 +202,13 @@ mod tests {
         .unwrap();
         let router = Router::new().nest(
             "/nfl-data-admin",
-            nfl_data::admin_router::<()>(Arc::clone(&app.state.nfl)),
+            nfl_data::admin_router::<()>(
+                Arc::clone(&app.state.nfl),
+                nfl_data::AdminConfig {
+                    season: nfl_data::Season(app.state.config.season),
+                    now_override: app.state.config.now_override,
+                },
+            ),
         );
         let server = TestServer::builder().build(router);
         let response = server.get("/nfl-data-admin/nflverse").await;

@@ -1,6 +1,8 @@
 mod config;
 mod data_revision;
 mod identity;
+mod salaries;
+mod store;
 #[cfg(test)]
 mod test;
 mod web;
@@ -28,6 +30,9 @@ pub use nflverse_data::{
     Dataset, DatasetFreshness, DatasetReport, DatasetStatus, NflverseDataError as NflDataError,
     RefreshStatus, SyncReport,
 };
+pub use salaries::{SalaryError, SalaryWeekOverview};
+pub use store::PlayerLink;
+pub use web::AdminConfig;
 pub use web::router as admin_router;
 
 pub struct WeeklySummary {
@@ -42,11 +47,14 @@ pub enum NflDataConnectError {
     Nflverse(#[source] NflDataError),
     #[error("FanDuel provider startup failed: {0}")]
     Fanduel(#[source] FanduelDataError),
+    #[error("NFL data store startup failed: {0}")]
+    Store(#[source] SalaryError),
 }
 
 pub struct NflData {
     provider: NflverseData,
     fanduel: fanduel_data::FanduelData,
+    store: store::Store,
     refresh_interval: Option<std::time::Duration>,
 }
 
@@ -120,7 +128,7 @@ impl NflData {
         Ok(summaries)
     }
 
-    /// Opens both provider databases and runs their migrations.
+    /// Opens all databases and runs their migrations.
     pub async fn connect(config: NflDataConfig) -> Result<Self, NflDataConnectError> {
         let refresh_interval = config
             .refresh_interval
@@ -134,16 +142,18 @@ impl NflData {
             fanduel_data::FanduelData::connect(&config.fanduel_database_url).await
         }
         .map_err(NflDataConnectError::Fanduel)?;
+        let store = store::Store::open(&config.database_url)
+            .await
+            .map_err(NflDataConnectError::Store)?;
         Ok(Self {
             provider,
             fanduel,
+            store,
             refresh_interval,
         })
     }
 
-    /// A fresh, empty, in-memory cache — for tests and tooling that need an
-    /// `NflData` handle without a database file. Migrations are applied; no data
-    /// is synced.
+    /// A fresh, empty, in-memory cache: migrations applied, nothing synced.
     pub async fn in_memory() -> Result<Self, NflDataConnectError> {
         let provider = NflverseData::in_memory()
             .await
@@ -151,29 +161,19 @@ impl NflData {
         let fanduel = fanduel_data::FanduelData::in_memory()
             .await
             .map_err(NflDataConnectError::Fanduel)?;
+        let store = store::Store::in_memory()
+            .await
+            .map_err(NflDataConnectError::Store)?;
         Ok(Self {
             provider,
             fanduel,
+            store,
             refresh_interval: None,
         })
     }
 
-    /// Most recent weekly roster entry for each id, keyed by gsis id. Ids with
-    /// no entry are absent from the map rather than an error.
-    ///
-    /// Complements [`Self::players_by_gsis`]: candidate lists are built from
-    /// weekly rosters, and 144 of 2025's 3,133 rostered players have no row in
-    /// the `players` table, so a pick cannot always be named from there.
-    pub async fn weekly_roster_entries_by_gsis<I: AsRef<str>>(
-        &self,
-        ids: &[I],
-    ) -> Result<HashMap<String, WeeklyRosterEntry>, NflDataError> {
-        self.provider.weekly_roster_entries_by_gsis(ids).await
-    }
-
-    /// Display facts for a set of gsis ids: the `players` table first, the
-    /// weekly rosters for the ids it misses. An id in neither source is
-    /// absent from the map.
+    /// Display facts per gsis id: `players` first, weekly rosters for the
+    /// misses; unknown ids are absent from the map.
     pub async fn identify<I: AsRef<str>>(
         &self,
         ids: &[I],
@@ -184,7 +184,10 @@ impl NflData {
             .map(|id| id.as_ref())
             .filter(|id| !players.contains_key(*id))
             .collect();
-        let roster = self.weekly_roster_entries_by_gsis(&unnamed).await?;
+        let roster = self
+            .provider
+            .weekly_roster_entries_by_gsis(&unnamed)
+            .await?;
         let named = players.into_iter().map(|(id, p)| {
             let identity = PlayerIdentity {
                 name: p.full_name,
@@ -206,8 +209,7 @@ impl NflData {
         Ok(named.chain(rostered).collect())
     }
 
-    /// Seed weekly roster entries directly, for tests and tooling. Not part of
-    /// the stable API — bypasses the sync pipeline and `sync_state` bookkeeping.
+    /// Seed weekly roster entries directly, for tests and tooling.
     #[doc(hidden)]
     pub async fn seed_weekly_roster_for_test(
         &self,
@@ -216,8 +218,7 @@ impl NflData {
         self.provider.seed_weekly_roster_for_test(entries).await
     }
 
-    /// Seed players and games directly, for tests and tooling. Not part of the
-    /// stable API — bypasses the sync pipeline and `sync_state` bookkeeping.
+    /// Seed players and games directly, for tests and tooling.
     #[doc(hidden)]
     pub async fn seed_for_test(
         &self,

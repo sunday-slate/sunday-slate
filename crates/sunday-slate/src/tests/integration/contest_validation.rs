@@ -40,8 +40,9 @@ async fn resolve_matches_fanduel_2025() {
     assert_eq!(fanduel.len(), 23, "expected 23 FanDuel contests");
 
     let nfl = NflData::connect(NflDataConfig {
-        database_url: format!("sqlite://{nfl_db}"),
+        nflverse_database_url: format!("sqlite://{nfl_db}"),
         fanduel_database_url: "sqlite::memory:".into(),
+        database_url: "sqlite::memory:".into(),
         ..Default::default()
     })
     .await

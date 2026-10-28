@@ -35,12 +35,6 @@ async fn empty_provider_reads_preserve_missing_result_behavior() {
     assert!(nfl.games(Season(2025)).await.unwrap().is_empty());
     assert!(nfl.players().await.unwrap().is_empty());
     assert!(nfl.players_by_gsis(&["missing"]).await.unwrap().is_empty());
-    assert!(
-        nfl.weekly_roster_entries_by_gsis(&["missing"])
-            .await
-            .unwrap()
-            .is_empty()
-    );
     assert!(nfl.identify(&["missing"]).await.unwrap().is_empty());
     let team = TeamAbbr::KC;
     assert!(
@@ -70,8 +64,9 @@ async fn empty_provider_reads_preserve_missing_result_behavior() {
 #[tokio::test]
 async fn seeded_records_preserve_identity_and_prefer_players() {
     let config = NflDataConfig {
-        database_url: "sqlite::memory:".into(),
+        nflverse_database_url: "sqlite::memory:".into(),
         fanduel_database_url: "sqlite::memory:".into(),
+        database_url: "sqlite::memory:".into(),
         ..Default::default()
     };
     let nfl = NflData::connect(config).await.unwrap();

@@ -2,7 +2,8 @@ use std::{sync::Arc, time::Duration};
 
 use axum::{Router, http::StatusCode};
 use axum_test::TestServer;
-use nfl_data::{NflData, NflDataConfig, admin_router};
+use nfl_data::{AdminConfig, NflData, NflDataConfig, admin_router};
+use nfl_model::Season;
 use sqlx::Connection;
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
@@ -27,16 +28,27 @@ async fn server() -> (TestServer, MockServer) {
             .await;
     }
     let nfl = NflData::connect(NflDataConfig {
-        database_url: "sqlite::memory:".into(),
+        github_token: None,
+        nflverse_database_url: "sqlite::memory:".into(),
         fanduel_database_url: "sqlite::memory:".into(),
+        database_url: "sqlite::memory:".into(),
+        earliest_season: 2025,
         github_api_base: upstream.uri(),
         refresh_interval: None,
-        ..Default::default()
     })
     .await
     .unwrap();
     (
-        TestServer::new(Router::new().nest("/nfl-data-admin", admin_router::<()>(Arc::new(nfl)))),
+        TestServer::new(Router::new().nest(
+            "/nfl-data-admin",
+            admin_router::<()>(
+                Arc::new(nfl),
+                AdminConfig {
+                    season: Season(2025),
+                    now_override: None,
+                },
+            ),
+        )),
         upstream,
     )
 }
@@ -73,11 +85,13 @@ async fn nflverse_setup_errors_are_generic_500_responses() {
     let cache = tempfile::tempdir().unwrap();
     let database_url = format!("sqlite://{}/cache.db", cache.path().display());
     let nfl = NflData::connect(NflDataConfig {
-        database_url: database_url.clone(),
+        nflverse_database_url: database_url.clone(),
         fanduel_database_url: "sqlite::memory:".into(),
+        database_url: "sqlite::memory:".into(),
+        earliest_season: nflverse_data::NflverseDataConfig::default().earliest_season,
+        github_token: None,
         github_api_base: upstream.uri(),
         refresh_interval: None,
-        ..Default::default()
     })
     .await
     .unwrap();
@@ -88,8 +102,16 @@ async fn nflverse_setup_errors_are_generic_500_responses() {
         .execute(&mut connection)
         .await
         .unwrap();
-    let server =
-        TestServer::new(Router::new().nest("/nfl-data-admin", admin_router::<()>(Arc::new(nfl))));
+    let server = TestServer::new(Router::new().nest(
+        "/nfl-data-admin",
+        admin_router::<()>(
+            Arc::new(nfl),
+            AdminConfig {
+                season: Season(2025),
+                now_override: None,
+            },
+        ),
+    ));
     for response in [
         server.get("/nfl-data-admin/nflverse").await,
         server.post("/nfl-data-admin/nflverse").await,
@@ -126,18 +148,27 @@ async fn nflverse_post_and_scheduled_refresh_are_single_flight() {
     let interval = Duration::from_millis(60);
     let nfl = Arc::new(
         NflData::connect(NflDataConfig {
-            database_url: "sqlite::memory:".into(),
+            github_token: None,
+            nflverse_database_url: "sqlite::memory:".into(),
             fanduel_database_url: "sqlite::memory:".into(),
+            database_url: "sqlite::memory:".into(),
+            earliest_season: 2025,
             github_api_base: upstream.uri(),
             refresh_interval: Some(interval),
-            ..Default::default()
         })
         .await
         .unwrap(),
     );
-    let server = TestServer::new(
-        Router::new().nest("/nfl-data-admin", admin_router::<()>(Arc::clone(&nfl))),
-    );
+    let server = TestServer::new(Router::new().nest(
+        "/nfl-data-admin",
+        admin_router::<()>(
+            Arc::clone(&nfl),
+            AdminConfig {
+                season: Season(2025),
+                now_override: None,
+            },
+        ),
+    ));
     nfl.start_background_tasks();
 
     let started = server.post("/nfl-data-admin/nflverse").await;
@@ -155,8 +186,6 @@ async fn nflverse_post_and_scheduled_refresh_are_single_flight() {
         active_run_observed,
         "manual refresh reached a delayed release"
     );
-    // Leave enough time for the configured timer tick to fire while the
-    // delayed manual refresh remains active.
     tokio::time::sleep(interval * 2).await;
 
     let (full_response, panel_response) = tokio::join!(
@@ -173,8 +202,6 @@ async fn nflverse_post_and_scheduled_refresh_are_single_flight() {
     assert!(panel_response.text().contains("Sync in progress"));
     assert!(!panel_response.text().contains("<!doctype html>"));
 
-    // The configured timer ticks while the detached manual run is active.
-    // Stop future ticks before that run completes, then verify no overlap.
     nfl.stop_background_tasks();
     let mut completed = false;
     for _ in 0..160 {

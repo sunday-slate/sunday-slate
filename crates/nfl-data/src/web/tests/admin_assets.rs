@@ -4,11 +4,19 @@ use axum::{
     routing::get,
 };
 use axum_test::TestServer;
-use nfl_data::{NflData, admin_router};
+use nfl_data::{AdminConfig, NflData, admin_router};
+use nfl_model::Season;
+
+fn admin_config() -> AdminConfig {
+    AdminConfig {
+        season: Season(2025),
+        now_override: None,
+    }
+}
 
 async fn app() -> Router {
     let nfl = std::sync::Arc::new(NflData::in_memory().await.unwrap());
-    Router::new().nest("/nfl-data-admin", admin_router::<()>(nfl))
+    Router::new().nest("/nfl-data-admin", admin_router::<()>(nfl, admin_config()))
 }
 
 #[tokio::test]
@@ -36,7 +44,7 @@ async fn router_composes_with_unrelated_host_state() {
     let nfl = std::sync::Arc::new(NflData::in_memory().await.unwrap());
     let router = Router::<HostState>::new()
         .route("/host", get(|| async { "host" }))
-        .merge(admin_router::<HostState>(nfl))
+        .merge(admin_router::<HostState>(nfl, admin_config()))
         .with_state(HostState);
     let response = TestServer::new(router).get("/").await;
     assert_eq!(response.status_code(), StatusCode::OK);

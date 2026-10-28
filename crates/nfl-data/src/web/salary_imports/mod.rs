@@ -1,0 +1,33 @@
+pub(crate) mod error;
+pub(crate) mod handlers;
+
+use crate::store::player_link;
+use crate::web::AdminState;
+use crate::{SalaryError, SalaryWeekOverview};
+pub(crate) use error::SalaryAdminError;
+pub use handlers::router;
+use nfl_model::SeasonWeek;
+
+/// Every source row for the week plus the player IDs lacking a link.
+async fn salary_week_overview(
+    state: &AdminState,
+    season_week: SeasonWeek,
+) -> Result<SalaryWeekOverview, SalaryError> {
+    let salaries = state.nfl.fanduel.salaried_players_for(season_week).await?;
+    let salary_count = salaries.len();
+
+    let links = player_link::links(state.nfl.store.reader()).await?;
+    let unmatched = salaries
+        .into_iter()
+        .filter(|salaried_player| match &salaried_player.player {
+            Some(player) => !links.contains_key(&player.id),
+            None => false,
+        })
+        .collect();
+
+    Ok(SalaryWeekOverview {
+        season_week,
+        salary_count,
+        unmatched,
+    })
+}
