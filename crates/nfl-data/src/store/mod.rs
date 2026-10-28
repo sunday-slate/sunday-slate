@@ -1,6 +1,7 @@
 //! Durable FanDuel→GSIS player links, owned by the nfl-data store.
 
 pub(crate) mod player_link;
+pub(crate) mod slates;
 
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{SqliteConnection, SqlitePool};
