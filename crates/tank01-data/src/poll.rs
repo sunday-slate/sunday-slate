@@ -288,7 +288,7 @@ async fn emit_scoreboard(
     Ok(())
 }
 pub(crate) fn box_score_query(game: &LiveGame, play_by_play: bool) -> BTreeMap<String, String> {
-    let mut query = BTreeMap::from([(String::from("gameID"), game.provider_game_id.clone())]);
+    let mut query = BTreeMap::from([(String::from("gameID"), game.tank01_game_id.clone())]);
     if play_by_play {
         query.insert(String::from("playByPlay"), String::from("true"));
     }
@@ -304,14 +304,14 @@ fn scoreboard_updates(
     };
     let mut by_provider_id = BTreeMap::new();
     for game in &scoreboard.games {
-        by_provider_id.insert(game.provider_game_id.as_str(), game.phase);
+        by_provider_id.insert(game.tank01_game_id.as_str(), game.phase);
     }
     games
         .iter()
         .enumerate()
         .filter_map(|(index, game)| {
             by_provider_id
-                .get(game.provider_game_id.as_str())
+                .get(game.tank01_game_id.as_str())
                 .copied()
                 .map(|phase| (index, ScoreboardUpdate { phase }))
         })
@@ -535,49 +535,48 @@ fn validate_slate(slate: &LiveSlate) -> Result<(), PollerError> {
     let mut provider_ids = BTreeSet::new();
     let mut safe_names = BTreeMap::new();
     for game in &slate.games {
-        if game.gsis_game_id.is_empty() {
+        if game.game_id.is_empty() {
             return Err(PollerError::InvalidSlate(
                 "game has an empty GSIS game id".into(),
             ));
         }
-        if game.provider_game_id.is_empty() {
+        if game.tank01_game_id.is_empty() {
             return Err(PollerError::InvalidSlate(
                 "game has an empty provider game id".into(),
             ));
         }
-        if !gsis_ids.insert(&game.gsis_game_id) {
+        if !gsis_ids.insert(&game.game_id) {
             return Err(PollerError::InvalidSlate(format!(
                 "duplicate GSIS game id {:?}",
-                game.gsis_game_id
+                game.game_id
             )));
         }
-        if !provider_ids.insert(&game.provider_game_id) {
+        if !provider_ids.insert(&game.tank01_game_id) {
             return Err(PollerError::InvalidSlate(format!(
                 "duplicate provider game id {:?}",
-                game.provider_game_id
+                game.tank01_game_id
             )));
         }
-        let safe_name = safe_provider_game_id(&game.provider_game_id)?;
-        if let Some(previous) = safe_names.insert(safe_name.clone(), game.provider_game_id.clone())
-        {
+        let safe_name = safe_tank01_game_id(&game.tank01_game_id)?;
+        if let Some(previous) = safe_names.insert(safe_name.clone(), game.tank01_game_id.clone()) {
             return Err(PollerError::InvalidSlate(format!(
                 "provider game ids {:?} and {:?} collide as {safe_name:?}",
-                previous, game.provider_game_id
+                previous, game.tank01_game_id
             )));
         }
     }
     Ok(())
 }
 
-pub(crate) fn safe_provider_game_id(provider_game_id: &str) -> Result<String, PollerError> {
-    let safe = provider_game_id.replace('@', "_at_");
+pub(crate) fn safe_tank01_game_id(tank01_game_id: &str) -> Result<String, PollerError> {
+    let safe = tank01_game_id.replace('@', "_at_");
     if safe.is_empty()
         || !safe
             .chars()
             .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
     {
         return Err(PollerError::InvalidSlate(format!(
-            "provider game id {provider_game_id:?} cannot be used as a safe file name"
+            "provider game id {tank01_game_id:?} cannot be used as a safe file name"
         )));
     }
     Ok(safe)
@@ -603,11 +602,13 @@ mod tests {
 
     fn game(id: &str, provider_id: &str, home: &str, away: &str) -> LiveGame {
         LiveGame {
-            gsis_game_id: id.into(),
-            provider_game_id: provider_id.into(),
-            season: Season(2026),
-            week: Week(1),
-            season_type: SeasonType::Reg,
+            game_id: id.into(),
+            tank01_game_id: provider_id.into(),
+            season_week: nfl_model::SeasonWeek {
+                season: Season(2026),
+                season_type: SeasonType::Reg,
+                week: Week(1),
+            },
             kickoff: Some(datetime!(2026-09-10 20:35:00 -04:00)),
             home_team: home.parse().unwrap(),
             away_team: away.parse().unwrap(),
@@ -640,10 +641,10 @@ mod tests {
             Err(PollerError::InvalidSlate(_))
         ));
         assert_eq!(
-            safe_provider_game_id("20260910_SF@LAR").unwrap(),
+            safe_tank01_game_id("20260910_SF@LAR").unwrap(),
             "20260910_SF_at_LAR"
         );
-        assert!(safe_provider_game_id("bad/path").is_err());
+        assert!(safe_tank01_game_id("bad/path").is_err());
     }
 
     #[derive(Default)]
@@ -720,7 +721,7 @@ mod tests {
     }
     #[derive(Debug, Clone)]
     struct RecordedCall {
-        provider_game_id: String,
+        tank01_game_id: String,
         attempt: u64,
         play_by_play: bool,
     }
@@ -734,15 +735,15 @@ mod tests {
     }
 
     impl LifecycleState {
-        async fn record(&self, provider_game_id: &str, play_by_play: bool) -> u64 {
+        async fn record(&self, tank01_game_id: &str, play_by_play: bool) -> u64 {
             let mut calls = self.calls.lock().await;
             let attempt = calls
                 .iter()
-                .filter(|call| call.provider_game_id == provider_game_id)
+                .filter(|call| call.tank01_game_id == tank01_game_id)
                 .count() as u64
                 + 1;
             calls.push(RecordedCall {
-                provider_game_id: provider_game_id.into(),
+                tank01_game_id: tank01_game_id.into(),
                 attempt,
                 play_by_play,
             });
@@ -774,7 +775,7 @@ mod tests {
                 ProviderOutcome::Value(LiveScoreboard {
                     games: vec![
                         LiveScoreboardGame {
-                            provider_game_id: "20260910_SF@LAR".into(),
+                            tank01_game_id: "20260910_SF@LAR".into(),
                             phase: LiveGamePhase::InProgress,
                             period: Some("1".into()),
                             clock: Some("10:00".into()),
@@ -784,7 +785,7 @@ mod tests {
                             away_score: Some(0),
                         },
                         LiveScoreboardGame {
-                            provider_game_id: "20260910_NE@NYJ".into(),
+                            tank01_game_id: "20260910_NE@NYJ".into(),
                             phase: LiveGamePhase::InProgress,
                             period: Some("1".into()),
                             clock: Some("10:00".into()),
@@ -794,7 +795,7 @@ mod tests {
                             away_score: Some(0),
                         },
                         LiveScoreboardGame {
-                            provider_game_id: "20260910_DAL@NYG".into(),
+                            tank01_game_id: "20260910_DAL@NYG".into(),
                             phase: if scoreboard_number == 1 {
                                 LiveGamePhase::Scheduled
                             } else {
@@ -818,10 +819,7 @@ mod tests {
             game: &LiveGame,
             play_by_play: bool,
         ) -> ProviderResponse<LiveGameSnapshot> {
-            let attempt = self
-                .state
-                .record(&game.provider_game_id, play_by_play)
-                .await;
+            let attempt = self.state.record(&game.tank01_game_id, play_by_play).await;
             self.state.enter();
             tokio::task::yield_now().await;
             self.state.leave();
@@ -833,7 +831,7 @@ mod tests {
                     None,
                 );
             }
-            let phase = if game.provider_game_id == "20260910_DAL@NYG" || attempt >= 7 {
+            let phase = if game.tank01_game_id == "20260910_DAL@NYG" || attempt >= 7 {
                 LiveGamePhase::Final
             } else {
                 LiveGamePhase::InProgress
@@ -851,7 +849,7 @@ mod tests {
                     defenses: None,
                 }),
                 Some(RawBody::Json(json!({
-                    "gameID": game.provider_game_id,
+                    "gameID": game.tank01_game_id,
                     "gameStatusCode": if phase == LiveGamePhase::Final { "3" } else { "1" },
                     "attempt": attempt,
                 }))),
@@ -951,7 +949,7 @@ mod tests {
                     ProviderOutcome::Value(scoreboard) => scoreboard
                         .games
                         .iter()
-                        .find(|game| game.provider_game_id == "20260910_DAL@NYG")
+                        .find(|game| game.tank01_game_id == "20260910_DAL@NYG")
                         .map(|game| game.phase),
                     _ => None,
                 },
@@ -973,14 +971,14 @@ mod tests {
                 matches!(
                     event,
                     PollEvent::BoxScore { game, .. }
-                        if game.provider_game_id == "20260910_DAL@NYG"
+                        if game.tank01_game_id == "20260910_DAL@NYG"
                 )
             })
             .unwrap();
         assert!(scheduled_game_box_position > second_scoreboard_position);
         let scheduled_game_calls = calls
             .iter()
-            .filter(|call| call.provider_game_id == "20260910_DAL@NYG")
+            .filter(|call| call.tank01_game_id == "20260910_DAL@NYG")
             .collect::<Vec<_>>();
         assert_eq!(scheduled_game_calls.len(), 4);
         assert_eq!(
@@ -990,10 +988,10 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![false, true, true, true]
         );
-        for provider_game_id in ["20260910_SF@LAR", "20260910_NE@NYJ"] {
+        for tank01_game_id in ["20260910_SF@LAR", "20260910_NE@NYJ"] {
             let game_calls = calls
                 .iter()
-                .filter(|call| call.provider_game_id == provider_game_id)
+                .filter(|call| call.tank01_game_id == tank01_game_id)
                 .collect::<Vec<_>>();
             assert_eq!(game_calls.len(), 10);
             assert_eq!(
@@ -1011,7 +1009,7 @@ mod tests {
                 .filter(|event| matches!(
                     event,
                     PollEvent::BoxScore { game, .. }
-                        if game.provider_game_id == "20260910_SF@LAR"
+                        if game.tank01_game_id == "20260910_SF@LAR"
                 ))
                 .count(),
             10
@@ -1022,7 +1020,7 @@ mod tests {
                 .filter(|event| matches!(
                     event,
                     PollEvent::BoxScore { game, .. }
-                        if game.provider_game_id == "20260910_NE@NYJ"
+                        if game.tank01_game_id == "20260910_NE@NYJ"
                 ))
                 .count(),
             10

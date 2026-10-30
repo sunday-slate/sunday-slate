@@ -505,7 +505,7 @@ mod seed_week_stats_tests {
             season_type: crate::SeasonType::Reg,
             team: crate::TeamAbbr::KC,
             opponent: crate::TeamAbbr::BUF,
-            gsis_game_id: "2025_01_BUF_KC".into(),
+            game_id: "2025_01_BUF_KC".into(),
             sacks: 3,
             interceptions: 1,
             fumble_recoveries: 0,

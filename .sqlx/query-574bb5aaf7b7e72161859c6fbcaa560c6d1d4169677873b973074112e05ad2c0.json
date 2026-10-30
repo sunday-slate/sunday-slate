@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO games\n               (game_id, season, week, season_type, kickoff,\n                home_team, away_team, home_score, away_score)\n               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 9
+    },
+    "nullable": []
+  },
+  "hash": "574bb5aaf7b7e72161859c6fbcaa560c6d1d4169677873b973074112e05ad2c0"
+}

@@ -231,7 +231,7 @@ impl LiveScoreProvider for Tank01Client {
         game: &LiveGame,
         play_by_play: bool,
     ) -> ProviderResponse<LiveGameSnapshot> {
-        let game_id = game.provider_game_id.as_str();
+        let game_id = game.tank01_game_id.as_str();
         let query = if play_by_play {
             vec![("gameID", game_id), ("playByPlay", "true")]
         } else {
@@ -343,11 +343,13 @@ mod tests {
 
     fn game() -> LiveGame {
         LiveGame {
-            gsis_game_id: "2026_01_SF_LAR".into(),
-            provider_game_id: "20260910_SF@LAR".into(),
-            season: Season(2026),
-            week: Week(1),
-            season_type: SeasonType::Reg,
+            game_id: "2026_01_SF_LAR".into(),
+            tank01_game_id: "20260910_SF@LAR".into(),
+            season_week: nfl_model::SeasonWeek {
+                season: Season(2026),
+                season_type: SeasonType::Reg,
+                week: Week(1),
+            },
             kickoff: Some(datetime!(2026-09-10 20:35:00 -04:00)),
             home_team: TeamAbbr::LA,
             away_team: TeamAbbr::SF,

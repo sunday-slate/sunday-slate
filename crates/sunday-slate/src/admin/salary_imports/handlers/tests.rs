@@ -38,10 +38,12 @@ pub(super) async fn dashboard_app() -> TestApp {
                 },
             ],
             &[Game {
-                gsis_game_id: "2025_01_BUF_NYJ".into(),
-                season: Season(2025),
-                week: Week(1),
-                season_type: SeasonType::Reg,
+                game_id: "2025_01_BUF_NYJ".into(),
+                season_week: nfl_data::SeasonWeek {
+                    season: Season(2025),
+                    season_type: SeasonType::Reg,
+                    week: Week(1),
+                },
                 kickoff: None,
                 home_team: "NYJ".parse().unwrap(),
                 away_team: "BUF".parse().unwrap(),

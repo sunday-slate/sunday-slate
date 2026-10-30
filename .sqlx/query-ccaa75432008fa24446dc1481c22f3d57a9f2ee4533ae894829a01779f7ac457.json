@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT\n               season AS \"season: Season\",\n               week AS \"week: Week\",\n               season_type AS \"season_type: SeasonType\",\n               team AS \"team: TeamAbbr\",\n               opponent AS \"opponent: TeamAbbr\",\n               gsis_game_id,\n               sacks AS \"sacks: u32\",\n               interceptions AS \"interceptions: u32\",\n               fumble_recoveries AS \"fumble_recoveries: u32\",\n               safeties AS \"safeties: u32\",\n               touchdowns AS \"touchdowns: u32\",\n               blocked_kicks AS \"blocked_kicks: u32\",\n               conversion_returns AS \"conversion_returns: u32\",\n               points_allowed AS \"points_allowed: i32\"\n           FROM team_week_stats\n           WHERE season = ? AND week = ?\n           ORDER BY team, season_type",
+  "query": "SELECT\n               season AS \"season: Season\",\n               week AS \"week: Week\",\n               season_type AS \"season_type: SeasonType\",\n               team AS \"team: TeamAbbr\",\n               opponent AS \"opponent: TeamAbbr\",\n               game_id,\n               sacks AS \"sacks: u32\",\n               interceptions AS \"interceptions: u32\",\n               fumble_recoveries AS \"fumble_recoveries: u32\",\n               safeties AS \"safeties: u32\",\n               touchdowns AS \"touchdowns: u32\",\n               blocked_kicks AS \"blocked_kicks: u32\",\n               conversion_returns AS \"conversion_returns: u32\",\n               points_allowed AS \"points_allowed: i32\"\n           FROM team_week_stats\n           WHERE season = ? AND week = ?\n           ORDER BY team, season_type",
   "describe": {
     "columns": [
       {
@@ -59,13 +59,13 @@
         }
       },
       {
-        "name": "gsis_game_id",
+        "name": "game_id",
         "ordinal": 5,
         "type_info": "Text",
         "origin": {
           "Table": {
             "table": "team_week_stats",
-            "name": "gsis_game_id"
+            "name": "game_id"
           }
         }
       },
@@ -178,5 +178,5 @@
       false
     ]
   },
-  "hash": "5b332fd2795fddb950fc70c130566597f2b9114ea1335fcd753b04e6a44f1600"
+  "hash": "ccaa75432008fa24446dc1481c22f3d57a9f2ee4533ae894829a01779f7ac457"
 }

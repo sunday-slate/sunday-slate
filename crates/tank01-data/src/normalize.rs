@@ -11,13 +11,7 @@ const PLAYER_ID_KEYS: &[&str] = &["playerID", "playerId", "espnID", "espnId", "e
 const PLAYER_NAME_KEYS: &[&str] = &["longName", "fullName", "playerName", "name"];
 const PLAYER_TEAM_KEYS: &[&str] = &["team", "teamAbv", "teamAbbr", "teamName", "abbreviation"];
 const PLAYER_POSITION_KEYS: &[&str] = &["position", "pos", "positionGroup"];
-const GAME_ID_KEYS: &[&str] = &[
-    "gameID",
-    "gameId",
-    "providerGameId",
-    "provider_game_id",
-    "id",
-];
+const GAME_ID_KEYS: &[&str] = &["gameID", "gameId", "id"];
 const HOME_TEAM_KEYS: &[&str] = &["home", "homeTeam", "homeTeamAbv", "homeTeamAbbr"];
 const AWAY_TEAM_KEYS: &[&str] = &["away", "awayTeam", "awayTeamAbv", "awayTeamAbbr"];
 const HOME_SCORE_KEYS: &[&str] = &["homePts", "homeScore", "homePoints"];
@@ -281,18 +275,18 @@ pub(crate) fn normalize_box_score(
     game: &LiveGame,
     observed_at: OffsetDateTime,
 ) -> Result<LiveGameSnapshot, NormalizeError> {
-    let body_value = box_body(value, Some(&game.provider_game_id))?;
+    let body_value = box_body(value, Some(&game.tank01_game_id))?;
     let body = body_value
         .as_object()
         .ok_or_else(|| NormalizeError::Invalid("box score body is not an object".into()))?;
     reject_unknown_error(body)?;
-    let provider_game_id = direct_string(body, GAME_ID_KEYS)?;
-    if let Some(provider_game_id) = provider_game_id.as_deref()
-        && provider_game_id != game.provider_game_id
+    let tank01_game_id = direct_string(body, GAME_ID_KEYS)?;
+    if let Some(tank01_game_id) = tank01_game_id.as_deref()
+        && tank01_game_id != game.tank01_game_id
     {
         return Err(NormalizeError::Invalid(format!(
-            "box response game id {provider_game_id:?} does not match requested {:?}",
-            game.provider_game_id
+            "box response game id {tank01_game_id:?} does not match requested {:?}",
+            game.tank01_game_id
         )));
     }
 
@@ -389,26 +383,26 @@ fn normalize_scoreboard_game(
         .as_object()
         .ok_or_else(|| NormalizeError::Invalid("scoreboard game is not an object".into()))?;
     reject_unknown_error(object)?;
-    let explicit_provider_game_id = direct_string(object, GAME_ID_KEYS)?;
-    if let (Some(hint), Some(explicit)) = (hint, explicit_provider_game_id.as_deref())
+    let explicit_tank01_game_id = direct_string(object, GAME_ID_KEYS)?;
+    if let (Some(hint), Some(explicit)) = (hint, explicit_tank01_game_id.as_deref())
         && hint != explicit
     {
         return Err(NormalizeError::IdentityConflict(format!(
             "scoreboard map id {hint:?} disagrees with game id {explicit:?}"
         )));
     }
-    let provider_game_id = explicit_provider_game_id
+    let tank01_game_id = explicit_tank01_game_id
         .or_else(|| hint.map(str::to_owned))
         .ok_or_else(|| NormalizeError::Invalid("scoreboard game has no provider game id".into()))?;
     let home_team = scoreboard_team(object, HOME_TEAM_KEYS, "home")?;
     let away_team = scoreboard_team(object, AWAY_TEAM_KEYS, "away")?;
     if home_team == away_team {
         return Err(NormalizeError::Invalid(format!(
-            "scoreboard game {provider_game_id:?} has the same home and away team"
+            "scoreboard game {tank01_game_id:?} has the same home and away team"
         )));
     }
     Ok(LiveScoreboardGame {
-        provider_game_id,
+        tank01_game_id,
         phase: game_phase(object),
         period: optional_display(object, PERIOD_KEYS)?,
         clock: optional_display(object, CLOCK_KEYS)?,
@@ -1626,11 +1620,13 @@ mod tests {
 
     fn game() -> LiveGame {
         LiveGame {
-            gsis_game_id: "2026_01_SF_LAR".into(),
-            provider_game_id: "20260910_SF@LAR".into(),
-            season: Season(2026),
-            week: Week(1),
-            season_type: SeasonType::Reg,
+            game_id: "2026_01_SF_LAR".into(),
+            tank01_game_id: "20260910_SF@LAR".into(),
+            season_week: nfl_model::SeasonWeek {
+                season: Season(2026),
+                season_type: SeasonType::Reg,
+                week: Week(1),
+            },
             kickoff: Some(datetime!(2026-09-10 20:35:00 -04:00)),
             home_team: TeamAbbr::LA,
             away_team: TeamAbbr::SF,
@@ -1675,11 +1671,13 @@ mod tests {
     #[test]
     fn normalizes_observed_week_three_two_point_conversions() {
         let game = LiveGame {
-            gsis_game_id: "2026_03_CAR_CLE".into(),
-            provider_game_id: "20260927_CAR@CLE".into(),
-            season: Season(2026),
-            week: Week(3),
-            season_type: SeasonType::Reg,
+            game_id: "2026_03_CAR_CLE".into(),
+            tank01_game_id: "20260927_CAR@CLE".into(),
+            season_week: nfl_model::SeasonWeek {
+                season: Season(2026),
+                season_type: SeasonType::Reg,
+                week: Week(3),
+            },
             kickoff: Some(datetime!(2026-09-27 17:00:00 UTC)),
             home_team: TeamAbbr::CLE,
             away_team: TeamAbbr::CAR,

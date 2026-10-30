@@ -126,16 +126,13 @@ async fn fresh_sync_populates_every_dataset() {
     // Games: 1999 and 2024 rows filtered out; kickoff in UTC; SB mapped to Post.
     let games = nfl.games(Season(2025)).await.unwrap();
     assert_eq!(games.len(), 3);
-    let sf_la = games
-        .iter()
-        .find(|g| g.gsis_game_id == "2025_05_SF_LA")
-        .unwrap();
+    let sf_la = games.iter().find(|g| g.game_id == "2025_05_SF_LA").unwrap();
     assert_eq!(sf_la.kickoff, Some(datetime!(2025-10-03 00:15 UTC)));
     let sb = games
         .iter()
-        .find(|g| g.gsis_game_id == "2025_22_SEA_NE")
+        .find(|g| g.game_id == "2025_22_SEA_NE")
         .unwrap();
-    assert_eq!(sb.season_type, SeasonType::Post);
+    assert_eq!(sb.season_week.season_type, SeasonType::Post);
 
     // Players.
     let players = nfl.players().await.unwrap();

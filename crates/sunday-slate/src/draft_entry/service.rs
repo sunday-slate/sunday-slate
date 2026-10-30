@@ -867,7 +867,7 @@ mod tests {
     fn salary(gsis: &str, position: DfsPosition) -> NflPlayerSalary {
         NflPlayerSalary {
             id: 0,
-            gsis_game_id: "2025_01_BUF_KC".into(),
+            game_id: "2025_01_BUF_KC".into(),
             gsis_player_id: Some(gsis.into()),
             team_abbr: "KC".into(),
             dfs_position: position,
@@ -1048,7 +1048,7 @@ mod tests {
         let fixture = factories::team(&pool, TeamOptions::default()).await;
         let contest = factories::contest_with_games(&pool, "Week 1", &["2025_01_BUF_KC"]).await;
         sqlx::query(
-            "INSERT INTO nfl_player_salaries (gsis_game_id, gsis_player_id, team_abbr, dfs_position, salary)
+            "INSERT INTO nfl_player_salaries (game_id, gsis_player_id, team_abbr, dfs_position, salary)
              VALUES ('2025_01_BUF_KC', '00-Q', 'KC', 'QB', 60001)",
         )
         .execute(&pool)
@@ -1090,7 +1090,7 @@ mod tests {
             ("00-R2", "RB", 5_500),
         ] {
             sqlx::query(
-                "INSERT INTO nfl_player_salaries (gsis_game_id, gsis_player_id, team_abbr, dfs_position, salary)
+                "INSERT INTO nfl_player_salaries (game_id, gsis_player_id, team_abbr, dfs_position, salary)
                  VALUES ('2025_01_BUF_KC', ?1, 'KC', ?2, ?3)",
             )
             .bind(gsis)
@@ -1227,10 +1227,12 @@ mod tests {
                 )
                 .fetch_one(&mut *conn)
                 .await?;
-                sqlx::query("INSERT INTO contest_games (contest_id, gsis_game_id) VALUES (?1, '2025_01_BUF_KC')")
-                    .bind(contest_id)
-                    .execute(&mut *conn)
-                    .await?;
+                sqlx::query(
+                    "INSERT INTO contest_games (contest_id, game_id) VALUES (?1, '2025_01_BUF_KC')",
+                )
+                .bind(contest_id)
+                .execute(&mut *conn)
+                .await?;
                 Ok((contest_id, team_id))
             })
             .await

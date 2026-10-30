@@ -103,7 +103,7 @@ fn slate_games<'a>(
         .games
         .iter()
         .filter(|g| rule::covers(&rule, season, g))
-        .map(|g| g.gsis_game_id.as_str())
+        .map(|g| g.game_id.as_str())
         .collect();
     (games, true)
 }
@@ -130,7 +130,7 @@ mod tests {
 
     async fn seed_salary(pool: &SqlitePool, game_id: &str) {
         sqlx::query(
-            "INSERT INTO nfl_player_salaries (gsis_game_id, gsis_player_id, team_abbr, dfs_position, salary)
+            "INSERT INTO nfl_player_salaries (game_id, gsis_player_id, team_abbr, dfs_position, salary)
              VALUES (?1, '00-A', 'BUF', 'RB', 7000)",
         )
         .bind(game_id)

@@ -7,7 +7,7 @@ use time::macros::datetime;
 
 use crate::store::player_link;
 use crate::web::AdminConfig;
-use crate::{Game, NflData, Player, Season, SeasonType, Week};
+use crate::{Game, NflData, Player, Season, SeasonType, SeasonWeek, Week};
 
 pub(crate) struct AdminFixture {
     pub(crate) server: TestServer,
@@ -40,10 +40,12 @@ pub(crate) async fn admin_state() -> AdminFixture {
             },
         ],
         &[crate::Game {
-            gsis_game_id: "2025_01_BUF_NYJ".into(),
-            season: Season(2025),
-            week: crate::Week(1),
-            season_type: crate::SeasonType::Reg,
+            game_id: "2025_01_BUF_NYJ".into(),
+            season_week: crate::SeasonWeek {
+                season: Season(2025),
+                season_type: crate::SeasonType::Reg,
+                week: crate::Week(1),
+            },
             kickoff: None,
             home_team: "NYJ".parse().unwrap(),
             away_team: "BUF".parse().unwrap(),
@@ -94,7 +96,7 @@ pub(crate) const REPRESENTATIVE_CSV: &str =
 /// Seed the representative slate around `admin_state()`: the four week-1 and
 /// four week-2 games, plus players 00-2 and 00-3. `admin_state()` already
 /// seeded player 00-1 and the BUF@NYJ week-1 game; re-seeding either trips the
-/// `players.gsis_id` / `games.gsis_game_id` UNIQUE constraints.
+/// `players.gsis_id` / `games.game_id` UNIQUE constraints.
 pub(crate) async fn seed_representative_slate(nfl: &NflData) {
     nfl.seed_for_test(
         &[
@@ -130,10 +132,12 @@ pub(crate) fn salary_upload_form(week: u8, csv: &str) -> MultipartForm {
 
 fn game(id: &str, week: u8, away: &str, home: &str) -> Game {
     Game {
-        gsis_game_id: id.into(),
-        season: Season(2025),
-        week: Week(week),
-        season_type: SeasonType::Reg,
+        game_id: id.into(),
+        season_week: SeasonWeek {
+            season: Season(2025),
+            season_type: SeasonType::Reg,
+            week: Week(week),
+        },
         kickoff: None,
         home_team: home.parse().unwrap(),
         away_team: away.parse().unwrap(),
@@ -275,10 +279,12 @@ async fn dashboard_form_uses_config_clock_at_the_monday_boundary() {
             &[],
             &[
                 crate::Game {
-                    gsis_game_id: "monday".into(),
-                    season: Season(2025),
-                    week: crate::Week(5),
-                    season_type: crate::SeasonType::Reg,
+                    game_id: "monday".into(),
+                    season_week: crate::SeasonWeek {
+                        season: Season(2025),
+                        season_type: crate::SeasonType::Reg,
+                        week: crate::Week(5),
+                    },
                     kickoff: Some(datetime!(2025-10-06 23:15 UTC)),
                     home_team: "NYJ".parse().unwrap(),
                     away_team: "BUF".parse().unwrap(),
@@ -286,10 +292,12 @@ async fn dashboard_form_uses_config_clock_at_the_monday_boundary() {
                     away_score: None,
                 },
                 crate::Game {
-                    gsis_game_id: "upcoming".into(),
-                    season: Season(2025),
-                    week: crate::Week(6),
-                    season_type: crate::SeasonType::Reg,
+                    game_id: "upcoming".into(),
+                    season_week: crate::SeasonWeek {
+                        season: Season(2025),
+                        season_type: crate::SeasonType::Reg,
+                        week: crate::Week(6),
+                    },
                     kickoff: Some(datetime!(2025-10-12 17:00 UTC)),
                     home_team: "NYJ".parse().unwrap(),
                     away_team: "BUF".parse().unwrap(),

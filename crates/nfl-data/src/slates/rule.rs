@@ -54,8 +54,8 @@ impl Rule {
         };
         match self {
             Rule::Main { week } => {
-                game.season_type == SeasonType::Reg
-                    && game.week.0 == week
+                game.season_week.season_type == SeasonType::Reg
+                    && game.season_week.week.0 == week
                     && et.weekday() == Weekday::Sunday
                     && et.time() >= noon
                     && et.time() <= six_pm
@@ -113,7 +113,7 @@ fn proposal(rule: Rule, week: &SeasonWeek, week_games: &[&Game]) -> SlateProposa
             .filter_map(|g| g.kickoff)
             .map(|k| k.to_offset(UtcOffset::UTC))
             .min(),
-        game_ids: selected.iter().map(|g| g.gsis_game_id.clone()).collect(),
+        game_ids: selected.iter().map(|g| g.game_id.clone()).collect(),
     }
 }
 
@@ -128,12 +128,12 @@ pub(crate) fn opening_monday(week: SeasonWeek, games: &[Game]) -> Option<Date> {
 }
 
 fn in_week(game: &Game, week: &SeasonWeek) -> bool {
-    game.season == week.season && game.season_type == week.season_type && game.week == week.week
+    game.season_week == *week
 }
 
 fn playoff_week_covers(game: &Game, et: OffsetDateTime, week: u8) -> bool {
-    game.season_type == SeasonType::Post
-        && game.week.0 == week
+    game.season_week.season_type == SeasonType::Post
+        && game.season_week.week.0 == week
         && matches!(et.weekday(), Weekday::Saturday | Weekday::Sunday)
 }
 
@@ -168,10 +168,12 @@ mod tests {
         kickoff: Option<OffsetDateTime>,
     ) -> Game {
         Game {
-            gsis_game_id: id.into(),
-            season: Season(season),
-            week: Week(week),
-            season_type,
+            game_id: id.into(),
+            season_week: SeasonWeek {
+                season: Season(season),
+                season_type,
+                week: Week(week),
+            },
             kickoff,
             away_team: "KC".parse().unwrap(),
             home_team: "BUF".parse().unwrap(),

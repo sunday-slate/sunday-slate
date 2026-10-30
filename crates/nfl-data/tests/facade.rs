@@ -1,5 +1,6 @@
 use nfl_data::{
-    Game, NflData, NflDataConfig, Player, Season, SeasonType, TeamAbbr, Week, WeeklyRosterEntry,
+    Game, NflData, NflDataConfig, Player, Season, SeasonType, SeasonWeek, TeamAbbr, Week,
+    WeeklyRosterEntry,
 };
 
 fn player() -> Player {
@@ -17,10 +18,12 @@ fn player() -> Player {
 
 fn game() -> Game {
     Game {
-        gsis_game_id: "2025_01_BUF_KC".into(),
-        season: Season(2025),
-        week: Week(1),
-        season_type: SeasonType::Reg,
+        game_id: "2025_01_BUF_KC".into(),
+        season_week: SeasonWeek {
+            season: Season(2025),
+            season_type: SeasonType::Reg,
+            week: Week(1),
+        },
         kickoff: None,
         home_team: TeamAbbr::KC,
         away_team: TeamAbbr::BUF,

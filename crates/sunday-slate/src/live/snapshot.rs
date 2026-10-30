@@ -18,7 +18,7 @@ use tank01_data::PollEvent;
 #[derive(Debug, Clone, PartialEq)]
 pub struct LiveGameState {
     pub game: Game,
-    pub provider_game_id: Option<String>,
+    pub tank01_game_id: Option<String>,
     pub phase: LiveGamePhase,
     pub period: Option<String>,
     pub clock: Option<String>,
@@ -37,7 +37,7 @@ pub struct LiveGameState {
 }
 
 impl LiveGameState {
-    fn new(game: Game, provider_game_id: Option<String>, now: OffsetDateTime) -> Self {
+    fn new(game: Game, tank01_game_id: Option<String>, now: OffsetDateTime) -> Self {
         let phase = if game.kickoff_eastern().is_some_and(|kickoff| now < kickoff) {
             LiveGamePhase::Scheduled
         } else {
@@ -45,7 +45,7 @@ impl LiveGameState {
         };
         Self {
             game,
-            provider_game_id,
+            tank01_game_id,
             phase,
             period: None,
             clock: None,
@@ -119,12 +119,12 @@ impl SnapshotReducer {
         let mut game_states = HashMap::with_capacity(games.len());
         let mut by_provider_id = HashMap::with_capacity(games.len());
         for game in &games {
-            let provider_id = provider_game_id(game);
+            let provider_id = tank01_game_id(game);
             if let Some(provider_id) = &provider_id {
-                by_provider_id.insert(provider_id.clone(), game.gsis_game_id.clone());
+                by_provider_id.insert(provider_id.clone(), game.game_id.clone());
             }
             game_states.insert(
-                game.gsis_game_id.clone(),
+                game.game_id.clone(),
                 LiveGameState::new(game.clone(), provider_id, now),
             );
         }
@@ -142,12 +142,11 @@ impl SnapshotReducer {
 
     pub fn accepts_event(&self, event: &PollEvent) -> bool {
         match event {
-            PollEvent::BoxScore { game, .. } => self
-                .game_states
-                .get(&game.gsis_game_id)
-                .is_some_and(|state| {
-                    state.provider_game_id.as_deref() == Some(game.provider_game_id.as_str())
-                }),
+            PollEvent::BoxScore { game, .. } => {
+                self.game_states.get(&game.game_id).is_some_and(|state| {
+                    state.tank01_game_id.as_deref() == Some(game.tank01_game_id.as_str())
+                })
+            }
             PollEvent::Scoreboard { .. } | PollEvent::RunFinished { .. } => true,
         }
     }
@@ -168,10 +167,10 @@ impl SnapshotReducer {
         let error = Some(LiveError::Provider);
         self.latest_error = error;
         for game in feed_games {
-            let Some(state) = self.game_states.get_mut(&game.gsis_game_id) else {
+            let Some(state) = self.game_states.get_mut(&game.game_id) else {
                 continue;
             };
-            if state.provider_game_id.as_deref() != Some(game.provider_game_id.as_str()) {
+            if state.tank01_game_id.as_deref() != Some(game.tank01_game_id.as_str()) {
                 continue;
             }
             state.last_error = error;
@@ -185,7 +184,7 @@ impl SnapshotReducer {
     pub fn snapshot(&self) -> LiveContestSnapshot {
         let mut stats = WeekStats::default();
         let mut games = self.game_states.values().collect::<Vec<_>>();
-        games.sort_by(|a, b| a.game.gsis_game_id.cmp(&b.game.gsis_game_id));
+        games.sort_by(|a, b| a.game.game_id.cmp(&b.game.game_id));
         for state in games {
             stats.players.extend(state.players.clone());
             stats.defenses.extend(state.defenses.clone());
@@ -213,11 +212,11 @@ impl SnapshotReducer {
                 for update in &scoreboard.games {
                     if !feed_games
                         .iter()
-                        .any(|game| game.provider_game_id == update.provider_game_id)
+                        .any(|game| game.tank01_game_id == update.tank01_game_id)
                     {
                         continue;
                     }
-                    let Some(gsis_id) = self.by_provider_id.get(&update.provider_game_id).cloned()
+                    let Some(gsis_id) = self.by_provider_id.get(&update.tank01_game_id).cloned()
                     else {
                         continue;
                     };
@@ -237,7 +236,7 @@ impl SnapshotReducer {
                 let error = Some(LiveError::Provider);
                 self.latest_error = error;
                 for game in feed_games {
-                    let Some(gsis_id) = self.by_provider_id.get(&game.provider_game_id).cloned()
+                    let Some(gsis_id) = self.by_provider_id.get(&game.tank01_game_id).cloned()
                     else {
                         continue;
                     };
@@ -259,7 +258,7 @@ impl SnapshotReducer {
         game: &LiveGame,
         response: &nfl_data::ProviderResponse<LiveGameSnapshot>,
     ) {
-        let state_id = game.gsis_game_id.clone();
+        let state_id = game.game_id.clone();
 
         match &response.outcome {
             ProviderOutcome::Value(snapshot) => {
@@ -376,9 +375,9 @@ fn adapt_player(
         .as_ref()
         .unwrap_or_else(|| opposing_team(&snapshot.game, Some(team)));
     PlayerWeekStats {
-        season: snapshot.game.season,
-        week: snapshot.game.week,
-        season_type: snapshot.game.season_type,
+        season: snapshot.game.season_week.season,
+        week: snapshot.game.season_week.week,
+        season_type: snapshot.game.season_week.season_type,
         gsis_id: gsis_id.0,
         team: canonical_team(team),
         opponent: Some(canonical_team(opponent)),
@@ -407,12 +406,12 @@ fn adapt_defense(
     team: TeamAbbr,
 ) -> TeamWeekStats {
     TeamWeekStats {
-        season: snapshot.game.season,
-        week: snapshot.game.week,
-        season_type: snapshot.game.season_type,
+        season: snapshot.game.season_week.season,
+        week: snapshot.game.season_week.week,
+        season_type: snapshot.game.season_week.season_type,
         team,
         opponent: canonical_team(&row.opponent),
-        gsis_game_id: snapshot.game.gsis_game_id.clone(),
+        game_id: snapshot.game.game_id.clone(),
         sacks: row.sacks,
         interceptions: row.interceptions,
         fumble_recoveries: row.fumble_recoveries,
@@ -424,7 +423,7 @@ fn adapt_defense(
     }
 }
 
-pub fn provider_game_id(game: &Game) -> Option<String> {
+pub fn tank01_game_id(game: &Game) -> Option<String> {
     let date = game.kickoff_eastern()?.date();
     let date = format!(
         "{:04}{:02}{:02}",
@@ -443,11 +442,9 @@ pub fn provider_game_id(game: &Game) -> Option<String> {
 /// The game in the provider id space it polls; `None` without a kickoff date.
 pub fn live_game(game: &Game) -> Option<LiveGame> {
     Some(LiveGame {
-        gsis_game_id: game.gsis_game_id.clone(),
-        provider_game_id: provider_game_id(game)?,
-        season: game.season,
-        week: game.week,
-        season_type: game.season_type,
+        game_id: game.game_id.clone(),
+        tank01_game_id: tank01_game_id(game)?,
+        season_week: game.season_week,
         kickoff: game.kickoff,
         home_team: game.home_team,
         away_team: game.away_team,
@@ -702,8 +699,8 @@ fn scheduled_contribution(state: &LiveGameState, now: OffsetDateTime) -> LiveCon
 }
 
 impl LiveContestSnapshot {
-    pub fn game(&self, gsis_game_id: &str) -> Option<&LiveGameState> {
-        self.game_states.get(gsis_game_id)
+    pub fn game(&self, game_id: &str) -> Option<&LiveGameState> {
+        self.game_states.get(game_id)
     }
 
     pub fn scored_games(&self) -> Vec<Game> {
@@ -711,7 +708,7 @@ impl LiveContestSnapshot {
             .iter()
             .map(|game| {
                 let mut game = game.clone();
-                if let Some(state) = self.game(&game.gsis_game_id) {
+                if let Some(state) = self.game(&game.game_id) {
                     game.home_score = state.home_score;
                     game.away_score = state.away_score;
                 }
@@ -1044,7 +1041,7 @@ mod tests {
     ) -> LiveGameState {
         LiveGameState {
             game: game(),
-            provider_game_id: Some("live".into()),
+            tank01_game_id: Some("live".into()),
             phase,
             period: period.map(str::to_string),
             clock: clock.map(str::to_string),

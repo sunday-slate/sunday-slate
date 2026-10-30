@@ -1,16 +1,16 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT gsis_game_id AS \"gsis_game_id!: String\"\n           FROM contest_games WHERE contest_id = ?1 ORDER BY gsis_game_id",
+  "query": "SELECT game_id AS \"game_id!: String\"\n           FROM contest_games WHERE contest_id = ?1 ORDER BY game_id",
   "describe": {
     "columns": [
       {
-        "name": "gsis_game_id!: String",
+        "name": "game_id!: String",
         "ordinal": 0,
         "type_info": "Text",
         "origin": {
           "Table": {
             "table": "contest_games",
-            "name": "gsis_game_id"
+            "name": "game_id"
           }
         }
       }
@@ -22,5 +22,5 @@
       false
     ]
   },
-  "hash": "4f4dd198e2de3c9fcd985137545a76eac5462459210438178e07ec642d38f760"
+  "hash": "d600764fe2e82f0f5fbfac988a039fcf4724cdcaa6f7ec7128a6b67dd683a82d"
 }

@@ -17,7 +17,7 @@ use crate::{
     normalize,
     poll::{
         EVERY_FIFTH_PLAY_BY_PLAY, FINAL_FOLLOWUP_INTERVAL_SECONDS, FINAL_FOLLOWUPS,
-        POLL_INTERVAL_SECONDS, PollEvent, PollRequest, box_score_query, safe_provider_game_id,
+        POLL_INTERVAL_SECONDS, PollEvent, PollRequest, box_score_query, safe_tank01_game_id,
     },
 };
 
@@ -63,8 +63,7 @@ impl Replay {
             &mut mismatches,
         )?);
         for game in &manifest.games {
-            if expected_game_file(&game.provider_game_id).as_deref()
-                != Some(game.file_name.as_str())
+            if expected_game_file(&game.tank01_game_id).as_deref() != Some(game.file_name.as_str())
             {
                 continue;
             }
@@ -88,7 +87,7 @@ impl Replay {
         let game_by_provider = manifest
             .games
             .iter()
-            .map(|game| (game.provider_game_id.as_str(), game))
+            .map(|game| (game.tank01_game_id.as_str(), game))
             .collect::<BTreeMap<_, _>>();
         let mut previous_projection: BTreeMap<String, Value> = BTreeMap::new();
 
@@ -124,16 +123,16 @@ impl Replay {
                         box_score_query(game, *play_by_play),
                         &mut mismatches,
                     );
-                    match game_by_provider.get(game.provider_game_id.as_str()) {
+                    match game_by_provider.get(game.tank01_game_id.as_str()) {
                         Some(manifest_game) => {
-                            if manifest_game.gsis_game_id != game.gsis_game_id {
+                            if manifest_game.game_id != game.game_id {
                                 mismatch(
                                     &mut mismatches,
                                     Some(stored.sequence()),
                                     &stored.file,
                                     format!(
                                         "box event GSIS id {:?} disagrees with manifest {:?}",
-                                        game.gsis_game_id, manifest_game.gsis_game_id
+                                        game.game_id, manifest_game.game_id
                                     ),
                                 );
                             }
@@ -155,7 +154,7 @@ impl Replay {
                             &stored.file,
                             format!(
                                 "box event references provider game {:?} absent from manifest",
-                                game.provider_game_id
+                                game.tank01_game_id
                             ),
                         ),
                     }
@@ -298,7 +297,7 @@ fn validate_manifest(
     let mut provider_ids = BTreeSet::new();
     let mut file_names = BTreeSet::new();
     for game in &manifest.games {
-        if game.gsis_game_id.is_empty() || game.provider_game_id.is_empty() {
+        if game.game_id.is_empty() || game.tank01_game_id.is_empty() {
             mismatch(
                 mismatches,
                 None,
@@ -306,20 +305,20 @@ fn validate_manifest(
                 "manifest contains an empty game identity".into(),
             );
         }
-        if !gsis_ids.insert(&game.gsis_game_id) {
+        if !gsis_ids.insert(&game.game_id) {
             mismatch(
                 mismatches,
                 None,
                 "manifest.json",
-                format!("duplicate GSIS game id {:?}", game.gsis_game_id),
+                format!("duplicate GSIS game id {:?}", game.game_id),
             );
         }
-        if !provider_ids.insert(&game.provider_game_id) {
+        if !provider_ids.insert(&game.tank01_game_id) {
             mismatch(
                 mismatches,
                 None,
                 "manifest.json",
-                format!("duplicate provider game id {:?}", game.provider_game_id),
+                format!("duplicate provider game id {:?}", game.tank01_game_id),
             );
         }
         if !file_names.insert(&game.file_name) {
@@ -330,7 +329,7 @@ fn validate_manifest(
                 format!("duplicate game file {:?}", game.file_name),
             );
         }
-        let expected_file = expected_game_file(&game.provider_game_id);
+        let expected_file = expected_game_file(&game.tank01_game_id);
         if expected_file.as_deref() != Some(game.file_name.as_str()) {
             mismatch(
                 mismatches,
@@ -338,7 +337,7 @@ fn validate_manifest(
                 "manifest.json",
                 format!(
                     "game file {:?} does not match provider game id {:?}",
-                    game.file_name, game.provider_game_id
+                    game.file_name, game.tank01_game_id
                 ),
             );
         } else if !root.join(&game.file_name).exists() {
@@ -479,8 +478,8 @@ fn validate_global_order(
     }
 }
 
-fn expected_game_file(provider_game_id: &str) -> Option<String> {
-    safe_provider_game_id(provider_game_id)
+fn expected_game_file(tank01_game_id: &str) -> Option<String> {
+    safe_tank01_game_id(tank01_game_id)
         .ok()
         .map(|safe_name| game_file_name(&safe_name))
 }
@@ -539,9 +538,9 @@ fn replay_box(
     let expected_changed = match (&response.outcome, &replayed) {
         (ProviderOutcome::Value(_), ReplayOutcome::Value(replayed_snapshot)) => {
             let projection = normalize::response_projection(response, replayed_snapshot);
-            let expected = !previous_projection.contains_key(&game.provider_game_id)
-                || previous_projection.get(&game.provider_game_id) != Some(&projection);
-            previous_projection.insert(game.provider_game_id.clone(), projection);
+            let expected = !previous_projection.contains_key(&game.tank01_game_id)
+                || previous_projection.get(&game.tank01_game_id) != Some(&projection);
+            previous_projection.insert(game.tank01_game_id.clone(), projection);
             expected
         }
         _ => false,
@@ -607,7 +606,7 @@ fn classify_box(
     let RawBody::Json(value) = raw_body else {
         return ReplayOutcome::Error(OutcomeCategory::Json);
     };
-    match normalize::pregame_message_for(value, Some(&game.provider_game_id)) {
+    match normalize::pregame_message_for(value, Some(&game.tank01_game_id)) {
         Ok(Some(_)) => return ReplayOutcome::Pregame,
         Ok(None) => {}
         Err(error) => return ReplayOutcome::Error(error_category(error.into_provider_error())),
@@ -737,11 +736,13 @@ mod tests {
 
     fn game() -> LiveGame {
         LiveGame {
-            gsis_game_id: "2026_01_SF_LAR".into(),
-            provider_game_id: "20260910_SF@LAR".into(),
-            season: Season(2026),
-            week: Week(1),
-            season_type: SeasonType::Reg,
+            game_id: "2026_01_SF_LAR".into(),
+            tank01_game_id: "20260910_SF@LAR".into(),
+            season_week: nfl_model::SeasonWeek {
+                season: Season(2026),
+                season_type: SeasonType::Reg,
+                week: Week(1),
+            },
             kickoff: Some(datetime!(2026-09-10 20:35:00 -04:00)),
             home_team: TeamAbbr::LA,
             away_team: TeamAbbr::SF,
@@ -767,7 +768,7 @@ mod tests {
                 )),
                 outcome: ProviderOutcome::Value(LiveScoreboard {
                     games: vec![LiveScoreboardGame {
-                        provider_game_id: "20260910_SF@LAR".into(),
+                        tank01_game_id: "20260910_SF@LAR".into(),
                         phase: LiveGamePhase::InProgress,
                         period: None,
                         clock: None,
@@ -894,8 +895,8 @@ mod tests {
     async fn reports_box_events_written_to_the_wrong_game_stream() {
         let directory = tempfile::tempdir().unwrap();
         let mut second_game = game();
-        second_game.gsis_game_id = "2026_01_NE_NYJ".into();
-        second_game.provider_game_id = "20260910_NE@NYJ".into();
+        second_game.game_id = "2026_01_NE_NYJ".into();
+        second_game.tank01_game_id = "20260910_NE@NYJ".into();
         second_game.home_team = TeamAbbr::NYJ;
         second_game.away_team = TeamAbbr::NE;
         let slate = LiveSlate {

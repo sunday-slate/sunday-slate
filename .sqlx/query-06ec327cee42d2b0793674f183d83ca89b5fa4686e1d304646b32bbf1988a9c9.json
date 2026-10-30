@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT contest_id AS \"contest_id!: ContestId\", gsis_game_id AS \"gsis_game_id!: NflGameId\"\n           FROM contest_games ORDER BY contest_id, gsis_game_id",
+  "query": "SELECT contest_id AS \"contest_id!: ContestId\", game_id AS \"game_id!: NflGameId\"\n           FROM contest_games ORDER BY contest_id, game_id",
   "describe": {
     "columns": [
       {
@@ -15,13 +15,13 @@
         }
       },
       {
-        "name": "gsis_game_id!: NflGameId",
+        "name": "game_id!: NflGameId",
         "ordinal": 1,
         "type_info": "Text",
         "origin": {
           "Table": {
             "table": "contest_games",
-            "name": "gsis_game_id"
+            "name": "game_id"
           }
         }
       }
@@ -34,5 +34,5 @@
       false
     ]
   },
-  "hash": "cc1945732848d7e8b6825104e72b54492c79d4805edcce39b05bfbe3bf4ad8c1"
+  "hash": "06ec327cee42d2b0793674f183d83ca89b5fa4686e1d304646b32bbf1988a9c9"
 }

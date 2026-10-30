@@ -12,7 +12,7 @@ use tokio::sync::mpsc::Receiver;
 
 use crate::poll::{
     CompletionReason, EVERY_FIFTH_PLAY_BY_PLAY, FINAL_FOLLOWUP_INTERVAL_SECONDS, FINAL_FOLLOWUPS,
-    POLL_INTERVAL_SECONDS, PollEvent, safe_provider_game_id,
+    POLL_INTERVAL_SECONDS, PollEvent, safe_tank01_game_id,
 };
 
 pub(crate) const SCHEMA_VERSION: u32 = 1;
@@ -49,8 +49,8 @@ pub(crate) struct Manifest {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct ManifestGame {
-    pub gsis_game_id: String,
-    pub provider_game_id: String,
+    pub game_id: String,
+    pub tank01_game_id: String,
     pub file_name: String,
 }
 
@@ -107,34 +107,34 @@ impl CaptureWriter {
         let mut safe_names = BTreeSet::new();
         let mut manifest_games = Vec::with_capacity(slate.games.len());
         for game in &slate.games {
-            if game.gsis_game_id.is_empty() || game.provider_game_id.is_empty() {
+            if game.game_id.is_empty() || game.tank01_game_id.is_empty() {
                 return Err(CaptureError::Invalid(
                     "capture game ids must not be empty".into(),
                 ));
             }
-            if !gsis_ids.insert(&game.gsis_game_id) {
+            if !gsis_ids.insert(&game.game_id) {
                 return Err(CaptureError::Invalid(format!(
                     "duplicate GSIS game id {:?}",
-                    game.gsis_game_id
+                    game.game_id
                 )));
             }
-            if !provider_ids.insert(&game.provider_game_id) {
+            if !provider_ids.insert(&game.tank01_game_id) {
                 return Err(CaptureError::Invalid(format!(
                     "duplicate provider game id {:?}",
-                    game.provider_game_id
+                    game.tank01_game_id
                 )));
             }
-            let safe_name = safe_provider_game_id(&game.provider_game_id)
+            let safe_name = safe_tank01_game_id(&game.tank01_game_id)
                 .map_err(|error| CaptureError::Invalid(error.to_string()))?;
             if !safe_names.insert(safe_name.clone()) {
                 return Err(CaptureError::Invalid(format!(
                     "provider game id {:?} collides as {safe_name:?}",
-                    game.provider_game_id
+                    game.tank01_game_id
                 )));
             }
             manifest_games.push(ManifestGame {
-                gsis_game_id: game.gsis_game_id.clone(),
-                provider_game_id: game.provider_game_id.clone(),
+                game_id: game.game_id.clone(),
+                tank01_game_id: game.tank01_game_id.clone(),
                 file_name: game_file_name(&safe_name),
             });
         }
@@ -144,7 +144,7 @@ impl CaptureWriter {
         let mut games = BTreeMap::new();
         for game in &manifest_games {
             let path = root.join(&game.file_name);
-            games.insert(game.provider_game_id.clone(), create_new_buffer(&path)?);
+            games.insert(game.tank01_game_id.clone(), create_new_buffer(&path)?);
         }
 
         let manifest = Manifest {
@@ -202,10 +202,10 @@ impl CaptureWriter {
                 self.event_count += 1;
             }
             PollEvent::BoxScore { game, .. } => {
-                let file = self.games.get_mut(&game.provider_game_id).ok_or_else(|| {
+                let file = self.games.get_mut(&game.tank01_game_id).ok_or_else(|| {
                     CaptureError::Invalid(format!(
                         "box event references unknown provider game {:?}",
-                        game.provider_game_id
+                        game.tank01_game_id
                     ))
                 })?;
                 let envelope = LineEnvelope {
@@ -291,11 +291,13 @@ mod tests {
 
     fn game() -> LiveGame {
         LiveGame {
-            gsis_game_id: "2026_01_SF_LAR".into(),
-            provider_game_id: "20260910_SF@LAR".into(),
-            season: Season(2026),
-            week: Week(1),
-            season_type: SeasonType::Reg,
+            game_id: "2026_01_SF_LAR".into(),
+            tank01_game_id: "20260910_SF@LAR".into(),
+            season_week: nfl_model::SeasonWeek {
+                season: Season(2026),
+                season_type: SeasonType::Reg,
+                week: Week(1),
+            },
             kickoff: Some(datetime!(2026-09-10 20:35:00 -04:00)),
             home_team: TeamAbbr::LA,
             away_team: TeamAbbr::SF,

@@ -29,7 +29,7 @@ use crate::{Season, SeasonType, Week};
 /// assert_eq!(week.encode(), 2_026_001);
 /// assert_eq!(SeasonWeek::decode(2_026_001), Some(week));
 /// ```
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct SeasonWeek {
     /// Year identifying the NFL season, including for postseason games in the next calendar year.
     pub season: Season,

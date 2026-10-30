@@ -98,7 +98,7 @@ async fn reconcile_week_at(
 fn selected_games(schedule: &[Game], ids: &[String]) -> Vec<Game> {
     let by_id: HashMap<&str, &Game> = schedule
         .iter()
-        .map(|game| (game.gsis_game_id.as_str(), game))
+        .map(|game| (game.game_id.as_str(), game))
         .collect();
     let mut selected: Vec<Game> = ids
         .iter()
@@ -109,7 +109,7 @@ fn selected_games(schedule: &[Game], ids: &[String]) -> Vec<Game> {
             .is_none()
             .cmp(&b.kickoff.is_none())
             .then_with(|| a.kickoff.cmp(&b.kickoff))
-            .then_with(|| a.gsis_game_id.cmp(&b.gsis_game_id))
+            .then_with(|| a.game_id.cmp(&b.game_id))
     });
     selected
 }

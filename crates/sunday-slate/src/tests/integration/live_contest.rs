@@ -352,7 +352,7 @@ async fn live_contest_ranks_and_drills_into_provisional_scores(pool: SqlitePool)
         ..factories::player_stats("00-BUF", 1)
     };
     let buf_defense = TeamWeekStats {
-        gsis_game_id: GAME_ID.into(),
+        game_id: GAME_ID.into(),
         ..factories::defense_stats("BUF", "KC", 1)
     };
     app.nfl
@@ -524,7 +524,7 @@ async fn dev_feed_snapshot_outranks_official_stats(pool: SqlitePool) {
         ..factories::player_stats("00-BUF", 1)
     };
     let buf_defense = TeamWeekStats {
-        gsis_game_id: GAME_ID.into(),
+        game_id: GAME_ID.into(),
         ..factories::defense_stats("BUF", "KC", 1)
     };
     app.nfl

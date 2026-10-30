@@ -10,10 +10,12 @@ use sqlx::SqlitePool;
 /// update syntax when the test needs one.
 pub fn game(id: &str, week: u8) -> Game {
     Game {
-        gsis_game_id: id.into(),
-        season: Season(2025),
-        week: Week(week),
-        season_type: SeasonType::Reg,
+        game_id: id.into(),
+        season_week: nfl_data::SeasonWeek {
+            season: Season(2025),
+            season_type: SeasonType::Reg,
+            week: Week(week),
+        },
         kickoff: None,
         home_team: TeamAbbr::KC,
         away_team: TeamAbbr::BUF,
@@ -74,7 +76,7 @@ pub fn defense_stats(team: &str, opponent: &str, week: u8) -> NflTeamWeekStats {
         season_type: SeasonType::Reg,
         team: team.parse().unwrap(),
         opponent: opponent.parse().unwrap(),
-        gsis_game_id: format!("2025_{week:02}_{opponent}_{team}"),
+        game_id: format!("2025_{week:02}_{opponent}_{team}"),
         sacks: 0,
         interceptions: 0,
         fumble_recoveries: 0,
@@ -144,7 +146,7 @@ pub async fn contest(pool: &SqlitePool, name: &str) -> i64 {
 pub async fn contest_with_games(pool: &SqlitePool, name: &str, games: &[&str]) -> i64 {
     let id = contest(pool, name).await;
     for game in games {
-        sqlx::query("INSERT INTO contest_games (contest_id, gsis_game_id) VALUES (?1, ?2)")
+        sqlx::query("INSERT INTO contest_games (contest_id, game_id) VALUES (?1, ?2)")
             .bind(id)
             .bind(game)
             .execute(pool)

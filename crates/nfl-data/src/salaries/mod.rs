@@ -52,7 +52,7 @@ impl NflData {
                         game.away_team.as_str().to_owned(),
                         game.home_team.as_str().to_owned(),
                     ),
-                    game.gsis_game_id.clone(),
+                    game.game_id.clone(),
                 )
             })
             .collect();

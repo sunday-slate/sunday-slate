@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM contest_games WHERE contest_id = ?1 AND game_id = ?2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "d43f570107af5c37563fd3560e7a44277f6d14bd6b91f8643f23077bfd5a7d39"
+}

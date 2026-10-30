@@ -58,14 +58,14 @@ impl Fixture {
         for game in games {
             sqlx::query(
                 "INSERT INTO games \
-                 (gsis_game_id, season, week, season_type, kickoff, \
+                 (game_id, season, week, season_type, kickoff, \
                  home_team, away_team, home_score, away_score) \
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
-            .bind(&game.gsis_game_id)
-            .bind(game.season)
-            .bind(game.week)
-            .bind(game.season_type)
+            .bind(&game.game_id)
+            .bind(game.season_week.season)
+            .bind(game.season_week.week)
+            .bind(game.season_week.season_type)
             .bind(game.kickoff)
             .bind(game.home_team)
             .bind(game.away_team)

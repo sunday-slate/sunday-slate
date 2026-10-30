@@ -265,12 +265,7 @@ fn identity_of(finals: &LivePlayerStats) -> LivePlayerStats {
 
 fn resolve_games(ids: &[crate::contests::NflGameId], schedule: &[Game]) -> Vec<Game> {
     ids.iter()
-        .filter_map(|id| {
-            schedule
-                .iter()
-                .find(|game| game.gsis_game_id == id.0)
-                .cloned()
-        })
+        .filter_map(|id| schedule.iter().find(|game| game.game_id == id.0).cloned())
         .collect()
 }
 
@@ -333,7 +328,7 @@ async fn run_inner(state: &AppState) -> Result<(), AppError> {
         }
         for game in &games {
             distinct
-                .entry(game.gsis_game_id.clone())
+                .entry(game.game_id.clone())
                 .or_insert_with(|| game.clone());
         }
         targets.push((*contest, games, live_games));
@@ -369,15 +364,15 @@ async fn run_inner(state: &AppState) -> Result<(), AppError> {
     }
 
     let mut ramps = BTreeMap::new();
-    for (gsis_game_id, game) in &distinct {
+    for (game_id, game) in &distinct {
         if let Some(ramp) = plan_ramp(state, game).await? {
-            ramps.insert(gsis_game_id.clone(), (lane(game, now), ramp));
+            ramps.insert(game_id.clone(), (lane(game, now), ramp));
         }
     }
 
     for (contest, _, live_games) in &targets {
         for game in live_games {
-            let Some((Lane::EndedBeforeNow, ramp)) = ramps.get(&game.gsis_game_id) else {
+            let Some((Lane::EndedBeforeNow, ramp)) = ramps.get(&game.game_id) else {
                 continue;
             };
             let event = event(game, ramp.snapshot_at(DEV_TICKS, now), DEV_TICKS);
@@ -390,7 +385,7 @@ async fn run_inner(state: &AppState) -> Result<(), AppError> {
     for tick in 0..=DEV_TICKS {
         for (contest, _, live_games) in &targets {
             for game in live_games {
-                let Some((Lane::InFlight, ramp)) = ramps.get(&game.gsis_game_id) else {
+                let Some((Lane::InFlight, ramp)) = ramps.get(&game.game_id) else {
                     continue;
                 };
                 let event = event(game, ramp.snapshot_at(tick, now), tick);
@@ -414,11 +409,11 @@ async fn run_inner(state: &AppState) -> Result<(), AppError> {
 
 async fn plan_ramp(state: &AppState, game: &Game) -> Result<Option<Ramp>, AppError> {
     let Some(live) = live_game(game) else {
-        tracing::warn!(game = %game.gsis_game_id, "live dev feed: game has no provider id");
+        tracing::warn!(game = %game.game_id, "live dev feed: game has no provider id");
         return Ok(None);
     };
-    let season = game.season;
-    let week = game.week;
+    let season = game.season_week.season;
+    let week = game.season_week.week;
     let home = game.home_team;
     let away = game.away_team;
 
@@ -433,7 +428,7 @@ async fn plan_ramp(state: &AppState, game: &Game) -> Result<Option<Ramp>, AppErr
 
     let mut players = Vec::new();
     for row in state.nfl.player_week_stats(season, week).await? {
-        if row.season_type != game.season_type {
+        if row.season_type != game.season_week.season_type {
             continue;
         }
         let matches_home = row.team == home && row.opponent.as_ref() == Some(&away);
@@ -475,7 +470,7 @@ async fn plan_ramp(state: &AppState, game: &Game) -> Result<Option<Ramp>, AppErr
 
     let mut defenses = Vec::new();
     for row in state.nfl.team_week_stats(season, week).await? {
-        if row.gsis_game_id != game.gsis_game_id || row.season_type != game.season_type {
+        if row.game_id != game.game_id || row.season_type != game.season_week.season_type {
             continue;
         }
         defenses.push(LiveTeamStats {
@@ -496,7 +491,7 @@ async fn plan_ramp(state: &AppState, game: &Game) -> Result<Option<Ramp>, AppErr
 
     if players.is_empty() || defenses.is_empty() {
         tracing::warn!(
-            game = %game.gsis_game_id,
+            game = %game.game_id,
             "live dev feed: no nflverse stats for game"
         );
         return Ok(None);
@@ -523,7 +518,7 @@ fn event(game: &LiveGame, snapshot: LiveGameSnapshot, tick: u64) -> PollEvent {
         game: game.clone(),
         request: PollRequest {
             endpoint: "getNFLBoxScore".into(),
-            query: BTreeMap::from([(String::from("gameID"), game.provider_game_id.clone())]),
+            query: BTreeMap::from([(String::from("gameID"), game.tank01_game_id.clone())]),
         },
         play_by_play: false,
         changed: true,
@@ -808,11 +803,11 @@ mod tests {
             ..factories::player_stats("00-A", 1)
         };
         let kc_def = TeamWeekStats {
-            gsis_game_id: "2025_01_BUF_KC".into(),
+            game_id: "2025_01_BUF_KC".into(),
             ..factories::defense_stats("KC", "BUF", 1)
         };
         let buf_def = TeamWeekStats {
-            gsis_game_id: "2025_01_BUF_KC".into(),
+            game_id: "2025_01_BUF_KC".into(),
             ..factories::defense_stats("BUF", "KC", 1)
         };
         app.nfl
@@ -914,11 +909,11 @@ mod tests {
             ..factories::player_stats("00-A", 1)
         };
         let kc_def = TeamWeekStats {
-            gsis_game_id: "2025_01_BUF_KC".into(),
+            game_id: "2025_01_BUF_KC".into(),
             ..factories::defense_stats("KC", "BUF", 1)
         };
         let buf_def = TeamWeekStats {
-            gsis_game_id: "2025_01_BUF_KC".into(),
+            game_id: "2025_01_BUF_KC".into(),
             ..factories::defense_stats("BUF", "KC", 1)
         };
         app.nfl

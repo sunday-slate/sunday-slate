@@ -193,10 +193,12 @@ mod tests {
             .seed_for_test(
                 &[],
                 &[crate::Game {
-                    gsis_game_id: "2025_21_BUF_NYJ".into(),
-                    season: crate::Season(2025),
-                    week: crate::Week(21),
-                    season_type: crate::SeasonType::Post,
+                    game_id: "2025_21_BUF_NYJ".into(),
+                    season_week: crate::SeasonWeek {
+                        season: crate::Season(2025),
+                        season_type: crate::SeasonType::Post,
+                        week: crate::Week(21),
+                    },
                     kickoff: None,
                     home_team: "NYJ".parse().unwrap(),
                     away_team: "BUF".parse().unwrap(),

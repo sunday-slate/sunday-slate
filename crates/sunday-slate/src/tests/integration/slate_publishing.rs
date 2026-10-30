@@ -12,10 +12,12 @@ use crate::tests::utils::form_body;
 
 pub(crate) fn game(id: &str, week: u8, kickoff: OffsetDateTime) -> Game {
     Game {
-        gsis_game_id: id.into(),
-        season: Season(2025),
-        week: Week(week),
-        season_type: SeasonType::Reg,
+        game_id: id.into(),
+        season_week: nfl_data::SeasonWeek {
+            season: Season(2025),
+            season_type: SeasonType::Reg,
+            week: Week(week),
+        },
         kickoff: Some(kickoff),
         away_team: TeamAbbr::BUF,
         home_team: TeamAbbr::KC,
@@ -148,13 +150,11 @@ async fn a_non_admin_cannot_reach_the_editor(pool: SqlitePool) {
 }
 
 async fn published(pool: &SqlitePool, contest_id: i64) -> Vec<String> {
-    sqlx::query_scalar(
-        "SELECT gsis_game_id FROM contest_games WHERE contest_id = ?1 ORDER BY gsis_game_id",
-    )
-    .bind(contest_id)
-    .fetch_all(pool)
-    .await
-    .unwrap()
+    sqlx::query_scalar("SELECT game_id FROM contest_games WHERE contest_id = ?1 ORDER BY game_id")
+        .bind(contest_id)
+        .fetch_all(pool)
+        .await
+        .unwrap()
 }
 
 #[sqlx::test]

@@ -44,7 +44,7 @@ impl SeasonSlates {
         let game_week: HashMap<&str, Week> = self
             .games
             .iter()
-            .map(|g| (g.gsis_game_id.as_str(), g.week))
+            .map(|g| (g.game_id.as_str(), g.season_week.week))
             .collect();
         self.slates
             .iter()
@@ -81,7 +81,7 @@ impl SeasonSlates {
         for (contest, ids) in self.slates.iter().filter(|(c, _)| wanted.contains(c)) {
             let games = ids
                 .iter()
-                .filter_map(|id| self.games.iter().find(|g| g.gsis_game_id == id.0))
+                .filter_map(|id| self.games.iter().find(|g| g.game_id == id.0))
                 .cloned()
                 .collect::<Vec<_>>();
             if games.len() != ids.len() {
@@ -130,7 +130,7 @@ impl SeasonSlates {
     pub(crate) fn kickoffs(&self) -> HashMap<&str, OffsetDateTime> {
         self.games
             .iter()
-            .filter_map(|g| Some((g.gsis_game_id.as_str(), g.kickoff_eastern()?)))
+            .filter_map(|g| Some((g.game_id.as_str(), g.kickoff_eastern()?)))
             .collect()
     }
 
@@ -142,7 +142,7 @@ impl SeasonSlates {
         let scheduled: HashMap<&str, Option<OffsetDateTime>> = self
             .games
             .iter()
-            .map(|g| (g.gsis_game_id.as_str(), g.kickoff_eastern()))
+            .map(|g| (g.game_id.as_str(), g.kickoff_eastern()))
             .collect();
         contests
             .iter()
@@ -812,7 +812,7 @@ fn rows_in_entry_order(entrants: Vec<ContestEntrant>, mine: Option<EntryId>) -> 
 /// The slate's NFL week. `None` for an unpublished (empty) slate. Every contest
 /// rule keeps a slate inside one week, so the first game names it.
 pub fn slate_week(games: &[Game]) -> Option<Week> {
-    games.first().map(|g| g.week)
+    games.first().map(|g| g.season_week.week)
 }
 
 /// A slate game for display: its id, matchup, and Eastern kickoff.
@@ -851,7 +851,7 @@ pub fn game_rows(games: &[Game]) -> Vec<GameRow> {
             (
                 et,
                 GameRow {
-                    id: g.gsis_game_id.clone(),
+                    id: g.game_id.clone(),
                     matchup: format!("{} @ {}", g.away_team.as_str(), g.home_team.as_str()),
                     kickoff: et.map(format_kickoff),
                 },
@@ -1145,10 +1145,12 @@ mod tests {
 
     fn game(id: &str, away: &str, home: &str, kickoff: Option<OffsetDateTime>) -> Game {
         Game {
-            gsis_game_id: id.into(),
-            season: Season(2025),
-            week: Week(19),
-            season_type: SeasonType::Post,
+            game_id: id.into(),
+            season_week: nfl_data::SeasonWeek {
+                season: Season(2025),
+                season_type: SeasonType::Post,
+                week: Week(19),
+            },
             kickoff,
             away_team: away.parse().unwrap(),
             home_team: home.parse().unwrap(),
@@ -1165,25 +1167,25 @@ mod tests {
                 (game.home_team, game.away_team, 100, 2),
                 (game.away_team, game.home_team, 50, 3),
             ] {
-                let id = format!("{}-{}", game.gsis_game_id, team.as_str());
+                let id = format!("{}-{}", game.game_id, team.as_str());
                 players.push(PlayerWeekStats {
-                    season: game.season,
-                    week: game.week,
-                    season_type: game.season_type,
+                    season: game.season_week.season,
+                    week: game.season_week.week,
+                    season_type: game.season_week.season_type,
                     team,
                     opponent: Some(opponent),
-                    ..factories::rb_stats(&id, game.week.0, yards)
+                    ..factories::rb_stats(&id, game.season_week.week.0, yards)
                 });
                 defenses.push(TeamWeekStats {
-                    season: game.season,
-                    week: game.week,
-                    season_type: game.season_type,
-                    gsis_game_id: game.gsis_game_id.clone(),
+                    season: game.season_week.season,
+                    week: game.season_week.week,
+                    season_type: game.season_week.season_type,
+                    game_id: game.game_id.clone(),
                     sacks,
                     ..factories::scoreless_defense_stats(
                         team.as_str(),
                         opponent.as_str(),
-                        game.week.0,
+                        game.season_week.week.0,
                     )
                 });
             }
@@ -1253,14 +1255,14 @@ mod tests {
             week_stats
                 .defenses
                 .get(&TeamAbbr::KC)
-                .map(|d| (d.sacks, d.gsis_game_id.clone())),
+                .map(|d| (d.sacks, d.game_id.clone())),
             Some((2, "2025_01_BUF_KC".to_string()))
         );
         assert_eq!(
             week_stats
                 .defenses
                 .get(&TeamAbbr::BUF)
-                .map(|d| (d.sacks, d.gsis_game_id.clone())),
+                .map(|d| (d.sacks, d.game_id.clone())),
             Some((3, "2025_01_BUF_KC".to_string()))
         );
 
@@ -1592,7 +1594,7 @@ mod tests {
         ));
         let state = LiveGameState {
             game: game.clone(),
-            provider_game_id: Some("live".into()),
+            tank01_game_id: Some("live".into()),
             phase: LiveGamePhase::InProgress,
             period: Some("2".into()),
             clock: Some("08:00".into()),
@@ -1696,7 +1698,7 @@ mod tests {
         let team = factories::team(pool, TeamOptions::default()).await;
         let wk1 = factories::contest(pool, "Week 1").await;
         sqlx::query(
-            "INSERT INTO contest_games (contest_id, gsis_game_id) VALUES (?1, '2025_01_BUF_KC')",
+            "INSERT INTO contest_games (contest_id, game_id) VALUES (?1, '2025_01_BUF_KC')",
         )
         .bind(wk1)
         .execute(pool)
@@ -1757,7 +1759,7 @@ mod tests {
         .await;
         let wk1 = factories::contest(&pool, "Week 1").await;
         sqlx::query(
-            "INSERT INTO contest_games (contest_id, gsis_game_id) VALUES (?1, '2025_01_BUF_KC')",
+            "INSERT INTO contest_games (contest_id, game_id) VALUES (?1, '2025_01_BUF_KC')",
         )
         .bind(wk1)
         .execute(&pool)
@@ -1778,7 +1780,7 @@ mod tests {
             ..factories::player_stats("00-BUF", 1)
         };
         let buf_defense = TeamWeekStats {
-            gsis_game_id: "2025_01_BUF_KC".into(),
+            game_id: "2025_01_BUF_KC".into(),
             ..factories::scoreless_defense_stats("BUF", "KC", 1)
         };
         app.nfl
@@ -1877,7 +1879,7 @@ mod tests {
         let mustangs = named("Mustangs").await;
         let wk1 = factories::contest(pool, "Week 1").await;
         sqlx::query(
-            "INSERT INTO contest_games (contest_id, gsis_game_id) VALUES (?1, '2025_01_BUF_KC')",
+            "INSERT INTO contest_games (contest_id, game_id) VALUES (?1, '2025_01_BUF_KC')",
         )
         .bind(wk1)
         .execute(pool)
@@ -1982,7 +1984,7 @@ mod tests {
         .await;
         let wk1 = factories::contest(&pool, "Week 1").await;
         sqlx::query(
-            "INSERT INTO contest_games (contest_id, gsis_game_id) VALUES (?1, '2025_01_BUF_KC')",
+            "INSERT INTO contest_games (contest_id, game_id) VALUES (?1, '2025_01_BUF_KC')",
         )
         .bind(wk1)
         .execute(&pool)
@@ -2085,7 +2087,7 @@ mod tests {
         let wk = factories::contest(&pool, "Week 1").await;
         // Materialized game absent from the seeded schedule -> week unresolvable.
         sqlx::query(
-            "INSERT INTO contest_games (contest_id, gsis_game_id) VALUES (?1, '2025_99_BUF_KC')",
+            "INSERT INTO contest_games (contest_id, game_id) VALUES (?1, '2025_99_BUF_KC')",
         )
         .bind(wk)
         .execute(&pool)

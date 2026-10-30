@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT s.gsis_player_id AS \"gsis_player_id?: NflPlayerId\",\n                  s.team_abbr      AS \"team_abbr!: TeamAbbr\",\n                  s.dfs_position   AS \"dfs_position!: String\",\n                  s.salary         AS \"salary!: i64\"\n           FROM nfl_player_salaries s\n           JOIN contest_games cg ON cg.gsis_game_id = s.gsis_game_id\n           WHERE cg.contest_id = ?1",
+  "query": "SELECT s.gsis_player_id AS \"gsis_player_id?: NflPlayerId\",\n                  s.team_abbr      AS \"team_abbr!: TeamAbbr\",\n                  s.dfs_position   AS \"dfs_position!: String\",\n                  s.salary         AS \"salary!: i64\"\n           FROM nfl_player_salaries s\n           JOIN contest_games cg ON cg.game_id = s.game_id\n           WHERE cg.contest_id = ?1",
   "describe": {
     "columns": [
       {
@@ -58,5 +58,5 @@
       false
     ]
   },
-  "hash": "a448af24a507cd748d3b078c8ee64f396b0bcb929c1b4cdf41114c9bc2ebb847"
+  "hash": "93c4e7f3a0afea67f2690f0bb71ee0915dc8eac95fa15a775a2efb5422c3ff95"
 }

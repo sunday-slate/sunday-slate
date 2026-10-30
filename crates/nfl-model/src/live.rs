@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, fmt, future::Future};
 use serde::{Deserialize, Serialize};
 use time::{Date, OffsetDateTime};
 
-use crate::{Season, SeasonType, TeamAbbr, Week};
+use crate::{SeasonWeek, TeamAbbr};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -17,11 +17,9 @@ pub struct LiveSlate {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LiveGame {
-    pub gsis_game_id: String,
-    pub provider_game_id: String,
-    pub season: Season,
-    pub week: Week,
-    pub season_type: SeasonType,
+    pub game_id: String,
+    pub tank01_game_id: String,
+    pub season_week: SeasonWeek,
     pub kickoff: Option<OffsetDateTime>,
     pub home_team: TeamAbbr,
     pub away_team: TeamAbbr,
@@ -42,7 +40,7 @@ pub struct LiveScoreboard {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LiveScoreboardGame {
-    pub provider_game_id: String,
+    pub tank01_game_id: String,
     pub phase: LiveGamePhase,
     pub period: Option<String>,
     pub clock: Option<String>,

@@ -48,7 +48,7 @@ async fn open_contest(pool: &SqlitePool, app: &TestApp) -> (GeneratedTeam, i64, 
         ("00-F", "RB"),
     ] {
         sqlx::query(
-            "INSERT INTO nfl_player_salaries (gsis_game_id, gsis_player_id, team_abbr, dfs_position, salary)
+            "INSERT INTO nfl_player_salaries (game_id, gsis_player_id, team_abbr, dfs_position, salary)
              VALUES (?1, ?2, 'KC', ?3, 5000)",
         )
         .bind(SLATE_GAME)
@@ -59,7 +59,7 @@ async fn open_contest(pool: &SqlitePool, app: &TestApp) -> (GeneratedTeam, i64, 
         .unwrap();
     }
     sqlx::query(
-        "INSERT INTO nfl_player_salaries (gsis_game_id, gsis_player_id, team_abbr, dfs_position, salary)
+        "INSERT INTO nfl_player_salaries (game_id, gsis_player_id, team_abbr, dfs_position, salary)
          VALUES (?1, NULL, 'KC', 'DST', 5000)",
     )
     .bind(SLATE_GAME)

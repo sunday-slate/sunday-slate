@@ -46,35 +46,35 @@ where
     E: sqlx::Executor<'e, Database = Sqlite>,
 {
     sqlx::query_scalar!(
-        r#"SELECT gsis_game_id AS "gsis_game_id!: String"
-           FROM contest_games WHERE contest_id = ?1 ORDER BY gsis_game_id"#,
+        r#"SELECT game_id AS "game_id!: String"
+           FROM contest_games WHERE contest_id = ?1 ORDER BY game_id"#,
         contest_id
     )
     .fetch_all(ex)
     .await
 }
 
-/// Replace a contest's published slate with exactly `gsis_game_ids`. Deletes
-/// the rows absent from `gsis_game_ids`, inserts the rows missing, and leaves
+/// Replace a contest's published slate with exactly `wanted`. Deletes
+/// the rows absent from `wanted`, inserts the rows missing, and leaves
 /// the rest alone, so a repeat call with the same ids changes nothing.
 pub async fn set_games(
     conn: &mut SqliteConnection,
     contest_id: ContestId,
-    gsis_game_ids: &[String],
+    wanted: &[String],
 ) -> Result<(), sqlx::Error> {
     let current = game_ids(&mut *conn, contest_id).await?;
-    for gid in current.iter().filter(|g| !gsis_game_ids.contains(g)) {
+    for gid in current.iter().filter(|g| !wanted.contains(g)) {
         sqlx::query!(
-            "DELETE FROM contest_games WHERE contest_id = ?1 AND gsis_game_id = ?2",
+            "DELETE FROM contest_games WHERE contest_id = ?1 AND game_id = ?2",
             contest_id,
             gid
         )
         .execute(&mut *conn)
         .await?;
     }
-    for gid in gsis_game_ids {
+    for gid in wanted {
         sqlx::query!(
-            "INSERT OR IGNORE INTO contest_games (contest_id, gsis_game_id) VALUES (?1, ?2)",
+            "INSERT OR IGNORE INTO contest_games (contest_id, game_id) VALUES (?1, ?2)",
             contest_id,
             gid
         )
@@ -94,14 +94,14 @@ where
     E: sqlx::Executor<'e, Database = Sqlite>,
 {
     let rows = sqlx::query!(
-        r#"SELECT contest_id AS "contest_id!: ContestId", gsis_game_id AS "gsis_game_id!: NflGameId"
-           FROM contest_games ORDER BY contest_id, gsis_game_id"#
+        r#"SELECT contest_id AS "contest_id!: ContestId", game_id AS "game_id!: NflGameId"
+           FROM contest_games ORDER BY contest_id, game_id"#
     )
     .fetch_all(ex)
     .await?;
     Ok(rows
         .into_iter()
-        .map(|r| (r.contest_id, r.gsis_game_id))
+        .map(|r| (r.contest_id, r.game_id))
         .into_group_map())
 }
 

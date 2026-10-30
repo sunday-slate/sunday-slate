@@ -4,7 +4,7 @@ use time::{Date, PrimitiveDateTime, Time, UtcOffset};
 
 use crate::error::NflDataError;
 use crate::ingest::{parse_csv, parse_season_type};
-use crate::model::{Game, Season, TeamAbbr, Week};
+use crate::model::{Game, Season, SeasonWeek, TeamAbbr, Week};
 
 /// nflverse games.csv columns (subset we map). Names must match upstream.
 #[derive(Debug, Deserialize)]
@@ -49,10 +49,12 @@ pub(crate) fn parse(
             }
         };
         Ok(Some(Game {
-            gsis_game_id: raw.game_id,
-            season: Season(raw.season),
-            week: Week(raw.week),
-            season_type,
+            game_id: raw.game_id,
+            season_week: SeasonWeek {
+                season: Season(raw.season),
+                season_type,
+                week: Week(raw.week),
+            },
             kickoff,
             home_team: raw
                 .home_team
@@ -90,10 +92,10 @@ game_id,season,game_type,week,gameday,weekday,gametime,away_team,away_score,home
         assert_eq!(games.len(), 2); // the 1999 row is outside the window
 
         let thursday = &games[0];
-        assert_eq!(thursday.gsis_game_id, "2025_05_SF_LA");
-        assert_eq!(thursday.season, Season(2025));
-        assert_eq!(thursday.week, Week(5));
-        assert_eq!(thursday.season_type, SeasonType::Reg);
+        assert_eq!(thursday.game_id, "2025_05_SF_LA");
+        assert_eq!(thursday.season_week.season, Season(2025));
+        assert_eq!(thursday.season_week.week, Week(5));
+        assert_eq!(thursday.season_week.season_type, SeasonType::Reg);
         // 2025-10-02 20:15 America/New_York (EDT, -4) == 00:15 UTC next day.
         assert_eq!(thursday.kickoff, Some(datetime!(2025-10-03 00:15 UTC)));
         assert_eq!(thursday.home_team, TeamAbbr::LA);
@@ -102,7 +104,7 @@ game_id,season,game_type,week,gameday,weekday,gametime,away_team,away_score,home
         assert_eq!(thursday.away_score, Some(26));
 
         let super_bowl = &games[1];
-        assert_eq!(super_bowl.season_type, SeasonType::Post);
+        assert_eq!(super_bowl.season_week.season_type, SeasonType::Post);
         // 2026-02-08 18:30 America/New_York (EST, -5) == 23:30 UTC.
         assert_eq!(super_bowl.kickoff, Some(datetime!(2026-02-08 23:30 UTC)));
     }
@@ -110,7 +112,7 @@ game_id,season,game_type,week,gameday,weekday,gametime,away_team,away_score,home
     #[test]
     fn empty_gametime_gives_null_kickoff() {
         let games = parse("games.csv", GAMES_CSV.as_bytes(), 1999).unwrap();
-        assert_eq!(games[0].gsis_game_id, "1999_01_MIN_ATL");
+        assert_eq!(games[0].game_id, "1999_01_MIN_ATL");
         assert_eq!(games[0].kickoff, None);
     }
 

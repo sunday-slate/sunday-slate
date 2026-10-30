@@ -49,11 +49,11 @@ fn default_selection(
     season_games: &[Game],
 ) -> Vec<String> {
     if !published.is_empty() {
-        return published.iter().map(|g| g.gsis_game_id.clone()).collect();
+        return published.iter().map(|g| g.game_id.clone()).collect();
     }
     rule::resolve(rule, season, season_games)
         .into_iter()
-        .map(|g| g.gsis_game_id)
+        .map(|g| g.game_id)
         .collect()
 }
 
@@ -131,7 +131,7 @@ fn validate(submitted: &[String], pool: &[Game]) -> Result<(), &'static str> {
     }
     if submitted
         .iter()
-        .any(|id| !pool.iter().any(|g| &g.gsis_game_id == id))
+        .any(|id| !pool.iter().any(|g| &g.game_id == id))
     {
         return Err("That game is not in this contest's week. Reload the page and try again.");
     }
@@ -181,10 +181,12 @@ mod tests {
 
     fn g(id: &str, kickoff: Option<OffsetDateTime>) -> Game {
         Game {
-            gsis_game_id: id.into(),
-            season: Season(2025),
-            week: Week(5),
-            season_type: SeasonType::Reg,
+            game_id: id.into(),
+            season_week: nfl_data::SeasonWeek {
+                season: Season(2025),
+                season_type: SeasonType::Reg,
+                week: Week(5),
+            },
             kickoff,
             away_team: TeamAbbr::BUF,
             home_team: TeamAbbr::KC,

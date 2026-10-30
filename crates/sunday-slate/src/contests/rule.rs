@@ -60,16 +60,16 @@ pub fn covers(rule: &Rule, season: u16, game: &Game) -> bool {
     };
     match rule {
         Rule::Main { week } => {
-            game.season_type == SeasonType::Reg
-                && game.week.0 == *week
+            game.season_week.season_type == SeasonType::Reg
+                && game.season_week.week.0 == *week
                 && et.weekday() == Weekday::Sunday
                 && et.time() >= noon
                 && et.time() <= six_pm
         }
         Rule::Holiday(h) => et.date() == holiday_date(*h, season),
         Rule::Playoff { week } => {
-            game.season_type == SeasonType::Post
-                && game.week.0 == *week
+            game.season_week.season_type == SeasonType::Post
+                && game.season_week.week.0 == *week
                 && matches!(et.weekday(), Weekday::Saturday | Weekday::Sunday)
         }
     }
@@ -96,7 +96,7 @@ fn candidate_week(rule: &Rule, season: u16, games: &[Game]) -> Option<(SeasonTyp
             games
                 .iter()
                 .find(|g| g.kickoff_eastern().is_some_and(|et| et.date() == date))
-                .map(|g| (g.season_type, g.week.0))
+                .map(|g| (g.season_week.season_type, g.season_week.week.0))
         }
     }
 }
@@ -110,14 +110,14 @@ pub fn candidates(rule: &Rule, season: u16, games: &[Game]) -> Vec<Game> {
     };
     let mut pool: Vec<Game> = games
         .iter()
-        .filter(|g| g.season_type == season_type && g.week.0 == week)
+        .filter(|g| g.season_week.season_type == season_type && g.season_week.week.0 == week)
         .cloned()
         .collect();
     pool.sort_by(|a, b| {
-        (a.kickoff.is_none(), a.kickoff, &a.gsis_game_id).cmp(&(
+        (a.kickoff.is_none(), a.kickoff, &a.game_id).cmp(&(
             b.kickoff.is_none(),
             b.kickoff,
-            &b.gsis_game_id,
+            &b.game_id,
         ))
     });
     pool
@@ -161,7 +161,7 @@ mod tests {
         assert_eq!(Rule::from_name("nonsense"), None);
     }
 
-    use nfl_data::{Season, SeasonType, Week};
+    use nfl_data::{Season, SeasonType, SeasonWeek, Week};
     use time::OffsetDateTime;
     use time::macros::datetime;
 
@@ -174,10 +174,12 @@ mod tests {
         home: &str,
     ) -> Game {
         Game {
-            gsis_game_id: id.into(),
-            season: Season(2025),
-            week: Week(week),
-            season_type: st,
+            game_id: id.into(),
+            season_week: SeasonWeek {
+                season: Season(2025),
+                season_type: st,
+                week: Week(week),
+            },
             kickoff: Some(kickoff),
             away_team: away.parse().unwrap(),
             home_team: home.parse().unwrap(),
@@ -187,7 +189,7 @@ mod tests {
     }
 
     fn ids(games: Vec<Game>) -> Vec<String> {
-        let mut v: Vec<String> = games.into_iter().map(|g| g.gsis_game_id).collect();
+        let mut v: Vec<String> = games.into_iter().map(|g| g.game_id).collect();
         v.sort();
         v
     }
@@ -366,7 +368,7 @@ mod tests {
         assert_eq!(
             candidates(&Rule::Main { week: 5 }, 2025, &games)
                 .into_iter()
-                .map(|g| g.gsis_game_id)
+                .map(|g| g.game_id)
                 .collect::<Vec<_>>(),
             vec!["thu".to_string(), "sun_1pm".to_string(), "snf".to_string()]
         );
@@ -404,7 +406,7 @@ mod tests {
         assert_eq!(
             candidates(&Rule::Playoff { week: 19 }, 2025, &games)
                 .into_iter()
-                .map(|g| g.gsis_game_id)
+                .map(|g| g.game_id)
                 .collect::<Vec<_>>(),
             vec!["sat_1".to_string(), "mon_1".to_string()]
         );
@@ -442,7 +444,7 @@ mod tests {
         assert_eq!(
             candidates(&Rule::Holiday(Holiday::Thanksgiving), 2025, &games)
                 .into_iter()
-                .map(|g| g.gsis_game_id)
+                .map(|g| g.game_id)
                 .collect::<Vec<_>>(),
             vec!["tg_1".to_string(), "sun".to_string()]
         );

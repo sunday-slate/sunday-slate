@@ -35,10 +35,12 @@ const XMAS_WEDNESDAY: OffsetDateTime = datetime!(2025-12-24 22:00 UTC);
 
 fn game(id: &str, week: u8, kickoff: Option<OffsetDateTime>) -> Game {
     Game {
-        gsis_game_id: id.into(),
-        season: Season(2025),
-        week: Week(week),
-        season_type: SeasonType::Reg,
+        game_id: id.into(),
+        season_week: SeasonWeek {
+            season: Season(2025),
+            season_type: SeasonType::Reg,
+            week: Week(week),
+        },
         kickoff,
         away_team: "KC".parse().unwrap(),
         home_team: "BUF".parse().unwrap(),
@@ -64,10 +66,10 @@ fn week_13_games() -> Vec<Game> {
 fn changed_week_13_games() -> Vec<Game> {
     let mut games = week_13_games();
     for game in games.iter_mut() {
-        if game.gsis_game_id == "sun_1" {
+        if game.game_id == "sun_1" {
             game.kickoff = Some(datetime!(2025-12-01 01:15 UTC));
         }
-        if game.gsis_game_id == "mnf" {
+        if game.game_id == "mnf" {
             game.kickoff = Some(datetime!(2025-11-30 21:25 UTC));
         }
     }
@@ -77,7 +79,7 @@ fn changed_week_13_games() -> Vec<Game> {
 fn rescheduled_after_fix_games() -> Vec<Game> {
     let mut games = week_13_games();
     for game in games.iter_mut() {
-        if game.gsis_game_id == "sun_1" {
+        if game.game_id == "sun_1" {
             game.kickoff = Some(datetime!(2025-11-29 21:30 UTC));
         }
     }
@@ -106,7 +108,7 @@ fn week_16_games() -> Vec<Game> {
 fn moved_off_christmas_games() -> Vec<Game> {
     let mut games = week_16_games();
     for game in games.iter_mut() {
-        if game.gsis_game_id == "xmas" {
+        if game.game_id == "xmas" {
             game.kickoff = Some(datetime!(2025-12-27 18:00 UTC));
         }
     }
@@ -167,10 +169,7 @@ async fn assert_week_13_fixed(nfl: &NflData, main_id: SlateId, thanksgiving_id: 
 }
 
 fn ids(games: &[Game]) -> Vec<&str> {
-    games
-        .iter()
-        .map(|game| game.gsis_game_id.as_str())
-        .collect()
+    games.iter().map(|game| game.game_id.as_str()).collect()
 }
 
 fn names(slates: &[Slate]) -> Vec<&str> {

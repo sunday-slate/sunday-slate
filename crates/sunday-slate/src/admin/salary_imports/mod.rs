@@ -127,7 +127,7 @@ async fn project_salary_week(
                     game.away_team.as_str().to_owned(),
                     game.home_team.as_str().to_owned(),
                 ),
-                game.gsis_game_id.clone(),
+                game.game_id.clone(),
             )
         })
         .collect();
@@ -199,7 +199,7 @@ async fn project_salary_week(
                 &mut *conn,
                 &NflPlayerSalary {
                     id: 0,
-                    gsis_game_id: game_id.clone(),
+                    game_id: game_id.clone(),
                     gsis_player_id,
                     team_abbr: salary.team.as_str().to_owned(),
                     dfs_position: salary.position,
@@ -226,7 +226,7 @@ pub fn default_season_week(
     let mut weeks = games
         .iter()
         .filter(|g| {
-            g.season == configured_season
+            g.season_week.season == configured_season
                 && g.kickoff.is_some_and(|kickoff| {
                     kickoff > now
                         && nfl_model::nfl_week_monday(nfl_data::to_eastern(kickoff).date())
@@ -235,18 +235,11 @@ pub fn default_season_week(
         })
         .collect::<Vec<_>>();
     weeks.sort_by_key(|game| game.kickoff);
-    weeks
-        .first()
-        .map(|g| SeasonWeek {
-            season: g.season,
-            season_type: g.season_type,
-            week: g.week,
-        })
-        .unwrap_or(SeasonWeek {
-            season: configured_season,
-            season_type: SeasonType::Reg,
-            week: Week(1),
-        })
+    weeks.first().map(|g| g.season_week).unwrap_or(SeasonWeek {
+        season: configured_season,
+        season_type: SeasonType::Reg,
+        week: Week(1),
+    })
 }
 
 #[cfg(test)]
@@ -256,10 +249,12 @@ mod default_week_tests {
 
     fn game(id: &str, week: u8, kickoff: time::OffsetDateTime) -> Game {
         Game {
-            gsis_game_id: id.into(),
-            season: Season(2025),
-            week: Week(week),
-            season_type: SeasonType::Reg,
+            game_id: id.into(),
+            season_week: nfl_data::SeasonWeek {
+                season: Season(2025),
+                season_type: SeasonType::Reg,
+                week: Week(week),
+            },
             kickoff: Some(kickoff),
             home_team: "KC".parse().unwrap(),
             away_team: "BUF".parse().unwrap(),
@@ -314,10 +309,12 @@ mod tests {
 
     fn game(id: &str, week: u8, away: &str, home: &str) -> Game {
         Game {
-            gsis_game_id: id.into(),
-            season: Season(2025),
-            week: Week(week),
-            season_type: SeasonType::Reg,
+            game_id: id.into(),
+            season_week: nfl_data::SeasonWeek {
+                season: Season(2025),
+                season_type: SeasonType::Reg,
+                week: Week(week),
+            },
             kickoff: None,
             home_team: home.parse().unwrap(),
             away_team: away.parse().unwrap(),

@@ -24,7 +24,7 @@ const STARTUP_RECOVERY: ::time::Duration = ::time::Duration::hours(12);
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct FeedKey {
     pub(crate) date: Date,
-    pub(crate) provider_game_ids: Vec<String>,
+    pub(crate) tank01_game_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,8 +77,7 @@ impl FeedReplay {
 
     fn accepts_box(&self, game: &LiveGame) -> bool {
         self.slate.games.iter().any(|candidate| {
-            candidate.gsis_game_id == game.gsis_game_id
-                && candidate.provider_game_id == game.provider_game_id
+            candidate.game_id == game.game_id && candidate.tank01_game_id == game.tank01_game_id
         })
     }
 
@@ -91,7 +90,7 @@ impl FeedReplay {
                 }
             }
             PollEvent::BoxScore { game, response, .. } if self.accepts_box(game) => {
-                let replay = self.boxes.entry(game.gsis_game_id.clone()).or_default();
+                let replay = self.boxes.entry(game.game_id.clone()).or_default();
                 replace_latest(&mut replay.latest_response, &event);
                 if let ProviderOutcome::Value(snapshot) = &response.outcome {
                     replace_latest(&mut replay.latest_success, &event);
@@ -289,11 +288,12 @@ where
                     .contains(&contest.id)
             });
 
-        let tuple = (games[0].season, games[0].week, games[0].season_type);
-        if !games
-            .iter()
-            .all(|game| (game.season, game.week, game.season_type) == tuple)
-        {
+        let first_week = &games[0].season_week;
+        let tuple = (first_week.season, first_week.week, first_week.season_type);
+        if !games.iter().all(|game| {
+            let sw = &game.season_week;
+            (sw.season, sw.week, sw.season_type) == tuple
+        }) {
             continue;
         }
 
@@ -372,13 +372,13 @@ where
             }
             let mut provider_ids = live_games
                 .iter()
-                .map(|game| game.provider_game_id.clone())
+                .map(|game| game.tank01_game_id.clone())
                 .collect::<Vec<_>>();
             provider_ids.sort();
             provider_ids.dedup();
             let feed_key = FeedKey {
                 date,
-                provider_game_ids: provider_ids,
+                tank01_game_ids: provider_ids,
             };
             discovered
                 .entry(feed_key.clone())
@@ -777,12 +777,7 @@ fn ingest_and_publish(
 
 fn resolve_games(ids: &[crate::contests::NflGameId], schedule: &[Game]) -> Vec<Game> {
     ids.iter()
-        .filter_map(|id| {
-            schedule
-                .iter()
-                .find(|game| game.gsis_game_id == id.0)
-                .cloned()
-        })
+        .filter_map(|id| schedule.iter().find(|game| game.game_id == id.0).cloned())
         .collect()
 }
 
@@ -806,7 +801,7 @@ mod tests {
         run_coordinator_with_provider,
     };
     use crate::contests::ContestId;
-    use crate::live::{ContestScores, live_game, load_contest_scores, provider_game_id};
+    use crate::live::{ContestScores, live_game, load_contest_scores, tank01_game_id};
     use crate::tests::TestApp;
     use crate::tests::factories;
 
@@ -853,7 +848,7 @@ mod tests {
             self.state.notify.notify_one();
             response(ProviderOutcome::Value(LiveScoreboard {
                 games: vec![LiveScoreboardGame {
-                    provider_game_id: self.game.provider_game_id.clone(),
+                    tank01_game_id: self.game.tank01_game_id.clone(),
                     phase: LiveGamePhase::InProgress,
                     period: Some("2".into()),
                     clock: Some("08:00".into()),
@@ -946,7 +941,7 @@ mod tests {
         let app = TestApp::from_pool_at(pool.clone(), now).await;
         let ids = games
             .iter()
-            .map(|game| game.gsis_game_id.as_str())
+            .map(|game| game.game_id.as_str())
             .collect::<Vec<_>>();
         let contest = factories::contest_with_games(pool, name, &ids).await;
         app.nfl.seed_for_test(&[], games).await.unwrap();
@@ -1030,12 +1025,9 @@ mod tests {
 
         let games = app.nfl.games(Season(2025)).await.unwrap();
         let game = games.first().expect("mocked schedule game").clone();
-        let contest = factories::contest_with_games(
-            &app.pool,
-            "Revision identity",
-            &[game.gsis_game_id.as_str()],
-        )
-        .await;
+        let contest =
+            factories::contest_with_games(&app.pool, "Revision identity", &[game.game_id.as_str()])
+                .await;
         let contest = ContestId(contest);
         let provider = FakeProvider::for_game(&game);
         let mut coordinator = CoordinatorState::default();
@@ -1090,12 +1082,9 @@ mod tests {
         let app = TestApp::new_with_nfl(Arc::new(nfl)).await;
         let mut game = factories::game_at("2025_01_BUF_KC", 1, KICKOFF);
         game.kickoff = None;
-        let contest = factories::contest_with_games(
-            &app.pool,
-            "Revision error",
-            &[game.gsis_game_id.as_str()],
-        )
-        .await;
+        let contest =
+            factories::contest_with_games(&app.pool, "Revision error", &[game.game_id.as_str()])
+                .await;
         app.nfl
             .seed_for_test(&[], std::slice::from_ref(&game))
             .await
@@ -1171,7 +1160,7 @@ mod tests {
         assert_eq!(
             snapshot
                 .game_states
-                .get(&game.gsis_game_id)
+                .get(&game.game_id)
                 .expect("game snapshot")
                 .phase,
             LiveGamePhase::InProgress
@@ -1323,8 +1312,8 @@ mod tests {
         let game = factories::game_at("2025_01_BUF_KC", 1, KICKOFF);
         let app = TestApp::from_pool_at(pool.clone(), KICKOFF + time::Duration::hours(1)).await;
         let contest_ids = [
-            factories::contest_with_games(&pool, "Shared A", &[&game.gsis_game_id]).await,
-            factories::contest_with_games(&pool, "Shared B", &[&game.gsis_game_id]).await,
+            factories::contest_with_games(&pool, "Shared A", &[&game.game_id]).await,
+            factories::contest_with_games(&pool, "Shared B", &[&game.game_id]).await,
         ];
         app.nfl
             .seed_for_test(&[], std::slice::from_ref(&game))
@@ -1499,7 +1488,7 @@ mod tests {
                 .snapshot(contest)
                 .expect("live snapshot")
                 .game_states
-                .get(&game.gsis_game_id)
+                .get(&game.game_id)
                 .expect("game snapshot")
                 .phase,
             nfl_data::LiveGamePhase::InProgress
@@ -1536,7 +1525,7 @@ mod tests {
                 .snapshot(contest)
                 .expect("rebased live snapshot")
                 .game_states
-                .get(&game.gsis_game_id)
+                .get(&game.game_id)
                 .expect("rebased game snapshot")
                 .phase,
             nfl_data::LiveGamePhase::InProgress
@@ -1606,7 +1595,7 @@ mod tests {
             factories::defense_stats("BUF", "KC", 1),
         ];
         for defense in &mut defenses {
-            defense.gsis_game_id = game.gsis_game_id.clone();
+            defense.game_id = game.game_id.clone();
         }
         app.nfl
             .seed_week_stats_for_test(Season(2025), &[kc_player, buf_player], &defenses)
@@ -1633,25 +1622,22 @@ mod tests {
     fn feed_keys_include_sorted_provider_game_sets() {
         let one = FeedKey {
             date: time::macros::date!(2026 - 09 - 10),
-            provider_game_ids: vec!["a".into(), "b".into()],
+            tank01_game_ids: vec!["a".into(), "b".into()],
         };
         let two = FeedKey {
             date: time::macros::date!(2026 - 09 - 10),
-            provider_game_ids: vec!["a".into(), "b".into()],
+            tank01_game_ids: vec!["a".into(), "b".into()],
         };
         assert_eq!(one, two);
         assert_eq!(
-            provider_game_id(&factories::game_at("2025_01_BUF_KC", 1, KICKOFF)),
+            tank01_game_id(&factories::game_at("2025_01_BUF_KC", 1, KICKOFF)),
             Some("20250907_BUF@KC".into())
         );
         let mut washington =
             factories::game_at("2026_01_WAS_PHI", 1, datetime!(2026 - 09 - 13 20:25 UTC));
         washington.home_team = TeamAbbr::PHI;
         washington.away_team = TeamAbbr::WAS;
-        assert_eq!(
-            provider_game_id(&washington),
-            Some("20260913_WSH@PHI".into())
-        );
+        assert_eq!(tank01_game_id(&washington), Some("20260913_WSH@PHI".into()));
     }
 
     #[test]

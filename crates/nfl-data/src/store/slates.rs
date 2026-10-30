@@ -121,10 +121,10 @@ where
 /// The slate's stored membership ids in lexical order.
 pub(crate) async fn game_ids(pool: &SqlitePool, id: SlateId) -> Result<Vec<String>, sqlx::Error> {
     sqlx::query_scalar::<_, String>(
-        r#"SELECT gsis_game_id
+        r#"SELECT game_id
                FROM slate_games
                WHERE slate_id = ?
-               ORDER BY gsis_game_id"#,
+               ORDER BY game_id"#,
     )
     .bind(id)
     .fetch_all(pool)
@@ -161,7 +161,7 @@ async fn reconcile_tx(
         clear_week_membership(&mut *conn, week).await?;
         for proposal in proposals {
             for game_id in &proposal.game_ids {
-                sqlx::query("INSERT INTO slate_games (slate_id, gsis_game_id) VALUES (?, ?)")
+                sqlx::query("INSERT INTO slate_games (slate_id, game_id) VALUES (?, ?)")
                     .bind(proposal.id)
                     .bind(game_id)
                     .execute(&mut *conn)
@@ -245,12 +245,8 @@ async fn refresh_fixed_kickoffs(
     let schedule: HashMap<&str, OffsetDateTime> = games
         .iter()
         .filter_map(|game| {
-            game.kickoff.map(|kickoff| {
-                (
-                    game.gsis_game_id.as_str(),
-                    kickoff.to_offset(UtcOffset::UTC),
-                )
-            })
+            game.kickoff
+                .map(|kickoff| (game.game_id.as_str(), kickoff.to_offset(UtcOffset::UTC)))
         })
         .collect();
 
@@ -260,7 +256,7 @@ async fn refresh_fixed_kickoffs(
         .await?;
     for id in ids {
         let members: Vec<String> =
-            sqlx::query_scalar(r#"SELECT gsis_game_id FROM slate_games WHERE slate_id = ?"#)
+            sqlx::query_scalar(r#"SELECT game_id FROM slate_games WHERE slate_id = ?"#)
                 .bind(id)
                 .fetch_all(&mut *conn)
                 .await?;
@@ -312,10 +308,12 @@ mod tests {
 
     fn game(id: &str, kickoff: Option<OffsetDateTime>) -> Game {
         Game {
-            gsis_game_id: id.into(),
-            season: Season(2025),
-            week: Week(5),
-            season_type: SeasonType::Reg,
+            game_id: id.into(),
+            season_week: SeasonWeek {
+                season: Season(2025),
+                season_type: SeasonType::Reg,
+                week: Week(5),
+            },
             kickoff,
             away_team: "KC".parse().unwrap(),
             home_team: "BUF".parse().unwrap(),

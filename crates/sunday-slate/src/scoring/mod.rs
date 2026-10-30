@@ -355,7 +355,7 @@ mod tests {
             season_type: SeasonType::Reg,
             team: TeamAbbr::SF,
             opponent: TeamAbbr::LA,
-            gsis_game_id: "2025_05_SF_LA".into(),
+            game_id: "2025_05_SF_LA".into(),
             sacks: 0,
             interceptions: 0,
             fumble_recoveries: 0,

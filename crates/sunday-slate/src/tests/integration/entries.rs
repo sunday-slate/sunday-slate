@@ -60,7 +60,7 @@ fn live_scoreboard_event(game: &Game) -> tank01_data::PollEvent {
             raw_body: None,
             outcome: ProviderOutcome::Value(LiveScoreboard {
                 games: vec![LiveScoreboardGame {
-                    provider_game_id: live_game.provider_game_id,
+                    tank01_game_id: live_game.tank01_game_id,
                     phase: LiveGamePhase::InProgress,
                     period: Some("2".into()),
                     clock: Some("08:00".into()),
@@ -249,7 +249,7 @@ async fn setup(pool: &SqlitePool, app: &TestApp) -> (GeneratedTeam, GeneratedTea
         ..factories::player_stats("00-BUF", 1)
     };
     let buf_defense = NflTeamWeekStats {
-        gsis_game_id: SLATE_GAME.into(),
+        game_id: SLATE_GAME.into(),
         ..factories::scoreless_defense_stats("BUF", "KC", 1)
     };
     app.nfl
@@ -287,10 +287,7 @@ pub(crate) async fn setup_staggered_entry(
     later.home_team = TeamAbbr::PHI;
     later.away_team = TeamAbbr::DAL;
     let games = vec![early, finished, later];
-    let game_ids: Vec<&str> = games
-        .iter()
-        .map(|game| game.gsis_game_id.as_str())
-        .collect();
+    let game_ids: Vec<&str> = games.iter().map(|game| game.game_id.as_str()).collect();
     let contest = factories::contest_with_games(pool, "Week 1", &game_ids).await;
     let entry_id = factories::full_entry(pool, contest, owner.team.id, "00-A").await;
 
@@ -763,9 +760,13 @@ async fn expanded_row_shows_salary_ownership_and_breakdown(pool: SqlitePool) {
     let app = TestApp::from_pool_at(pool.clone(), KICKOFF).await;
     let (a, _b, entry_id) = setup(&pool, &app).await;
     sqlx::query(
-        "INSERT INTO nfl_player_salaries (gsis_game_id, gsis_player_id, team_abbr, dfs_position, salary)
+        "INSERT INTO nfl_player_salaries (game_id, gsis_player_id, team_abbr, dfs_position, salary)
          VALUES (?1, '00-A', 'KC', 'RB', 5700)",
-    ).bind(SLATE_GAME).execute(&pool).await.unwrap();
+    )
+    .bind(SLATE_GAME)
+    .execute(&pool)
+    .await
+    .unwrap();
 
     app.login_as(&a.owner).await;
     let body = app.get(&format!("/entries/{entry_id}")).await.text();
@@ -1668,7 +1669,7 @@ async fn live_contest_official_streams_close_after_membership_loss(pool: SqliteP
             &[
                 factories::scoreless_defense_stats("KC", "BUF", 1),
                 NflTeamWeekStats {
-                    gsis_game_id: SLATE_GAME.into(),
+                    game_id: SLATE_GAME.into(),
                     ..factories::scoreless_defense_stats("BUF", "KC", 1)
                 },
             ],

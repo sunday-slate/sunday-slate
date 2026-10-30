@@ -18,7 +18,7 @@ use crate::scoring::WeekStats;
 pub(crate) use coordinator::run_coordinator;
 pub use snapshot::{
     LINEUP_REGULATION_MINUTES, LiveGameState, lineup_minutes_remaining, live_game,
-    provider_game_id, score_live_lineup, score_live_slot,
+    score_live_lineup, score_live_slot, tank01_game_id,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -345,14 +345,14 @@ pub fn official_complete_for_slate(games: &[Game], stats: &WeekStats) -> bool {
                 row.season == season
                     && row.week == week
                     && row.season_type == season_type
-                    && row.gsis_game_id == game.gsis_game_id
+                    && row.game_id == game.game_id
                     && row.team == *team
                     && row.opponent == *opponent
             });
             if defense.count() != 1 {
                 return false;
             }
-            defense_coverage.insert((game.gsis_game_id.as_str(), team.as_str()));
+            defense_coverage.insert((game.game_id.as_str(), team.as_str()));
 
             let players = stats.players.values().filter(|row| {
                 row.season == season
@@ -364,7 +364,7 @@ pub fn official_complete_for_slate(games: &[Game], stats: &WeekStats) -> bool {
             if players.count() == 0 {
                 return false;
             }
-            player_teams.insert((game.gsis_game_id.as_str(), team.as_str()));
+            player_teams.insert((game.game_id.as_str(), team.as_str()));
         }
     }
     defense_coverage.len() == games.len() * 2 && player_teams.len() == games.len() * 2
@@ -381,7 +381,7 @@ pub async fn load_contest_scores(
     let schedule = state.nfl.games(Season(state.config.season)).await?;
     let games = ids
         .iter()
-        .filter_map(|id| schedule.iter().find(|game| game.gsis_game_id == *id))
+        .filter_map(|id| schedule.iter().find(|game| game.game_id == *id))
         .cloned()
         .collect::<Vec<_>>();
     if games.len() != ids.len() {
@@ -407,7 +407,7 @@ pub async fn load_contest_scores(
     let defenses = state.nfl.team_week_stats(season, week).await?;
     let expected_games = games
         .iter()
-        .map(|game| game.gsis_game_id.as_str())
+        .map(|game| game.game_id.as_str())
         .collect::<HashSet<_>>();
     let expected_teams = games
         .iter()
@@ -447,15 +447,12 @@ pub async fn load_contest_scores(
         if defense.season != season
             || defense.week != week
             || defense.season_type != season_type
-            || !expected_games.contains(defense.gsis_game_id.as_str())
+            || !expected_games.contains(defense.game_id.as_str())
             || !expected_teams.contains(defense.team.as_str())
         {
             continue;
         }
-        let key = (
-            defense.gsis_game_id.clone(),
-            defense.team.as_str().to_owned(),
-        );
+        let key = (defense.game_id.clone(), defense.team.as_str().to_owned());
         if !defense_keys.insert(key.clone()) || defense_map.insert(defense.team, defense).is_some()
         {
             return Ok(ContestScores::Unavailable);
@@ -492,11 +489,7 @@ pub(crate) async fn stream_eligible(
     let schedule = state.nfl.games(Season(state.config.season)).await?;
     let games = ids
         .iter()
-        .filter_map(|id| {
-            schedule
-                .iter()
-                .find(|game| game.gsis_game_id == id.as_str())
-        })
+        .filter_map(|id| schedule.iter().find(|game| game.game_id == id.as_str()))
         .cloned()
         .collect::<Vec<_>>();
     if games.len() == ids.len() {
@@ -507,10 +500,17 @@ pub(crate) async fn stream_eligible(
 
 pub(crate) fn slate_tuple(games: &[Game]) -> Option<(Season, Week, SeasonType)> {
     let first = games.first()?;
-    let tuple = (first.season, first.week, first.season_type);
+    let tuple = (
+        first.season_week.season,
+        first.season_week.week,
+        first.season_week.season_type,
+    );
     games
         .iter()
-        .all(|game| (game.season, game.week, game.season_type) == tuple)
+        .all(|game| {
+            let sw = &game.season_week;
+            (sw.season, sw.week, sw.season_type) == tuple
+        })
         .then_some(tuple)
 }
 
@@ -535,11 +535,11 @@ mod tests {
             ..factories::player_stats("buf", 1)
         };
         let kc_def = TeamWeekStats {
-            gsis_game_id: "live".into(),
+            game_id: "live".into(),
             ..factories::defense_stats("KC", "BUF", 1)
         };
         let buf_def = TeamWeekStats {
-            gsis_game_id: "live".into(),
+            game_id: "live".into(),
             ..factories::defense_stats("BUF", "KC", 1)
         };
         let complete = WeekStats {

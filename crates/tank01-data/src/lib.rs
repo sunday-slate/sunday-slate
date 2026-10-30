@@ -1,3 +1,9 @@
+//! Tank01 live data polling, capture, and replay.
+//!
+//! Captures written before the `game_id` / `tank01_game_id` rename and nested
+//! `season_week` representation are not backward compatible with current replay.
+//! Historical captures must be converted before replaying them.
+
 mod capture;
 mod client;
 mod config;

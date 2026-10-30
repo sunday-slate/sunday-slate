@@ -18,10 +18,10 @@ async fn add_contest(pool: &SqlitePool, name: &str) -> i64 {
         .unwrap()
 }
 
-async fn add_contest_game(pool: &SqlitePool, contest_id: i64, gsis_game_id: &str) {
-    sqlx::query("INSERT INTO contest_games (contest_id, gsis_game_id) VALUES (?1, ?2)")
+async fn add_contest_game(pool: &SqlitePool, contest_id: i64, game_id: &str) {
+    sqlx::query("INSERT INTO contest_games (contest_id, game_id) VALUES (?1, ?2)")
         .bind(contest_id)
-        .bind(gsis_game_id)
+        .bind(game_id)
         .execute(pool)
         .await
         .unwrap();
@@ -185,7 +185,7 @@ async fn lists_contests_newest_first_with_winners(pool: SqlitePool) {
         ..factories::player_stats("00-BUF", 1)
     };
     let buf_defense = NflTeamWeekStats {
-        gsis_game_id: "2025_01_BUF_KC".into(),
+        game_id: "2025_01_BUF_KC".into(),
         ..factories::scoreless_defense_stats("BUF", "KC", 1)
     };
     app.nfl

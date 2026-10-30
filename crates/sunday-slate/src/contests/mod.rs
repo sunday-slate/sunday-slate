@@ -42,7 +42,7 @@ where
 /// Resolve stored slate ids against the schedule, dropping ids it lost.
 pub fn resolve_games(ids: &[String], season_games: &[Game]) -> Vec<Game> {
     ids.iter()
-        .filter_map(|id| season_games.iter().find(|g| &g.gsis_game_id == id).cloned())
+        .filter_map(|id| season_games.iter().find(|g| &g.game_id == id).cloned())
         .collect()
 }
 
@@ -57,10 +57,12 @@ mod tests {
 
     fn game(id: &str, week: u8, kickoff: OffsetDateTime) -> Game {
         Game {
-            gsis_game_id: id.into(),
-            season: Season(2025),
-            week: Week(week),
-            season_type: SeasonType::Reg,
+            game_id: id.into(),
+            season_week: nfl_data::SeasonWeek {
+                season: Season(2025),
+                season_type: SeasonType::Reg,
+                week: Week(week),
+            },
             kickoff: Some(kickoff),
             away_team: TeamAbbr::BUF,
             home_team: TeamAbbr::KC,
@@ -94,7 +96,7 @@ mod tests {
         let slate = published_slate(&pool, ContestId(1), &games).await.unwrap();
         assert_eq!(slate.len(), 1);
         assert_eq!(slate[0].home_team.as_str(), "KC");
-        assert_eq!(slate[0].week.0, 5);
+        assert_eq!(slate[0].season_week.week.0, 5);
     }
 
     #[sqlx::test]
@@ -110,6 +112,6 @@ mod tests {
         let games = vec![game("sun", 5, datetime!(2025-10-05 17:00 UTC))];
         let slate = published_slate(&pool, ContestId(1), &games).await.unwrap();
         assert_eq!(slate.len(), 1);
-        assert_eq!(slate[0].gsis_game_id, "sun");
+        assert_eq!(slate[0].game_id, "sun");
     }
 }

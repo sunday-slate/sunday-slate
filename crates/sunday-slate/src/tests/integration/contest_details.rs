@@ -34,13 +34,11 @@ async fn contest_details_ranks_entries_and_crowns_the_winner(pool: SqlitePool) {
     )
     .await;
     let wk1 = factories::contest(&pool, "Week 1").await;
-    sqlx::query(
-        "INSERT INTO contest_games (contest_id, gsis_game_id) VALUES (?1, '2025_01_BUF_KC')",
-    )
-    .bind(wk1)
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO contest_games (contest_id, game_id) VALUES (?1, '2025_01_BUF_KC')")
+        .bind(wk1)
+        .execute(&pool)
+        .await
+        .unwrap();
     let giants_entry = factories::full_entry(&pool, wk1, a.team.id, "00-A").await; // 100yd = 13.00
     let titans_entry = factories::full_entry(&pool, wk1, b.team.id, "00-B").await; // 200yd = 23.00
     let game = Game {
@@ -55,7 +53,7 @@ async fn contest_details_ranks_entries_and_crowns_the_winner(pool: SqlitePool) {
         ..factories::player_stats("00-BUF", 1)
     };
     let buf_defense = TeamWeekStats {
-        gsis_game_id: "2025_01_BUF_KC".into(),
+        game_id: "2025_01_BUF_KC".into(),
         ..factories::scoreless_defense_stats("BUF", "KC", 1)
     };
     app.nfl
@@ -137,13 +135,11 @@ async fn contest_details_pre_results_hides_points(pool: SqlitePool) {
     let app = TestApp::from_pool(pool.clone()).await;
     let a = factories::team(&pool, TeamOptions::default()).await;
     let wk1 = factories::contest(&pool, "Week 1").await;
-    sqlx::query(
-        "INSERT INTO contest_games (contest_id, gsis_game_id) VALUES (?1, '2025_01_BUF_KC')",
-    )
-    .bind(wk1)
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO contest_games (contest_id, game_id) VALUES (?1, '2025_01_BUF_KC')")
+        .bind(wk1)
+        .execute(&pool)
+        .await
+        .unwrap();
     factories::full_entry(&pool, wk1, a.team.id, "00-A").await;
     // Week resolves, stats exist, but the entry's players have no stat
     // lines -> everyone scores 0.0 -> the results gate stays closed.
@@ -198,13 +194,11 @@ async fn contest_details_lists_teams_still_to_enter(pool: SqlitePool) {
     )
     .await;
     let wk1 = factories::contest(&pool, "Week 1").await;
-    sqlx::query(
-        "INSERT INTO contest_games (contest_id, gsis_game_id) VALUES (?1, '2025_01_BUF_KC')",
-    )
-    .bind(wk1)
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO contest_games (contest_id, game_id) VALUES (?1, '2025_01_BUF_KC')")
+        .bind(wk1)
+        .execute(&pool)
+        .await
+        .unwrap();
     factories::full_entry(&pool, wk1, entered.team.id, "00-A").await;
     let kicking_off = Game {
         kickoff: Some(datetime!(2025-09-07 17:00 UTC)),
@@ -240,13 +234,11 @@ async fn contest_details_normalizes_dst_transition_for_kickoff_and_countdown(poo
     let app = TestApp::from_pool_at(pool.clone(), datetime!(2025-11-02 04:30 UTC)).await;
     let member = factories::team(&pool, TeamOptions::default()).await;
     let wk10 = factories::contest(&pool, "Week 10").await;
-    sqlx::query(
-        "INSERT INTO contest_games (contest_id, gsis_game_id) VALUES (?1, '2025_10_BUF_KC')",
-    )
-    .bind(wk10)
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO contest_games (contest_id, game_id) VALUES (?1, '2025_10_BUF_KC')")
+        .bind(wk10)
+        .execute(&pool)
+        .await
+        .unwrap();
     let kicking_off = Game {
         kickoff: Some(datetime!(2025-11-06 18:00 UTC)),
         ..factories::game("2025_10_BUF_KC", 10)
@@ -279,13 +271,11 @@ async fn contest_details_omits_the_waiting_list_when_everyone_entered(pool: Sqli
     )
     .await;
     let wk1 = factories::contest(&pool, "Week 1").await;
-    sqlx::query(
-        "INSERT INTO contest_games (contest_id, gsis_game_id) VALUES (?1, '2025_01_BUF_KC')",
-    )
-    .bind(wk1)
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO contest_games (contest_id, game_id) VALUES (?1, '2025_01_BUF_KC')")
+        .bind(wk1)
+        .execute(&pool)
+        .await
+        .unwrap();
     factories::full_entry(&pool, wk1, only.team.id, "00-A").await;
     let kicking_off = Game {
         kickoff: Some(datetime!(2025-09-07 17:00 UTC)),
@@ -359,13 +349,11 @@ async fn contest_details_rows_link_to_their_entries(pool: SqlitePool) {
     let app = TestApp::from_pool(pool.clone()).await;
     let a = factories::team(&pool, TeamOptions::default()).await;
     let wk1 = factories::contest(&pool, "Week 1").await;
-    sqlx::query(
-        "INSERT INTO contest_games (contest_id, gsis_game_id) VALUES (?1, '2025_01_BUF_KC')",
-    )
-    .bind(wk1)
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO contest_games (contest_id, game_id) VALUES (?1, '2025_01_BUF_KC')")
+        .bind(wk1)
+        .execute(&pool)
+        .await
+        .unwrap();
     let entry = factories::full_entry(&pool, wk1, a.team.id, "00-A").await;
     app.nfl
         .seed_for_test(&[], &[factories::game("2025_01_BUF_KC", 1)])

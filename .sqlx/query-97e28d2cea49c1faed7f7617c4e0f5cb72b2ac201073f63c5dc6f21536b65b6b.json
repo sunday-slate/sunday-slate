@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO nfl_player_salaries\n                 (game_id, gsis_player_id, team_abbr, dfs_position, salary)\n               VALUES (?1, ?2, ?3, ?4, ?5)\n               ON CONFLICT (game_id, gsis_player_id) WHERE dfs_position <> 'DST'\n               DO UPDATE SET salary = ?5, team_abbr = ?3, dfs_position = ?4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "97e28d2cea49c1faed7f7617c4e0f5cb72b2ac201073f63c5dc6f21536b65b6b"
+}

@@ -1,5 +1,5 @@
 use crate::error::NflDataError;
-use crate::model::{Game, Season};
+use crate::model::{Game, Season, SeasonWeek};
 use crate::store::Store;
 use crate::store::sync_state::{self, SyncedAsset};
 use sqlx::{Row, SqliteConnection, SqlitePool};
@@ -11,13 +11,13 @@ pub(crate) async fn seed(conn: &mut SqliteConnection, games: &[Game]) -> Result<
     for g in games {
         sqlx::query!(
             r#"INSERT INTO games
-               (gsis_game_id, season, week, season_type, kickoff,
+               (game_id, season, week, season_type, kickoff,
                 home_team, away_team, home_score, away_score)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
-            g.gsis_game_id,
-            g.season,
-            g.week,
-            g.season_type,
+            g.game_id,
+            g.season_week.season,
+            g.season_week.week,
+            g.season_week.season_type,
             g.kickoff,
             g.home_team,
             g.away_team,
@@ -43,13 +43,13 @@ pub(crate) async fn replace(
             for g in games {
                 sqlx::query!(
                     r#"INSERT INTO games
-                       (gsis_game_id, season, week, season_type, kickoff,
+                       (game_id, season, week, season_type, kickoff,
                         home_team, away_team, home_score, away_score)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
-                    g.gsis_game_id,
-                    g.season,
-                    g.week,
-                    g.season_type,
+                    g.game_id,
+                    g.season_week.season,
+                    g.season_week.week,
+                    g.season_week.season_type,
                     g.kickoff,
                     g.home_team,
                     g.away_team,
@@ -71,7 +71,7 @@ pub(crate) async fn for_season(
 ) -> Result<Vec<Game>, NflDataError> {
     Ok(sqlx::query(
         r#"SELECT
-               gsis_game_id,
+               game_id,
                season,
                week,
                -- Normalize legacy labels while retaining numeric SQLx enum encodings.
@@ -87,15 +87,17 @@ pub(crate) async fn for_season(
                away_score
            FROM games
            WHERE season = ?
-           ORDER BY week, gsis_game_id"#,
+           ORDER BY week, game_id"#,
     )
     .bind(season)
     .try_map(|row| {
         Ok(Game {
-            gsis_game_id: row.try_get("gsis_game_id")?,
-            season: row.try_get("season")?,
-            week: row.try_get("week")?,
-            season_type: row.try_get("season_type")?,
+            game_id: row.try_get("game_id")?,
+            season_week: SeasonWeek {
+                season: row.try_get("season")?,
+                season_type: row.try_get("season_type")?,
+                week: row.try_get("week")?,
+            },
             kickoff: row.try_get("kickoff")?,
             home_team: row.try_get("home_team")?,
             away_team: row.try_get("away_team")?,
@@ -116,10 +118,12 @@ mod tests {
 
     fn game(id: &str, week: u8) -> Game {
         Game {
-            gsis_game_id: id.to_string(),
-            season: Season(2025),
-            week: Week(week),
-            season_type: SeasonType::Reg,
+            game_id: id.to_string(),
+            season_week: SeasonWeek {
+                season: Season(2025),
+                season_type: SeasonType::Reg,
+                week: Week(week),
+            },
             kickoff: Some(datetime!(2025-10-03 00:15 UTC)),
             home_team: TeamAbbr::LA,
             away_team: TeamAbbr::SF,
@@ -166,7 +170,7 @@ mod tests {
             .unwrap();
         let games = for_season(store.reader(), Season(2025)).await.unwrap();
         assert_eq!(games.len(), 1);
-        assert_eq!(games[0].gsis_game_id, "2025_06_SF_LA");
+        assert_eq!(games[0].game_id, "2025_06_SF_LA");
         assert_eq!(games[0].kickoff, Some(datetime!(2025-10-03 00:15 UTC)));
     }
 
@@ -184,7 +188,7 @@ mod tests {
                     ("2025_21_POST", 21, "POST"),
                 ] {
                     sqlx::query(
-                        "INSERT INTO games (gsis_game_id, season, week, season_type, home_team, away_team) VALUES (?, 2025, ?, ?, 'LA', 'SF')",
+                        "INSERT INTO games (game_id, season, week, season_type, home_team, away_team) VALUES (?, 2025, ?, ?, 'LA', 'SF')",
                     )
                     .bind(id)
                     .bind(week)
@@ -194,9 +198,10 @@ mod tests {
                 }
                 let integer_encoded = [
                     game("2025_19_INT_REG", 19),
-                    Game {
-                        season_type: SeasonType::Post,
-                        ..game("2025_18_INT_POST", 18)
+                    {
+                        let mut post = game("2025_18_INT_POST", 18);
+                        post.season_week.season_type = SeasonType::Post;
+                        post
                     },
                 ];
                 seed(conn, &integer_encoded).await?;
@@ -208,7 +213,7 @@ mod tests {
         let games = for_season(store.reader(), Season(2025)).await.unwrap();
         let season_types: std::collections::HashMap<_, _> = games
             .into_iter()
-            .map(|game| (game.gsis_game_id, game.season_type))
+            .map(|game| (game.game_id, game.season_week.season_type))
             .collect();
         assert_eq!(season_types["2025_20_REG"], SeasonType::Reg);
         assert_eq!(season_types["2025_21_POST"], SeasonType::Post);
@@ -237,7 +242,7 @@ mod tests {
             asset_name: "games.csv",
             updated_at: "2026-07-01T00:00:00Z",
         };
-        // Two games sharing a gsis_game_id violate the UNIQUE constraint,
+        // Two games sharing a game_id violate the UNIQUE constraint,
         // so the second INSERT fails partway through the batch.
         let bad_batch = [game("2025_06_SF_LA", 6), game("2025_06_SF_LA", 6)];
         let result = replace(&store, &asset_b, &bad_batch).await;
@@ -247,7 +252,7 @@ mod tests {
         // the pre-failure data untouched.
         let games = for_season(store.reader(), Season(2025)).await.unwrap();
         assert_eq!(games.len(), 1);
-        assert_eq!(games[0].gsis_game_id, "2025_05_SF_LA");
+        assert_eq!(games[0].game_id, "2025_05_SF_LA");
 
         // sync_state must not have been updated either.
         assert!(

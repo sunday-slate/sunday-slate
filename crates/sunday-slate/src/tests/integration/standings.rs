@@ -58,13 +58,11 @@ async fn ranks_teams_by_top_scores(pool: SqlitePool) {
     // to an NFL week. The handler must skip entries in unresolvable contests
     // rather than default them to some week and score them.
     let wk_unresolved = factories::contest(&pool, "Unscheduled Week").await;
-    sqlx::query(
-        "INSERT INTO contest_games (contest_id, gsis_game_id) VALUES (?1, '2025_99_BUF_KC')",
-    )
-    .bind(wk_unresolved)
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO contest_games (contest_id, game_id) VALUES (?1, '2025_99_BUF_KC')")
+        .bind(wk_unresolved)
+        .execute(&pool)
+        .await
+        .unwrap();
 
     // Team A picks RB "A" (wk1: 100yd=13.0, wk2: 50yd=5.0 -> total 18.00).
     // Team B picks RB "B" (wk1: 200yd=23.0 -> total 23.00).
@@ -83,7 +81,7 @@ async fn ranks_teams_by_top_scores(pool: SqlitePool) {
         ..factories::player_stats("00-BUF", 1)
     };
     let buf_defense = TeamWeekStats {
-        gsis_game_id: "2025_01_BUF_KC".into(),
+        game_id: "2025_01_BUF_KC".into(),
         ..factories::scoreless_defense_stats("BUF", "KC", 1)
     };
 
@@ -129,7 +127,7 @@ async fn ranks_teams_by_top_scores(pool: SqlitePool) {
                 factories::scoreless_defense_stats("KC", "BUF", 3),
                 buf_defense.clone(),
                 TeamWeekStats {
-                    gsis_game_id: "2025_02_BUF_KC".into(),
+                    game_id: "2025_02_BUF_KC".into(),
                     ..factories::scoreless_defense_stats("BUF", "KC", 2)
                 },
             ],
@@ -307,7 +305,7 @@ async fn final_contest_joins_the_standings_before_day_rollover(pool: SqlitePool)
         ..factories::player_stats("00-BUF", 1)
     };
     let buf_defense = TeamWeekStats {
-        gsis_game_id: "2025_01_BUF_KC".into(),
+        game_id: "2025_01_BUF_KC".into(),
         ..factories::scoreless_defense_stats("BUF", "KC", 1)
     };
     app.nfl
@@ -425,7 +423,7 @@ async fn dev_feed_snapshot_keeps_the_standings_official_gate_closed(pool: Sqlite
         ..factories::player_stats("00-BUF", 1)
     };
     let buf_defense = TeamWeekStats {
-        gsis_game_id: "2025_01_BUF_KC".into(),
+        game_id: "2025_01_BUF_KC".into(),
         ..factories::scoreless_defense_stats("BUF", "KC", 1)
     };
     app.nfl

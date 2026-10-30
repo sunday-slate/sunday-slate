@@ -24,10 +24,12 @@ const WEEK_16: SeasonWeek = SeasonWeek {
 
 fn game(id: &str, week: u8, kickoff: Option<OffsetDateTime>) -> Game {
     Game {
-        gsis_game_id: id.into(),
-        season: Season(2025),
-        week: Week(week),
-        season_type: SeasonType::Reg,
+        game_id: id.into(),
+        season_week: SeasonWeek {
+            season: Season(2025),
+            season_type: SeasonType::Reg,
+            week: Week(week),
+        },
         kickoff,
         away_team: "KC".parse().unwrap(),
         home_team: "BUF".parse().unwrap(),
@@ -66,7 +68,7 @@ fn named<'a>(slates: &'a [Slate], name: &str) -> &'a Slate {
 }
 
 fn game_ids(games: &[Game]) -> Vec<String> {
-    games.iter().map(|game| game.gsis_game_id.clone()).collect()
+    games.iter().map(|game| game.game_id.clone()).collect()
 }
 
 struct TempDatabases {
@@ -111,7 +113,7 @@ impl TempDatabases {
             )
             .await
             .expect("independent provider connection");
-        sqlx::query("UPDATE games SET kickoff = ? WHERE gsis_game_id = ?")
+        sqlx::query("UPDATE games SET kickoff = ? WHERE game_id = ?")
             .bind(kickoff)
             .bind(game_id)
             .execute(&pool)
@@ -249,7 +251,7 @@ async fn fixed_ids_and_metadata_survive_reopen() {
     let games = slates::games(&nfl, main_id).await.unwrap();
     let sun_1 = games
         .iter()
-        .find(|game| game.gsis_game_id == "sun_1")
+        .find(|game| game.game_id == "sun_1")
         .expect("the moved member");
     assert_eq!(sun_1.kickoff, Some(datetime!(2025-11-29 21:30 UTC)));
 

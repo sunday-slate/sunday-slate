@@ -216,10 +216,12 @@ mod tests {
         .await;
         app.login_admin().await;
         let game = |id: &str, week, kickoff| Game {
-            gsis_game_id: id.into(),
-            season: Season(2025),
-            week: Week(week),
-            season_type: SeasonType::Reg,
+            game_id: id.into(),
+            season_week: nfl_data::SeasonWeek {
+                season: Season(2025),
+                season_type: SeasonType::Reg,
+                week: Week(week),
+            },
             kickoff: Some(kickoff),
             home_team: "NYJ".parse().unwrap(),
             away_team: "BUF".parse().unwrap(),

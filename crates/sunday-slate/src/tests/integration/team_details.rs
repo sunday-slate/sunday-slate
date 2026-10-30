@@ -42,7 +42,7 @@ async fn member_views_another_teams_season(pool: SqlitePool) {
         (wk2, "2025_02_BUF_KC"),
         (wk3, "2025_03_BUF_KC"),
     ] {
-        sqlx::query("INSERT INTO contest_games (contest_id, gsis_game_id) VALUES (?1, ?2)")
+        sqlx::query("INSERT INTO contest_games (contest_id, game_id) VALUES (?1, ?2)")
             .bind(c)
             .bind(gid)
             .execute(&pool)
@@ -73,7 +73,7 @@ async fn member_views_another_teams_season(pool: SqlitePool) {
         ..factories::player_stats("00-BUF", week)
     };
     let buf_defense = TeamWeekStats {
-        gsis_game_id: "2025_01_BUF_KC".into(),
+        game_id: "2025_01_BUF_KC".into(),
         ..factories::scoreless_defense_stats("BUF", "KC", 1)
     };
     app.nfl
@@ -102,11 +102,11 @@ async fn member_views_another_teams_season(pool: SqlitePool) {
                 factories::scoreless_defense_stats("KC", "BUF", 3),
                 buf_defense.clone(),
                 TeamWeekStats {
-                    gsis_game_id: "2025_02_BUF_KC".into(),
+                    game_id: "2025_02_BUF_KC".into(),
                     ..factories::scoreless_defense_stats("BUF", "KC", 2)
                 },
                 TeamWeekStats {
-                    gsis_game_id: "2025_03_BUF_KC".into(),
+                    game_id: "2025_03_BUF_KC".into(),
                     ..factories::scoreless_defense_stats("BUF", "KC", 3)
                 },
             ],

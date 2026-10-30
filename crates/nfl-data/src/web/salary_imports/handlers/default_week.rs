@@ -13,25 +13,18 @@ pub(crate) fn default_season_week(
     let mut weeks = games
         .iter()
         .filter(|g| {
-            g.season == configured_season
+            g.season_week.season == configured_season
                 && g.kickoff.is_some_and(|kickoff| {
                     kickoff > now && nfl_week_monday(to_eastern(kickoff).date()) >= week_start
                 })
         })
         .collect::<Vec<_>>();
     weeks.sort_by_key(|game| game.kickoff);
-    weeks
-        .first()
-        .map(|g| SeasonWeek {
-            season: g.season,
-            season_type: g.season_type,
-            week: g.week,
-        })
-        .unwrap_or(SeasonWeek {
-            season: configured_season,
-            season_type: SeasonType::Reg,
-            week: Week(1),
-        })
+    weeks.first().map(|g| g.season_week).unwrap_or(SeasonWeek {
+        season: configured_season,
+        season_type: SeasonType::Reg,
+        week: Week(1),
+    })
 }
 
 #[cfg(test)]
@@ -41,10 +34,12 @@ mod default_week_tests {
 
     fn game(id: &str, week: u8, kickoff: time::OffsetDateTime) -> Game {
         Game {
-            gsis_game_id: id.into(),
-            season: Season(2025),
-            week: Week(week),
-            season_type: SeasonType::Reg,
+            game_id: id.into(),
+            season_week: SeasonWeek {
+                season: Season(2025),
+                season_type: SeasonType::Reg,
+                week: Week(week),
+            },
             kickoff: Some(kickoff),
             home_team: "KC".parse().unwrap(),
             away_team: "BUF".parse().unwrap(),

@@ -459,7 +459,7 @@ where
                   s.dfs_position   AS "dfs_position!: String",
                   s.salary         AS "salary!: i64"
            FROM nfl_player_salaries s
-           JOIN contest_games cg ON cg.gsis_game_id = s.gsis_game_id
+           JOIN contest_games cg ON cg.game_id = s.game_id
            WHERE cg.contest_id = ?1"#,
         contest_id,
     )
@@ -926,7 +926,7 @@ mod tests {
         let contest = factories::contest(&pool, "Week 1").await;
         // Freeze the slate onto one game.
         sqlx::query(
-            "INSERT INTO contest_games (contest_id, gsis_game_id) VALUES (?1, '2025_01_BUF_KC')",
+            "INSERT INTO contest_games (contest_id, game_id) VALUES (?1, '2025_01_BUF_KC')",
         )
         .bind(contest)
         .execute(&pool)
@@ -934,16 +934,16 @@ mod tests {
         .unwrap();
         // A player salary and a DST salary on that game.
         sqlx::query(
-            "INSERT INTO nfl_player_salaries (gsis_game_id, gsis_player_id, team_abbr, dfs_position, salary)
+            "INSERT INTO nfl_player_salaries (game_id, gsis_player_id, team_abbr, dfs_position, salary)
              VALUES ('2025_01_BUF_KC', '00-A', 'KC', 'RB', 5700)",
         ).execute(&pool).await.unwrap();
         sqlx::query(
-            "INSERT INTO nfl_player_salaries (gsis_game_id, gsis_player_id, team_abbr, dfs_position, salary)
+            "INSERT INTO nfl_player_salaries (game_id, gsis_player_id, team_abbr, dfs_position, salary)
              VALUES ('2025_01_BUF_KC', NULL, 'KC', 'DST', 3500)",
         ).execute(&pool).await.unwrap();
         // A salary on a game NOT on the slate must be excluded.
         sqlx::query(
-            "INSERT INTO nfl_player_salaries (gsis_game_id, gsis_player_id, team_abbr, dfs_position, salary)
+            "INSERT INTO nfl_player_salaries (game_id, gsis_player_id, team_abbr, dfs_position, salary)
              VALUES ('2025_01_OTHER', '00-Z', 'SF', 'WR', 9999)",
         ).execute(&pool).await.unwrap();
 

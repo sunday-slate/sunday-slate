@@ -1,7 +1,7 @@
 use std::fmt::{Display, Formatter};
 use time::OffsetDateTime;
 
-use crate::TeamAbbr;
+use crate::{SeasonWeek, TeamAbbr};
 
 const DEFAULT_SEASON: u16 = 2026;
 
@@ -120,10 +120,8 @@ impl TryFrom<u8> for SeasonType {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Game {
-    pub gsis_game_id: String,
-    pub season: Season,
-    pub week: Week,
-    pub season_type: SeasonType,
+    pub game_id: String,
+    pub season_week: SeasonWeek,
     /// UTC. None when upstream omits the kickoff time (some historical games).
     pub kickoff: Option<OffsetDateTime>,
     pub home_team: TeamAbbr,
@@ -212,7 +210,7 @@ pub struct TeamWeekStats {
     pub season_type: SeasonType,
     pub team: TeamAbbr,
     pub opponent: TeamAbbr,
-    pub gsis_game_id: String,
+    pub game_id: String,
     /// Whole team sacks (one per sack play — includes uncredited strip-sacks).
     pub sacks: u32,
     pub interceptions: u32,
@@ -235,10 +233,12 @@ mod kickoff_eastern_tests {
 
     fn game(kickoff: Option<time::OffsetDateTime>) -> Game {
         Game {
-            gsis_game_id: "x".into(),
-            season: Season(2025),
-            week: Week(1),
-            season_type: SeasonType::Reg,
+            game_id: "x".into(),
+            season_week: SeasonWeek {
+                season: Season(2025),
+                season_type: SeasonType::Reg,
+                week: Week(1),
+            },
             kickoff,
             home_team: TeamAbbr::LA,
             away_team: TeamAbbr::SF,

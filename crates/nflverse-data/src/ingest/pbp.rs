@@ -214,7 +214,7 @@ pub(crate) fn parse(asset: &str, bytes: &[u8]) -> Result<Vec<TeamWeekStats>, Nfl
                 season_type: g.season_type,
                 team: team.parse().expect("validated team abbreviation"),
                 opponent: opponent.parse().expect("validated team abbreviation"),
-                gsis_game_id: game_id.clone(),
+                game_id: game_id.clone(),
                 sacks: a.sacks,
                 interceptions: a.interceptions,
                 fumble_recoveries: a.fumble_recoveries,
@@ -248,7 +248,7 @@ mod tests {
 
         let aaa = find(&rows, "BUF");
         assert_eq!(aaa.opponent, TeamAbbr::KC);
-        assert_eq!(aaa.gsis_game_id, "2025_01_BUF_KC");
+        assert_eq!(aaa.game_id, "2025_01_BUF_KC");
         assert_eq!(aaa.sacks, 1);
         assert_eq!(aaa.interceptions, 1);
         assert_eq!(aaa.fumble_recoveries, 1);

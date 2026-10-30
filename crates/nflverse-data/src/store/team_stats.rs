@@ -26,7 +26,7 @@ pub(crate) async fn replace(
             for s in stats {
                 sqlx::query!(
                     r#"INSERT INTO team_week_stats
-                       (season, week, season_type, team, opponent, gsis_game_id,
+                       (season, week, season_type, team, opponent, game_id,
                         sacks, interceptions, fumble_recoveries, safeties,
                         touchdowns, blocked_kicks, conversion_returns, points_allowed)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
@@ -35,7 +35,7 @@ pub(crate) async fn replace(
                     s.season_type,
                     s.team,
                     s.opponent,
-                    s.gsis_game_id,
+                    s.game_id,
                     s.sacks,
                     s.interceptions,
                     s.fumble_recoveries,
@@ -69,7 +69,7 @@ pub(crate) async fn for_week(
                season_type AS "season_type: SeasonType",
                team AS "team: TeamAbbr",
                opponent AS "opponent: TeamAbbr",
-               gsis_game_id,
+               game_id,
                sacks AS "sacks: u32",
                interceptions AS "interceptions: u32",
                fumble_recoveries AS "fumble_recoveries: u32",
@@ -101,7 +101,7 @@ mod tests {
             season_type: SeasonType::Reg,
             team: team.parse().unwrap(),
             opponent: opp.parse().unwrap(),
-            gsis_game_id: "2025_01_AAA_BBB".into(),
+            game_id: "2025_01_AAA_BBB".into(),
             sacks: 3,
             interceptions: 5,
             fumble_recoveries: 7,

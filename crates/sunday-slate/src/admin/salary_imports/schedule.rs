@@ -23,11 +23,7 @@ pub fn resolve_slate_games(
 ) -> Result<Vec<Game>, ScheduleError> {
     let week: HashMap<(&str, &str), &Game> = season_games
         .iter()
-        .filter(|game| {
-            game.season == season_week.season
-                && game.season_type == season_week.season_type
-                && game.week == season_week.week
-        })
+        .filter(|game| game.season_week == *season_week)
         .map(|game| ((game.away_team.as_str(), game.home_team.as_str()), game))
         .collect();
 
@@ -53,10 +49,12 @@ mod tests {
 
     fn game(id: &str, week: u8, home: &str, away: &str, kickoff: OffsetDateTime) -> Game {
         Game {
-            gsis_game_id: id.into(),
-            season: Season(2025),
-            week: Week(week),
-            season_type: SeasonType::Reg,
+            game_id: id.into(),
+            season_week: SeasonWeek {
+                season: Season(2025),
+                season_type: SeasonType::Reg,
+                week: Week(week),
+            },
             kickoff: Some(kickoff),
             home_team: home.parse().unwrap(),
             away_team: away.parse().unwrap(),
@@ -66,7 +64,7 @@ mod tests {
     }
 
     fn game_type(mut game: Game, season_type: SeasonType) -> Game {
-        game.season_type = season_type;
+        game.season_week.season_type = season_type;
         game
     }
 
@@ -109,7 +107,7 @@ mod tests {
             &matchups(&[("LA", "SF"), ("BUF", "KC")]),
         )
         .expect("resolve");
-        let ids: BTreeSet<_> = got.iter().map(|g| g.gsis_game_id.clone()).collect();
+        let ids: BTreeSet<_> = got.iter().map(|g| g.game_id.clone()).collect();
         assert_eq!(ids.len(), 2);
         assert!(ids.contains("2025_05_LA_SF"));
         assert!(ids.contains("2025_05_BUF_KC"));
@@ -140,7 +138,7 @@ mod tests {
         )
         .expect("resolve");
         assert_eq!(got.len(), 1);
-        assert_eq!(got[0].gsis_game_id, "2025_05_LA_SF");
+        assert_eq!(got[0].game_id, "2025_05_LA_SF");
     }
 
     #[test]
@@ -168,7 +166,7 @@ mod tests {
         )
         .expect("resolve");
         assert_eq!(got.len(), 1);
-        assert_eq!(got[0].gsis_game_id, "2025_15_SF_LA");
+        assert_eq!(got[0].game_id, "2025_15_SF_LA");
     }
 
     #[test]
@@ -205,7 +203,7 @@ mod tests {
             &matchups(&[("SF", "SEA"), ("BUF", "NYJ")]),
         )
         .expect("resolve");
-        let ids: BTreeSet<_> = got.iter().map(|g| g.gsis_game_id.clone()).collect();
+        let ids: BTreeSet<_> = got.iter().map(|g| g.game_id.clone()).collect();
         assert!(ids.contains("2025_01_SF_SEA"));
         assert!(ids.contains("2025_01_BUF_NYJ"));
         assert!(!ids.contains("2025_20_SF_SEA"));
@@ -238,7 +236,7 @@ mod tests {
             let resolved = resolve_slate_games(&games, &requested, &matchups(&[("SF", "SEA")]))
                 .expect("exact season week resolves");
             assert_eq!(resolved.len(), 1);
-            assert_eq!(resolved[0].gsis_game_id, expected);
+            assert_eq!(resolved[0].game_id, expected);
         }
     }
 
