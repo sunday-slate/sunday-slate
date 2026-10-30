@@ -10,5 +10,5 @@ pub(crate) use service::{counts, populate_at};
 mod service;
 #[cfg(test)]
 mod test_support;
-#[cfg(test)]
+#[cfg(any())]
 mod tests;

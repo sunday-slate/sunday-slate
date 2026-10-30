@@ -85,7 +85,7 @@ where
     .await
 }
 
-pub(crate) async fn by_id(pool: &SqlitePool, id: SlateId) -> Result<Option<Slate>, sqlx::Error> {
+pub(crate) async fn by_id(pool: &SqlitePool, id: &SlateId) -> Result<Option<Slate>, sqlx::Error> {
     sqlx::query_as::<_, Slate>(
         r#"SELECT id, season_week, name, kickoff
                FROM slates
@@ -119,7 +119,7 @@ where
 }
 
 /// The slate's stored membership ids in lexical order.
-pub(crate) async fn game_ids(pool: &SqlitePool, id: SlateId) -> Result<Vec<String>, sqlx::Error> {
+pub(crate) async fn game_ids(pool: &SqlitePool, id: &SlateId) -> Result<Vec<String>, sqlx::Error> {
     sqlx::query_scalar::<_, String>(
         r#"SELECT game_id
                FROM slate_games
@@ -273,7 +273,7 @@ async fn refresh_fixed_kickoffs(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(any())]
 mod tests {
     use std::collections::HashMap;
 

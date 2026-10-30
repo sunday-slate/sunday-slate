@@ -20,7 +20,7 @@ pub async fn by_week(nfl: &NflData, week: SeasonWeek) -> Result<Vec<Slate>, crat
 }
 
 /// The stored slate with this id, or `None` when the id is unknown.
-pub async fn by_id(nfl: &NflData, id: SlateId) -> Result<Option<Slate>, crate::NflDataError> {
+pub async fn by_id(nfl: &NflData, id: &SlateId) -> Result<Option<Slate>, crate::NflDataError> {
     Ok(slates_store::by_id(nfl.store.reader(), id).await?)
 }
 
@@ -31,7 +31,7 @@ pub async fn by_id(nfl: &NflData, id: SlateId) -> Result<Option<Slate>, crate::N
 /// rescheduled games keep their slate and current kickoff. Games whose schedule
 /// row is absent drop out without leaving the snapshot, and an id with no
 /// stored membership has no games.
-pub async fn games(nfl: &NflData, id: SlateId) -> Result<Vec<Game>, crate::NflDataError> {
+pub async fn games(nfl: &NflData, id: &SlateId) -> Result<Vec<Game>, crate::NflDataError> {
     let Some(stored) = slates_store::by_id(nfl.store.reader(), id).await? else {
         return Ok(Vec::new());
     };

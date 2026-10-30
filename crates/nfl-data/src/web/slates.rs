@@ -97,14 +97,14 @@ pub(super) async fn show(
     Path(id): Path<i64>,
 ) -> Result<Response, AdminError> {
     let id = SlateId(id);
-    let Some(slate) = by_id(&state.nfl, id).await? else {
+    let Some(slate) = by_id(&state.nfl, &id).await? else {
         return Ok(StatusCode::NOT_FOUND.into_response());
     };
     if slate.season_week.season != state.nfl.season() {
         return Ok(StatusCode::NOT_FOUND.into_response());
     }
 
-    let games = games(&state.nfl, id).await?;
+    let games = games(&state.nfl, &id).await?;
     let rows = games
         .into_iter()
         .map(|game| GameRow {

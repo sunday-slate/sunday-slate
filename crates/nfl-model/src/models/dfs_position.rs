@@ -55,12 +55,26 @@ impl From<DfsPosition> for String {
 /// All DfsPositions + FLEX as an option
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DfsPositionSlotType {
-    Qb,
-    Rb,
-    Wr,
-    Te,
+    Position(DfsPosition),
     Flex,
-    Dst
+}
+
+impl DfsPositionSlotType {
+    pub fn allows(self, position: DfsPosition) -> bool {
+        match self {
+            Self::Position(slot) => slot == position,
+            Self::Flex => matches!(
+                position,
+                DfsPosition::Rb | DfsPosition::Wr | DfsPosition::Te
+            ),
+        }
+    }
+}
+
+impl From<DfsPosition> for DfsPositionSlotType {
+    fn from(position: DfsPosition) -> Self {
+        Self::Position(position)
+    }
 }
 
 #[cfg(test)]

@@ -2,13 +2,14 @@ mod config;
 mod data_revision;
 mod error;
 mod identity;
+pub mod salaried_players;
 mod salaries;
+mod season_weeks;
 pub mod slates;
 mod store;
 #[cfg(test)]
 mod test;
 mod web;
-pub mod salaried_players;
 
 use std::collections::HashMap;
 use std::sync::Mutex;

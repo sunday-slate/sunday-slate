@@ -28,6 +28,38 @@ where
         .collect())
 }
 
+/// Every persisted link whose FanDuel id is in `fd_player_ids`, as a
+/// FanDuel-id → GSIS-id map; an empty set reads nothing.
+pub(crate) async fn links_for_fd_ids<'e, E>(
+    ex: E,
+    fd_player_ids: &[u32],
+) -> Result<HashMap<u32, String>, NflDataError>
+where
+    E: sqlx::Executor<'e, Database = Sqlite>,
+{
+    if fd_player_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let mut builder = sqlx::QueryBuilder::<Sqlite>::new(
+        r#"SELECT fd_player_id, gsis_player_id
+               FROM player_links
+               WHERE fd_player_id IN ("#,
+    );
+    let mut ids = builder.separated(", ");
+    for fd_player_id in fd_player_ids {
+        ids.push_bind(i64::from(*fd_player_id));
+    }
+    ids.push_unseparated(")");
+    let rows = builder
+        .build_query_as::<(i64, String)>()
+        .fetch_all(ex)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(fd_player_id, gsis_player_id)| (fd_player_id as u32, gsis_player_id))
+        .collect())
+}
+
 /// Every linked GSIS id, deduplicated and sorted.
 pub(crate) async fn gsis_ids<'e, E>(ex: E) -> Result<Vec<String>, NflDataError>
 where
@@ -112,6 +144,46 @@ mod tests {
         assert_eq!(
             gsis_ids(store.reader()).await.unwrap(),
             vec!["00-0036355".to_owned(), "00-0045678".to_owned()]
+        );
+    }
+
+    #[tokio::test]
+    async fn links_for_fd_ids_only_returns_the_requested_links() {
+        let store = store().await;
+        save_links(
+            &store,
+            &[
+                PlayerLink {
+                    fd_player_id: 166092,
+                    gsis_player_id: "00-0036355".into(),
+                },
+                PlayerLink {
+                    fd_player_id: 12543,
+                    gsis_player_id: "00-0045678".into(),
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            links_for_fd_ids(store.reader(), &[166092, 404])
+                .await
+                .unwrap(),
+            HashMap::from([(166092, "00-0036355".to_owned())])
+        );
+        assert_eq!(
+            links_for_fd_ids(store.reader(), &[166092, 12543])
+                .await
+                .unwrap()
+                .len(),
+            2
+        );
+        assert!(
+            links_for_fd_ids(store.reader(), &[])
+                .await
+                .unwrap()
+                .is_empty()
         );
     }
 
