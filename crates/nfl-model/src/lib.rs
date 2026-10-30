@@ -16,4 +16,4 @@ pub use model::{
     Game, Player, PlayerWeekStats, Season, SeasonType, TeamWeekStats, Week, WeeklyRosterEntry,
 };
 
-pub use models::{DfsPosition, SeasonWeek, TeamAbbr};
+pub use models::{DfsPosition, DfsPositionSlotType, SeasonWeek, TeamAbbr, NflPlayerId};

@@ -52,6 +52,17 @@ impl From<DfsPosition> for String {
     }
 }
 
+/// All DfsPositions + FLEX as an option
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DfsPositionSlotType {
+    Qb,
+    Rb,
+    Wr,
+    Te,
+    Flex,
+    Dst
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

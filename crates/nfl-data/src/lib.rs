@@ -8,6 +8,7 @@ mod store;
 #[cfg(test)]
 mod test;
 mod web;
+pub mod salaried_players;
 
 use std::collections::HashMap;
 use std::sync::Mutex;
