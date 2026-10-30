@@ -1,12 +1,14 @@
 use fanduel_data::FanduelDataError;
-use nflverse_data::NflverseDataError as NflDataError;
+use nflverse_data::NflverseDataError;
 
+/// Common error for NFL data operations across providers, slates, and the
+/// local store.
 #[derive(Debug, thiserror::Error)]
-pub enum SalaryError {
-    #[error("FanDuel salary import failed: {0}")]
+pub enum NflDataError {
+    #[error("nflverse provider failed: {0}")]
+    Nflverse(#[from] NflverseDataError),
+    #[error("FanDuel provider failed: {0}")]
     Fanduel(#[from] FanduelDataError),
-    #[error("NFL schedule lookup failed: {0}")]
-    Nfl(#[from] NflDataError),
     #[error("salary matchup does not exist in the requested season week")]
     Schedule,
     #[error("NFL data store database operation failed: {0}")]

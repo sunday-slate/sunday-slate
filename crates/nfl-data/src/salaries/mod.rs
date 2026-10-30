@@ -1,16 +1,14 @@
 pub(crate) mod candidates;
-pub(crate) mod error;
 mod matcher;
 mod schedule;
 
-pub use error::SalaryError;
 pub use schedule::resolve_slate_games;
 
 use std::collections::{BTreeSet, HashMap};
 
 use crate::salaries::matcher::{PlayerIndex, RosterIndex};
 use crate::store::{PlayerLink, player_link};
-use crate::{DfsPosition, NflData, SalariedPlayer, SeasonWeek};
+use crate::{DfsPosition, NflData, NflDataError, SalariedPlayer, SeasonWeek};
 
 /// One stored contest week and the source player IDs still needing a crosswalk.
 pub struct SalaryWeekOverview {
@@ -38,12 +36,12 @@ impl NflData {
     pub(crate) async fn reconcile_salary_week(
         &self,
         season_week: SeasonWeek,
-    ) -> Result<(), SalaryError> {
+    ) -> Result<(), NflDataError> {
         let source = self.fanduel.salaried_players_for(season_week).await?;
         let matchups = salary_matchups(&source);
         let games = self.games(season_week.season).await?;
         let slate_games = resolve_slate_games(&games, &season_week, &matchups)
-            .map_err(|_| SalaryError::Schedule)?;
+            .map_err(|_| NflDataError::Schedule)?;
         let game_of: HashMap<(String, String), String> = slate_games
             .iter()
             .map(|game| {
@@ -81,12 +79,12 @@ impl NflData {
                     matchup.away.as_str().to_owned(),
                     matchup.home.as_str().to_owned(),
                 ))
-                .ok_or(SalaryError::Schedule)?
+                .ok_or(NflDataError::Schedule)?
                 .clone();
             let gsis_player_id: Option<String> = if salary.position == DfsPosition::Dst {
                 None
             } else {
-                let player = salary.player.as_ref().ok_or(SalaryError::Schedule)?;
+                let player = salary.player.as_ref().ok_or(NflDataError::Schedule)?;
                 let fd_id = player.id;
                 if let Some(gsis) = links.get(&fd_id) {
                     Some(gsis.clone())

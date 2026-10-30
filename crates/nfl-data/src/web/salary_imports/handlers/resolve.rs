@@ -1,7 +1,7 @@
 use crate::store::player_link;
 use crate::web::salary_imports::SalaryAdminError;
 use crate::web::{AdminState, salary_imports};
-use crate::{PlayerLink, SalaryError, SalaryWeekOverview};
+use crate::{NflDataError, PlayerLink, SalaryWeekOverview};
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Redirect};
 use nfl_model::SeasonWeek;
@@ -18,11 +18,7 @@ pub async fn resolve(
     axum::Form(form): axum::Form<ResolveForm>,
 ) -> Result<impl IntoResponse, SalaryAdminError> {
     let season_week = crate::SeasonWeek::decode(encoded).ok_or(SalaryAdminError::NotFound)?;
-    let identities = state
-        .nfl
-        .identify(&[form.gsis_player_id.as_str()])
-        .await
-        .map_err(|e| SalaryAdminError::Internal(e.to_string()))?;
+    let identities = state.nfl.identify(&[form.gsis_player_id.as_str()]).await?;
     if !identities.contains_key(&form.gsis_player_id) {
         return Err(SalaryAdminError::BadRequest(
             "unknown GSIS player ID".into(),
@@ -43,7 +39,7 @@ async fn resolve_salary_player(
     season_week: SeasonWeek,
     fd_player_id: u32,
     gsis_player_id: &str,
-) -> Result<SalaryWeekOverview, SalaryError> {
+) -> Result<SalaryWeekOverview, NflDataError> {
     let source = state.nfl.fanduel.salaried_players_for(season_week).await?;
     if !source.iter().any(|salary| {
         salary
@@ -51,7 +47,7 @@ async fn resolve_salary_player(
             .as_ref()
             .is_some_and(|player| player.id == fd_player_id)
     }) {
-        return Err(SalaryError::Schedule);
+        return Err(NflDataError::Schedule);
     }
     player_link::save_links(
         &state.nfl.store,

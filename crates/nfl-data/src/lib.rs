@@ -1,5 +1,6 @@
 mod config;
 mod data_revision;
+mod error;
 mod identity;
 mod salaries;
 pub mod slates;
@@ -18,6 +19,7 @@ use tokio::task::JoinHandle;
 
 pub use config::NflDataConfig;
 pub use data_revision::DataRevision;
+pub use error::NflDataError;
 pub use fanduel_data::{FanduelDataError, SalariedPlayer};
 pub use identity::PlayerIdentity;
 pub use live::{
@@ -32,11 +34,10 @@ pub use nfl_model::{
     TeamWeekStats, Week, WeeklyRosterEntry, eastern_offset, to_eastern,
 };
 pub use nflverse_data::{
-    Dataset, DatasetFreshness, DatasetReport, DatasetStatus, NflverseDataError as NflDataError,
-    RefreshStatus, SyncReport,
+    Dataset, DatasetFreshness, DatasetReport, DatasetStatus, NflverseDataError, RefreshStatus,
+    SyncReport,
 };
-pub use salaries::{SalaryError, SalaryWeekOverview};
-pub use slates::SlateError;
+pub use salaries::SalaryWeekOverview;
 pub use store::PlayerLink;
 pub use web::AdminConfig;
 pub use web::router as admin_router;
@@ -45,16 +46,6 @@ pub struct WeeklySummary {
     pub season_week: SeasonWeek,
     pub salary_count: usize,
     pub unmatched_count: usize,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum NflDataConnectError {
-    #[error("nflverse provider startup failed: {0}")]
-    Nflverse(#[source] NflDataError),
-    #[error("FanDuel provider startup failed: {0}")]
-    Fanduel(#[source] FanduelDataError),
-    #[error("NFL data store startup failed: {0}")]
-    Store(#[source] SalaryError),
 }
 
 pub struct NflData {
@@ -153,30 +144,38 @@ impl NflData {
         &self,
         season_week: SeasonWeek,
         csv_data: &[u8],
-    ) -> Result<Vec<SalariedPlayer>, FanduelDataError> {
-        self.fanduel.parse_fanduel_csv(season_week, csv_data)
+    ) -> Result<Vec<SalariedPlayer>, NflDataError> {
+        self.fanduel
+            .parse_fanduel_csv(season_week, csv_data)
+            .map_err(NflDataError::Fanduel)
     }
 
     /// Persist typed FanDuel source rows after caller-specific validation.
     pub async fn save_fanduel_salaries(
         &self,
         salaries: &[SalariedPlayer],
-    ) -> Result<(), FanduelDataError> {
-        self.fanduel.save_salaried_players(salaries).await
+    ) -> Result<(), NflDataError> {
+        self.fanduel
+            .save_salaried_players(salaries)
+            .await
+            .map_err(NflDataError::Fanduel)
     }
 
     /// Read stored FanDuel salary source rows for an exact contest week.
     pub async fn salaried_players_for(
         &self,
         season_week: SeasonWeek,
-    ) -> Result<Vec<SalariedPlayer>, FanduelDataError> {
-        self.fanduel.salaried_players_for(season_week).await
+    ) -> Result<Vec<SalariedPlayer>, NflDataError> {
+        self.fanduel
+            .salaried_players_for(season_week)
+            .await
+            .map_err(NflDataError::Fanduel)
     }
 
     pub async fn fanduel_weekly_summaries(
         &self,
         matched_ids: &[u32],
-    ) -> Result<Vec<WeeklySummary>, FanduelDataError> {
+    ) -> Result<Vec<WeeklySummary>, NflDataError> {
         let salary_counts = self.fanduel.weekly_salary_counts().await?;
         let unmatched_counts = self.fanduel.weekly_unmatched_counts(matched_ids).await?;
 
@@ -196,24 +195,20 @@ impl NflData {
     }
 
     /// Opens all databases and runs their migrations.
-    pub async fn connect(config: NflDataConfig) -> Result<Self, NflDataConnectError> {
+    pub async fn connect(config: NflDataConfig) -> Result<Self, NflDataError> {
         let refresh_interval = config
             .refresh_interval
             .filter(|interval| !interval.is_zero());
         let (sync_notify, sync_receiver) = mpsc::unbounded_channel();
         let provider =
             NflverseData::connect_with_sync_notify(config.clone().into(), Some(sync_notify))
-                .await
-                .map_err(NflDataConnectError::Nflverse)?;
+                .await?;
         let fanduel = if config.fanduel_database_url == "sqlite::memory:" {
             fanduel_data::FanduelData::in_memory().await
         } else {
             fanduel_data::FanduelData::connect(&config.fanduel_database_url).await
-        }
-        .map_err(NflDataConnectError::Fanduel)?;
-        let store = store::Store::open(&config.database_url)
-            .await
-            .map_err(NflDataConnectError::Store)?;
+        }?;
+        let store = store::Store::open(&config.database_url).await?;
         Ok(Self {
             provider,
             fanduel,
@@ -226,16 +221,10 @@ impl NflData {
     }
 
     /// A fresh, empty, in-memory cache: migrations applied, nothing synced.
-    pub async fn in_memory() -> Result<Self, NflDataConnectError> {
-        let provider = NflverseData::in_memory()
-            .await
-            .map_err(NflDataConnectError::Nflverse)?;
-        let fanduel = fanduel_data::FanduelData::in_memory()
-            .await
-            .map_err(NflDataConnectError::Fanduel)?;
-        let store = store::Store::in_memory()
-            .await
-            .map_err(NflDataConnectError::Store)?;
+    pub async fn in_memory() -> Result<Self, NflDataError> {
+        let provider = NflverseData::in_memory().await?;
+        let fanduel = fanduel_data::FanduelData::in_memory().await?;
+        let store = store::Store::in_memory().await?;
         Ok(Self {
             provider,
             fanduel,
@@ -260,7 +249,7 @@ impl NflData {
     /// rebuild path.
     pub async fn refresh_slates(
         &self,
-    ) -> Result<std::collections::BTreeSet<slates::Slate>, SlateError> {
+    ) -> Result<std::collections::BTreeSet<slates::Slate>, NflDataError> {
         slates::refresh(self).await
     }
 
@@ -307,7 +296,10 @@ impl NflData {
         &self,
         entries: &[WeeklyRosterEntry],
     ) -> Result<(), NflDataError> {
-        self.provider.seed_weekly_roster_for_test(entries).await
+        self.provider
+            .seed_weekly_roster_for_test(entries)
+            .await
+            .map_err(NflDataError::Nflverse)
     }
 
     /// Seed players and games directly, for tests and tooling.
@@ -317,17 +309,26 @@ impl NflData {
         players: &[Player],
         games: &[Game],
     ) -> Result<(), NflDataError> {
-        self.provider.seed_for_test(players, games).await
+        self.provider
+            .seed_for_test(players, games)
+            .await
+            .map_err(NflDataError::Nflverse)
     }
 
     /// All cached games for a season, ordered by week.
     pub async fn games(&self, season: Season) -> Result<Vec<Game>, NflDataError> {
-        self.provider.games(season).await
+        self.provider
+            .games(season)
+            .await
+            .map_err(NflDataError::Nflverse)
     }
 
     /// All cached players, ordered by name.
     pub async fn players(&self) -> Result<Vec<Player>, NflDataError> {
-        self.provider.players().await
+        self.provider
+            .players()
+            .await
+            .map_err(NflDataError::Nflverse)
     }
 
     /// Players for a small set of ids, keyed by gsis id. Ids with no player are
@@ -337,7 +338,10 @@ impl NflData {
         &self,
         ids: &[I],
     ) -> Result<HashMap<String, Player>, NflDataError> {
-        self.provider.players_by_gsis(ids).await
+        self.provider
+            .players_by_gsis(ids)
+            .await
+            .map_err(NflDataError::Nflverse)
     }
 
     /// A team's cached roster for one week, ordered by player name.
@@ -347,7 +351,10 @@ impl NflData {
         week: Week,
         team: &TeamAbbr,
     ) -> Result<Vec<WeeklyRosterEntry>, NflDataError> {
-        self.provider.weekly_roster(season, week, team).await
+        self.provider
+            .weekly_roster(season, week, team)
+            .await
+            .map_err(NflDataError::Nflverse)
     }
 
     /// All players' cached stat lines for one week, ordered by player GSIS id.
@@ -356,7 +363,10 @@ impl NflData {
         season: Season,
         week: Week,
     ) -> Result<Vec<PlayerWeekStats>, NflDataError> {
-        self.provider.player_week_stats(season, week).await
+        self.provider
+            .player_week_stats(season, week)
+            .await
+            .map_err(NflDataError::Nflverse)
     }
 
     /// All teams' pbp-derived D/ST lines for one week (sacks, takeaways, TDs,
@@ -367,7 +377,10 @@ impl NflData {
         season: Season,
         week: Week,
     ) -> Result<Vec<TeamWeekStats>, NflDataError> {
-        self.provider.team_week_stats(season, week).await
+        self.provider
+            .team_week_stats(season, week)
+            .await
+            .map_err(NflDataError::Nflverse)
     }
     /// Seed player and team week stats directly, for tests and tooling. Reuses the
     /// sync-path `replace` inserts (per-season delete-then-insert). Not part of the
@@ -382,6 +395,7 @@ impl NflData {
         self.provider
             .seed_week_stats_for_test(season, players, teams)
             .await
+            .map_err(NflDataError::Nflverse)
     }
 }
 
