@@ -7,9 +7,7 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub(super) enum AdminError {
     #[error(transparent)]
-    Provider(#[from] crate::NflDataError),
-    #[error(transparent)]
-    Slate(#[from] crate::slates::SlateError),
+    Domain(#[from] crate::NflDataError),
     #[error(transparent)]
     Render(#[from] askama::Error),
 }

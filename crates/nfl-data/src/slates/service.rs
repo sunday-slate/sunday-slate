@@ -1,4 +1,4 @@
-use crate::slates::{Slate, SlateError, SlateId, rule};
+use crate::slates::{Slate, SlateId, rule};
 use crate::store::Store;
 use crate::store::slates as slates_store;
 use crate::{NflData, NflverseData};
@@ -7,7 +7,7 @@ use std::collections::{BTreeSet, HashMap};
 use time::OffsetDateTime;
 
 /// Every stored slate for the handle's season, in ascending order.
-pub async fn all(nfl: &NflData) -> Result<BTreeSet<Slate>, SlateError> {
+pub async fn all(nfl: &NflData) -> Result<BTreeSet<Slate>, crate::NflDataError> {
     Ok(slates_store::for_season(nfl.store.reader(), nfl.season())
         .await?
         .into_iter()
@@ -15,12 +15,12 @@ pub async fn all(nfl: &NflData) -> Result<BTreeSet<Slate>, SlateError> {
 }
 
 /// The week's stored slates, ordered by kickoff
-pub async fn by_week(nfl: &NflData, week: SeasonWeek) -> Result<Vec<Slate>, SlateError> {
+pub async fn by_week(nfl: &NflData, week: SeasonWeek) -> Result<Vec<Slate>, crate::NflDataError> {
     Ok(slates_store::for_week(nfl.store.reader(), week).await?)
 }
 
 /// The stored slate with this id, or `None` when the id is unknown.
-pub async fn by_id(nfl: &NflData, id: SlateId) -> Result<Option<Slate>, SlateError> {
+pub async fn by_id(nfl: &NflData, id: SlateId) -> Result<Option<Slate>, crate::NflDataError> {
     Ok(slates_store::by_id(nfl.store.reader(), id).await?)
 }
 
@@ -31,7 +31,7 @@ pub async fn by_id(nfl: &NflData, id: SlateId) -> Result<Option<Slate>, SlateErr
 /// rescheduled games keep their slate and current kickoff. Games whose schedule
 /// row is absent drop out without leaving the snapshot, and an id with no
 /// stored membership has no games.
-pub async fn games(nfl: &NflData, id: SlateId) -> Result<Vec<Game>, SlateError> {
+pub async fn games(nfl: &NflData, id: SlateId) -> Result<Vec<Game>, crate::NflDataError> {
     let Some(stored) = slates_store::by_id(nfl.store.reader(), id).await? else {
         return Ok(Vec::new());
     };
@@ -42,7 +42,7 @@ pub async fn games(nfl: &NflData, id: SlateId) -> Result<Vec<Game>, SlateError> 
 
 /// Games per stored slate for the handle's season; slates with no membership
 /// count zero.
-pub(crate) async fn counts(nfl: &NflData) -> Result<HashMap<SlateId, usize>, SlateError> {
+pub(crate) async fn counts(nfl: &NflData) -> Result<HashMap<SlateId, usize>, crate::NflDataError> {
     Ok(slates_store::counts_for_season(nfl.store.reader(), nfl.season()).await?)
 }
 
@@ -51,7 +51,7 @@ pub(crate) async fn counts(nfl: &NflData) -> Result<HashMap<SlateId, usize>, Sla
 /// Callers that already hold populated tables do not need this: reads answer
 /// from storage, and the handle populates at startup and after each successful
 /// sync. It exists for a deliberate rebuild.
-pub async fn refresh(nfl: &NflData) -> Result<BTreeSet<Slate>, SlateError> {
+pub async fn refresh(nfl: &NflData) -> Result<BTreeSet<Slate>, crate::NflDataError> {
     populate_at(
         &nfl.provider,
         &nfl.store,
@@ -69,7 +69,7 @@ pub(crate) async fn populate_at(
     store: &Store,
     season: Season,
     now: OffsetDateTime,
-) -> Result<BTreeSet<Slate>, SlateError> {
+) -> Result<BTreeSet<Slate>, crate::NflDataError> {
     let schedule = provider.games(season).await?;
     let mut slates = BTreeSet::new();
     for week in SeasonWeek::for_season(season) {
@@ -83,7 +83,7 @@ async fn reconcile_week_at(
     week: SeasonWeek,
     schedule: &[Game],
     now: OffsetDateTime,
-) -> Result<Vec<Slate>, SlateError> {
+) -> Result<Vec<Slate>, crate::NflDataError> {
     if slates_store::is_fixed(store.reader(), week).await? {
         return Ok(slates_store::reconcile(store, week, &[], schedule, false).await?);
     }

@@ -26,8 +26,6 @@ pub struct SalaryWeekOverview {
 
 #[derive(Debug, thiserror::Error)]
 pub enum SalaryImportError {
-    #[error("FanDuel salary import failed: {0}")]
-    Fanduel(#[from] nfl_data::FanduelDataError),
     #[error("NFL schedule lookup failed: {0}")]
     Nfl(#[from] nfl_data::NflDataError),
     #[error("salary matchup does not exist in the requested season week")]

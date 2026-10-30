@@ -9,7 +9,7 @@ use sqlx::{SqliteConnection, SqlitePool};
 use std::str::FromStr;
 use std::time::Duration;
 
-use crate::salaries::SalaryError;
+use crate::NflDataError;
 pub use player_link::PlayerLink;
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
@@ -25,7 +25,7 @@ pub(crate) struct Store {
 }
 
 impl Store {
-    pub(crate) async fn open(database_url: &str) -> Result<Self, SalaryError> {
+    pub(crate) async fn open(database_url: &str) -> Result<Self, NflDataError> {
         if database_url == "sqlite::memory:" || database_url == "sqlite://:memory:" {
             return Self::in_memory().await;
         }
@@ -36,7 +36,7 @@ impl Store {
     /// reads and writes. Separate `:memory:` connections would be distinct
     /// databases, so — like sunday-slate's `Db::test` — both accessors alias
     /// the same pool and the reader/writer split does not apply here.
-    pub(crate) async fn in_memory() -> Result<Self, SalaryError> {
+    pub(crate) async fn in_memory() -> Result<Self, NflDataError> {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect_with(Self::options("sqlite::memory:")?)
@@ -50,7 +50,7 @@ impl Store {
         })
     }
 
-    async fn connect_options(database_url: &str) -> Result<Self, SalaryError> {
+    async fn connect_options(database_url: &str) -> Result<Self, NflDataError> {
         let write = SqlitePoolOptions::new()
             .max_connections(1)
             .acquire_timeout(Duration::from_secs(30))
@@ -68,7 +68,7 @@ impl Store {
         Ok(Self { read, write })
     }
 
-    fn options(database_url: &str) -> Result<SqliteConnectOptions, SalaryError> {
+    fn options(database_url: &str) -> Result<SqliteConnectOptions, NflDataError> {
         Ok(SqliteConnectOptions::from_str(database_url)?
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal)
@@ -140,14 +140,14 @@ mod tests {
     #[tokio::test]
     async fn write_tx_rolls_back_on_error() {
         let store = store().await;
-        let result: Result<(), SalaryError> = store
+        let result: Result<(), NflDataError> = store
             .write_tx(async |conn| {
                 sqlx::query(
                     "INSERT INTO player_links (fd_player_id, gsis_player_id) VALUES (1, '00-rb')",
                 )
                 .execute(conn)
                 .await?;
-                Err(SalaryError::Schedule)
+                Err(NflDataError::Schedule)
             })
             .await;
         assert!(result.is_err());

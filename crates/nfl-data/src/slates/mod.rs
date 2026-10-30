@@ -1,8 +1,6 @@
-mod error;
 mod model;
 mod rule;
 
-pub use error::SlateError;
 pub use model::{Slate, SlateId};
 pub use service::{all, by_id, by_week, games, refresh};
 

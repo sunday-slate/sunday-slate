@@ -1,4 +1,4 @@
-use crate::salaries::SalaryError;
+use crate::NflDataError;
 use crate::{Player, SalariedPlayer, Season, SeasonWeek, TeamAbbr, Week, WeeklyRosterEntry};
 
 pub struct Candidate {
@@ -70,7 +70,7 @@ async fn roster_candidates(
     season: Season,
     week: Week,
     team: &TeamAbbr,
-) -> Result<Vec<Candidate>, SalaryError> {
+) -> Result<Vec<Candidate>, NflDataError> {
     let entries = nfl.weekly_roster(season, week, team).await?;
     Ok(entries.iter().filter_map(roster_candidate).collect())
 }
@@ -80,7 +80,7 @@ pub(crate) async fn suggestion_for(
     reconciled_gsis_ids: &[String],
     season_week: &SeasonWeek,
     salary: &SalariedPlayer,
-) -> Result<Option<Candidate>, SalaryError> {
+) -> Result<Option<Candidate>, NflDataError> {
     let Some(player) = &salary.player else {
         return Ok(None);
     };
@@ -119,7 +119,7 @@ pub(crate) async fn search(
     team: &TeamAbbr,
     query: &str,
     widened: bool,
-) -> Result<CandidateResults, SalaryError> {
+) -> Result<CandidateResults, NflDataError> {
     let needle = query.trim().to_lowercase();
     let (mut candidates, scope_label) = if widened {
         let hits: Vec<Candidate> = nfl

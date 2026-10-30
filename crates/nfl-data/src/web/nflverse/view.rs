@@ -32,7 +32,11 @@ impl NflverseTemplate {
 
         // Recheck state after freshness I/O so a newly-started refresh is not
         // knowingly rendered as idle.
-        let freshness = nfl.provider.freshness().await?;
+        let freshness = nfl
+            .provider
+            .freshness()
+            .await
+            .map_err(crate::NflDataError::Nflverse)?;
         match nfl.provider.refresh_status() {
             RunnerState::Idle { last } => Ok(Self::idle(
                 freshness,

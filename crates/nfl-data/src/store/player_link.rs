@@ -1,4 +1,4 @@
-use crate::SalaryError;
+use crate::NflDataError;
 use crate::store::Store;
 use sqlx::{Sqlite, SqliteConnection};
 use std::collections::HashMap;
@@ -11,7 +11,7 @@ pub struct PlayerLink {
 }
 
 /// Every persisted link as a FanDuel-id → GSIS-id map.
-pub(crate) async fn links<'e, E>(ex: E) -> Result<HashMap<u32, String>, SalaryError>
+pub(crate) async fn links<'e, E>(ex: E) -> Result<HashMap<u32, String>, NflDataError>
 where
     E: sqlx::Executor<'e, Database = Sqlite>,
 {
@@ -29,7 +29,7 @@ where
 }
 
 /// Every linked GSIS id, deduplicated and sorted.
-pub(crate) async fn gsis_ids<'e, E>(ex: E) -> Result<Vec<String>, SalaryError>
+pub(crate) async fn gsis_ids<'e, E>(ex: E) -> Result<Vec<String>, NflDataError>
 where
     E: sqlx::Executor<'e, Database = Sqlite>,
 {

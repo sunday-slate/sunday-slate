@@ -3,7 +3,7 @@ pub(crate) mod handlers;
 
 use crate::store::player_link;
 use crate::web::AdminState;
-use crate::{SalaryError, SalaryWeekOverview};
+use crate::{NflDataError, SalaryWeekOverview};
 pub(crate) use error::SalaryAdminError;
 pub use handlers::router;
 use nfl_model::SeasonWeek;
@@ -12,7 +12,7 @@ use nfl_model::SeasonWeek;
 async fn salary_week_overview(
     state: &AdminState,
     season_week: SeasonWeek,
-) -> Result<SalaryWeekOverview, SalaryError> {
+) -> Result<SalaryWeekOverview, NflDataError> {
     let salaries = state.nfl.fanduel.salaried_players_for(season_week).await?;
     let salary_count = salaries.len();
 
