@@ -183,7 +183,7 @@ async fn public_access_returns_metadata_and_games_separately() {
 
     for expected in &listed {
         assert_eq!(
-            slates::by_id(&nfl, expected.id).await.unwrap().as_ref(),
+            slates::by_id(&nfl, &expected.id).await.unwrap().as_ref(),
             Some(expected)
         );
     }
@@ -191,17 +191,17 @@ async fn public_access_returns_metadata_and_games_separately() {
     let thanksgiving = named(&listed, "Thanksgiving");
     let main = named(&listed, "Week 13");
     assert_eq!(
-        game_ids(&slates::games(&nfl, thanksgiving.id).await.unwrap()),
+        game_ids(&slates::games(&nfl, &thanksgiving.id).await.unwrap()),
         ["tg_1", "tg_2", "tg_3"]
     );
     assert_eq!(
-        game_ids(&slates::games(&nfl, main.id).await.unwrap()),
+        game_ids(&slates::games(&nfl, &main.id).await.unwrap()),
         ["sun_1", "sun_2"]
     );
 
     let unknown = SlateId(999_999);
-    assert!(slates::by_id(&nfl, unknown).await.unwrap().is_none());
-    assert!(slates::games(&nfl, unknown).await.unwrap().is_empty());
+    assert!(slates::by_id(&nfl, &unknown).await.unwrap().is_none());
+    assert!(slates::games(&nfl, &unknown).await.unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -216,8 +216,8 @@ async fn fixed_ids_and_metadata_survive_reopen() {
     let thanksgiving_id = named(&listed, "Thanksgiving").id;
     assert_eq!(main_id, SlateId(20250131), "the derived main id");
     assert_eq!(thanksgiving_id, SlateId(20250130), "the derived holiday id");
-    let main_games = game_ids(&slates::games(&nfl, main_id).await.unwrap());
-    let thanksgiving_games = game_ids(&slates::games(&nfl, thanksgiving_id).await.unwrap());
+    let main_games = game_ids(&slates::games(&nfl, &main_id).await.unwrap());
+    let thanksgiving_games = game_ids(&slates::games(&nfl, &thanksgiving_id).await.unwrap());
     drop(nfl);
 
     let nfl = temp.open().await;
@@ -230,11 +230,11 @@ async fn fixed_ids_and_metadata_survive_reopen() {
         Some(datetime!(2025-11-27 17:30 UTC))
     );
     assert_eq!(
-        game_ids(&slates::games(&nfl, main_id).await.unwrap()),
+        game_ids(&slates::games(&nfl, &main_id).await.unwrap()),
         main_games
     );
     assert_eq!(
-        game_ids(&slates::games(&nfl, thanksgiving_id).await.unwrap()),
+        game_ids(&slates::games(&nfl, &thanksgiving_id).await.unwrap()),
         thanksgiving_games
     );
     drop(nfl);
@@ -245,17 +245,17 @@ async fn fixed_ids_and_metadata_survive_reopen() {
     nfl.refresh_slates().await.unwrap();
 
     assert_eq!(
-        game_ids(&slates::games(&nfl, main_id).await.unwrap()),
+        game_ids(&slates::games(&nfl, &main_id).await.unwrap()),
         main_games
     );
-    let games = slates::games(&nfl, main_id).await.unwrap();
+    let games = slates::games(&nfl, &main_id).await.unwrap();
     let sun_1 = games
         .iter()
         .find(|game| game.game_id == "sun_1")
         .expect("the moved member");
     assert_eq!(sun_1.kickoff, Some(datetime!(2025-11-29 21:30 UTC)));
 
-    let found = slates::by_id(&nfl, main_id)
+    let found = slates::by_id(&nfl, &main_id)
         .await
         .unwrap()
         .expect("stored slate");
@@ -277,9 +277,9 @@ async fn slate_access_has_no_salary_prerequisite() {
 
     let listed = slates::by_week(&nfl, WEEK_13).await.unwrap();
     let main_id = named(&listed, "Week 13").id;
-    assert!(slates::by_id(&nfl, main_id).await.unwrap().is_some());
+    assert!(slates::by_id(&nfl, &main_id).await.unwrap().is_some());
     assert_eq!(
-        game_ids(&slates::games(&nfl, main_id).await.unwrap()),
+        game_ids(&slates::games(&nfl, &main_id).await.unwrap()),
         ["sun_1", "sun_2"]
     );
 

@@ -4,7 +4,7 @@ use crate::{PlayerWeekStats as NflPlayerWeekStats, TeamAbbr, TeamWeekStats as Nf
 use nfl_model::NflPlayerId;
 use std::collections::HashMap;
 
-pub(crate) use service::season_averages;
+pub use service::{SeasonAverages, season_averages, week_stats};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScoreLine {
@@ -167,12 +167,6 @@ fn format_points(points: f64) -> String {
     let whole = group_digits(&(hundredths / 100).to_string());
     let frac = hundredths % 100;
     format!("{sign}{whole}.{frac:02}")
-}
-
-/// A whole-dollar figure as the reader sees it: `5700` -> `"5,700"`.
-fn format_thousands(v: i64) -> String {
-    let sign = if v < 0 { "-" } else { "" };
-    format!("{sign}{}", group_digits(&v.unsigned_abs().to_string()))
 }
 
 /// `"1234567"` -> `"1,234,567"`.

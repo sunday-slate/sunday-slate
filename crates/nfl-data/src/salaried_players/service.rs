@@ -68,26 +68,27 @@ pub async fn for_position(
                 if let Some(game) = fd_game_map.get(&fd_salaried_player.game.matchup)
                     && let Some(fd_player_id) =
                         fd_salaried_player.player.map(|fd_player| fd_player.id)
-                        && let Some(nfl_player_id) = player_id_map.get(&fd_player_id)
-                            && let Some(player_identity) = player_ident.get(nfl_player_id) {
-                                let (games_played, fppg) = season_averages
-                                    .players
-                                    .get(nfl_player_id)
-                                    .map(|ppg| (ppg.games_played, ppg.avg_points))
-                                    .unwrap_or_default();
+                    && let Some(nfl_player_id) = player_id_map.get(&fd_player_id)
+                    && let Some(player_identity) = player_ident.get(nfl_player_id)
+                {
+                    let (games_played, fppg) = season_averages
+                        .players
+                        .get(nfl_player_id)
+                        .map(|ppg| (ppg.games_played, ppg.avg_points))
+                        .unwrap_or_default();
 
-                                return Some(SalariedPlayer {
-                                    id: Some(nfl_player_id.clone()),
-                                    game: game.clone(),
-                                    name: player_identity.name.clone(),
-                                    position: fd_salaried_player.position,
-                                    team: fd_salaried_player.team,
-                                    salary: fd_salaried_player.salary,
-                                    games_played,
-                                    fppg,
-                                    injury: None,
-                                });
-                            }
+                    return Some(SalariedPlayer {
+                        id: Some(nfl_player_id.clone()),
+                        game: game.clone(),
+                        name: player_identity.name.clone(),
+                        position: fd_salaried_player.position,
+                        team: fd_salaried_player.team,
+                        salary: fd_salaried_player.salary,
+                        games_played,
+                        fppg,
+                        injury: None,
+                    });
+                }
                 None
             })
             .collect();

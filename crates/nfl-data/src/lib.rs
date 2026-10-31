@@ -4,8 +4,7 @@ mod error;
 mod identity;
 pub mod salaried_players;
 mod salaries;
-pub(crate) mod scoring;
-mod season_weeks;
+pub mod scoring;
 pub mod slates;
 mod store;
 #[cfg(test)]
