@@ -4,6 +4,7 @@ mod error;
 mod identity;
 pub mod salaried_players;
 mod salaries;
+pub(crate) mod scoring;
 mod season_weeks;
 pub mod slates;
 mod store;
