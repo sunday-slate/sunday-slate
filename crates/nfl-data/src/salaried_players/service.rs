@@ -29,7 +29,7 @@ pub async fn for_position(
         // remove any fd players not in the slate
         let fd_salaried_players: Vec<fanduel_data::SalariedPlayer> = fd_salaried_players
             .into_iter()
-            .filter(|p| !fd_game_map.contains_key(&p.game.matchup))
+            .filter(|p| fd_game_map.contains_key(&p.game.matchup))
             .collect();
 
         // map FanDuel IDs to Nflverse gsis IDs
@@ -65,31 +65,49 @@ pub async fn for_position(
         let players: Vec<SalariedPlayer> = fd_salaried_players
             .into_iter()
             .filter_map(|fd_salaried_player| {
-                if let Some(game) = fd_game_map.get(&fd_salaried_player.game.matchup)
-                    && let Some(fd_player_id) =
-                        fd_salaried_player.player.map(|fd_player| fd_player.id)
-                    && let Some(nfl_player_id) = player_id_map.get(&fd_player_id)
-                    && let Some(player_identity) = player_ident.get(nfl_player_id)
-                {
+                let team = fd_salaried_player.team;
+                let game = fd_game_map.get(&fd_salaried_player.game.matchup)?.clone();
+
+                // a D/ST entry has no player: its points come from the team's
+                // defensive line, keyed by team rather than gsis id
+                if fd_salaried_player.position.is_defense() {
                     let (games_played, fppg) = season_averages
-                        .players
-                        .get(nfl_player_id)
+                        .dsts
+                        .get(&team)
                         .map(|ppg| (ppg.games_played, ppg.avg_points))
                         .unwrap_or_default();
 
                     return Some(SalariedPlayer {
-                        id: Some(nfl_player_id.clone()),
-                        game: game.clone(),
-                        name: player_identity.name.clone(),
+                        id: None,
+                        game,
+                        name: format!("{team} D/ST"),
                         position: fd_salaried_player.position,
-                        team: fd_salaried_player.team,
+                        team,
                         salary: fd_salaried_player.salary,
                         games_played,
                         fppg,
-                        injury: None,
                     });
                 }
-                None
+
+                let fd_player_id = fd_salaried_player.player.map(|fd_player| fd_player.id)?;
+                let nfl_player_id = player_id_map.get(&fd_player_id)?;
+                let player_identity = player_ident.get(nfl_player_id)?;
+                let (games_played, fppg) = season_averages
+                    .players
+                    .get(nfl_player_id)
+                    .map(|ppg| (ppg.games_played, ppg.avg_points))
+                    .unwrap_or_default();
+
+                Some(SalariedPlayer {
+                    id: Some(nfl_player_id.clone()),
+                    game,
+                    name: player_identity.name.clone(),
+                    position: fd_salaried_player.position,
+                    team,
+                    salary: fd_salaried_player.salary,
+                    games_played,
+                    fppg,
+                })
             })
             .collect();
         Ok(players)

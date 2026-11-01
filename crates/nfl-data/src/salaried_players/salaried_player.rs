@@ -1,4 +1,4 @@
-use nfl_model::{DfsPosition, Game, InjuryDesignation, NflPlayerId, TeamAbbr};
+use nfl_model::{DfsPosition, Game, NflPlayerId, TeamAbbr};
 use std::sync::Arc;
 
 pub struct SalariedPlayer {
@@ -10,5 +10,4 @@ pub struct SalariedPlayer {
     pub salary: u32,
     pub games_played: u8,
     pub fppg: f64,
-    pub injury: Option<InjuryDesignation>,
 }
