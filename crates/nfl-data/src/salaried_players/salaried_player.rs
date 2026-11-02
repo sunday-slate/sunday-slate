@@ -1,6 +1,7 @@
 use nfl_model::{DfsPosition, Game, NflPlayerId, TeamAbbr};
 use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct SalariedPlayer {
     pub id: Option<NflPlayerId>,
     pub game: Arc<Game>,

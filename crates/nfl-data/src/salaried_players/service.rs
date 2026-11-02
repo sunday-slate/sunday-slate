@@ -116,7 +116,7 @@ pub async fn for_position(
     }
 }
 
-async fn fd_game_map(
+pub(crate) async fn fd_game_map(
     nfl: &NflData,
     slate_id: &SlateId,
     fd_games: &[fanduel_data::Game],

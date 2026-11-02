@@ -10,6 +10,7 @@ mod store;
 #[cfg(test)]
 mod test;
 mod web;
+mod snapshot;
 
 use std::collections::HashMap;
 use std::sync::Mutex;
