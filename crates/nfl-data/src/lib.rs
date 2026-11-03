@@ -6,20 +6,22 @@ pub mod salaried_players;
 mod salaries;
 pub mod scoring;
 pub mod slates;
+pub mod snapshot;
 mod store;
 #[cfg(test)]
 mod test;
 mod web;
-mod snapshot;
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
+use arc_swap::ArcSwap;
 use nflverse_data::NflverseData;
 use time::OffsetDateTime;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
+use crate::snapshot::Snapshot;
 pub use config::NflDataConfig;
 pub use data_revision::DataRevision;
 pub use error::NflDataError;
@@ -52,6 +54,7 @@ pub struct WeeklySummary {
 }
 
 pub struct NflData {
+    snapshot: ArcSwap<Snapshot>,
     provider: NflverseData,
     fanduel: fanduel_data::FanduelData,
     store: store::Store,
@@ -197,6 +200,14 @@ impl NflData {
         Ok(summaries)
     }
 
+    pub(crate) fn store_snapshot(&self, next: Snapshot) {
+        self.snapshot.store(Arc::new(next));
+    }
+
+    pub fn snapshot(&self) -> Arc<Snapshot> {
+        self.snapshot.load_full()
+    }
+
     /// Opens all databases and runs their migrations.
     pub async fn connect(config: NflDataConfig) -> Result<Self, NflDataError> {
         let refresh_interval = config
@@ -212,7 +223,8 @@ impl NflData {
             fanduel_data::FanduelData::connect(&config.fanduel_database_url).await
         }?;
         let store = store::Store::open(&config.database_url).await?;
-        Ok(Self {
+
+        let nfl_data = Self {
             provider,
             fanduel,
             store,
@@ -220,7 +232,13 @@ impl NflData {
             season: config.season,
             nflverse_sync_notify: Mutex::new(Some(sync_receiver)),
             slate_worker: Mutex::new(None),
-        })
+            snapshot: ArcSwap::from_pointee(Snapshot::default()),
+        };
+
+        let snapshot = Snapshot::build(&nfl_data).await?;
+        nfl_data.store_snapshot(snapshot);
+
+        Ok(nfl_data)
     }
 
     /// A fresh, empty, in-memory cache: migrations applied, nothing synced.
@@ -236,6 +254,7 @@ impl NflData {
             season: Season::default(),
             nflverse_sync_notify: Mutex::new(None),
             slate_worker: Mutex::new(None),
+            snapshot: ArcSwap::from_pointee(Snapshot::default()),
         })
     }
 
