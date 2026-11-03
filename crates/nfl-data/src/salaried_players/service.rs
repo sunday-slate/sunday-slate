@@ -76,6 +76,8 @@ async fn slate_salaried_players(
 }
 
 /// Bucket players by the slots they can fill, leaving out the empty buckets.
+/// Bucket players by the slots they can fill, leaving out the empty buckets.
+/// Each bucket is ordered salary-descending for display.
 fn by_slot(players: &[SalariedPlayer]) -> SalariedPlayersBySlot {
     let slots: HashSet<DfsPositionSlotType> = players
         .iter()
@@ -85,11 +87,12 @@ fn by_slot(players: &[SalariedPlayer]) -> SalariedPlayersBySlot {
     slots
         .into_iter()
         .filter_map(|slot| {
-            let fillable: Vec<SalariedPlayer> = players
+            let mut fillable: Vec<SalariedPlayer> = players
                 .iter()
                 .filter(|player| slot.allows(player.position))
                 .cloned()
                 .collect();
+            fillable.sort_by(|a, b| b.salary.cmp(&a.salary).then_with(|| a.name.cmp(&b.name)));
             (!fillable.is_empty()).then_some((slot, fillable))
         })
         .collect()
