@@ -32,11 +32,21 @@ pub async fn by_id(nfl: &NflData, id: &SlateId) -> Result<Option<Slate>, crate::
 /// row is absent drop out without leaving the snapshot, and an id with no
 /// stored membership has no games.
 pub async fn games(nfl: &NflData, id: &SlateId) -> Result<Vec<Game>, crate::NflDataError> {
-    let Some(stored) = slates_store::by_id(nfl.store.reader(), id).await? else {
+    games_from_parts(&nfl.provider, &nfl.store, id).await
+}
+
+/// [`games`] against explicitly supplied parts; snapshot builds that hold the
+/// cloned sources call this.
+pub(crate) async fn games_from_parts(
+    provider: &NflverseData,
+    store: &Store,
+    id: &SlateId,
+) -> Result<Vec<Game>, crate::NflDataError> {
+    let Some(stored) = slates_store::by_id(store.reader(), id).await? else {
         return Ok(Vec::new());
     };
-    let schedule = nfl.provider.games(stored.season_week.season).await?;
-    let ids = slates_store::game_ids(nfl.store.reader(), id).await?;
+    let schedule = provider.games(stored.season_week.season).await?;
+    let ids = slates_store::game_ids(store.reader(), id).await?;
     Ok(selected_games(&schedule, &ids))
 }
 

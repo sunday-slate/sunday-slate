@@ -1,4 +1,8 @@
 use nfl_model::TeamAbbr;
+use nflverse_data::NflverseData;
+use std::collections::HashMap;
+
+use crate::NflDataError;
 
 /// How a page names one pick: the display facts every consumer of a gsis id
 /// needs, resolved from whichever source carries the player.
@@ -10,4 +14,38 @@ pub struct PlayerIdentity {
     /// Player photo URL from the `players` release. `None` for picks named
     /// only from weekly rosters (that source carries no headshot).
     pub headshot_url: Option<String>,
+}
+
+/// Display facts per gsis id from the provider: `players` first, weekly rosters
+/// for the misses; unknown ids are absent from the map.
+pub(crate) async fn identify(
+    provider: &NflverseData,
+    ids: &[impl AsRef<str>],
+) -> Result<HashMap<String, PlayerIdentity>, NflDataError> {
+    let players = provider.players_by_gsis(ids).await?;
+    let unnamed: Vec<&str> = ids
+        .iter()
+        .map(|id| id.as_ref())
+        .filter(|id| !players.contains_key(*id))
+        .collect();
+    let roster = provider.weekly_roster_entries_by_gsis(&unnamed).await?;
+    let named = players.into_iter().map(|(id, p)| {
+        let identity = PlayerIdentity {
+            name: p.full_name,
+            team: p.latest_team,
+            position: p.position,
+            headshot_url: p.headshot_url,
+        };
+        (id, identity)
+    });
+    let rostered = roster.into_iter().map(|(id, e)| {
+        let identity = PlayerIdentity {
+            name: e.full_name,
+            team: Some(e.team),
+            position: e.position,
+            headshot_url: None,
+        };
+        (id, identity)
+    });
+    Ok(named.chain(rostered).collect())
 }

@@ -5,11 +5,22 @@ use crate::client::{GithubClient, Release, ReleaseAsset};
 use crate::config::NflDataConfig;
 use crate::error::NflDataError;
 use crate::ingest;
-use crate::model::{Dataset, DatasetReport, DatasetStatus, Season, SyncReport};
+use crate::model::{AssetUpdate, Dataset, DatasetReport, DatasetStatus, Season, SyncReport};
 use crate::store::sync_state::{self, SyncedAsset};
 use crate::store::{self, Store};
 
-pub(crate) async fn run(store: &Store, config: &NflDataConfig) -> Result<SyncReport, NflDataError> {
+/// One sync run's result: the presentation report plus the assets whose store
+/// transactions committed. A `Failed` dataset still reports the assets it
+/// managed to commit.
+pub(crate) struct SyncOutcome {
+    pub(crate) report: SyncReport,
+    pub(crate) updates: Vec<AssetUpdate>,
+}
+
+pub(crate) async fn run(
+    store: &Store,
+    config: &NflDataConfig,
+) -> Result<SyncOutcome, NflDataError> {
     let client = GithubClient::new(
         config.github_api_base.clone(),
         config
@@ -17,9 +28,10 @@ pub(crate) async fn run(store: &Store, config: &NflDataConfig) -> Result<SyncRep
             .as_ref()
             .map(|token| token.expose().to_string()),
     )?;
+    let mut updates = Vec::new();
     let mut datasets = Vec::with_capacity(Dataset::ALL.len());
     for dataset in Dataset::ALL {
-        let status = sync_dataset(store, &client, config, dataset)
+        let status = sync_dataset(store, &client, config, dataset, &mut updates)
             .await
             .unwrap_or_else(DatasetStatus::Failed);
         if let DatasetStatus::Failed(error) = &status {
@@ -27,7 +39,10 @@ pub(crate) async fn run(store: &Store, config: &NflDataConfig) -> Result<SyncRep
         }
         datasets.push(DatasetReport { dataset, status });
     }
-    Ok(SyncReport { datasets })
+    Ok(SyncOutcome {
+        report: SyncReport { datasets },
+        updates,
+    })
 }
 
 async fn sync_dataset(
@@ -35,6 +50,7 @@ async fn sync_dataset(
     client: &GithubClient,
     config: &NflDataConfig,
     dataset: Dataset,
+    updates: &mut Vec<AssetUpdate>,
 ) -> Result<DatasetStatus, NflDataError> {
     let tag = dataset.release_tag();
     let release = client.release(tag).await?;
@@ -48,6 +64,11 @@ async fn sync_dataset(
             Ok(Some(rows)) => {
                 updated_assets += 1;
                 total_rows += rows;
+                // Recorded only after the asset's transaction committed.
+                updates.push(AssetUpdate {
+                    dataset,
+                    season: season.map(Season),
+                });
             }
             Ok(None) => {}
             Err(error) => {

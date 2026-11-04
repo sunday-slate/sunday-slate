@@ -505,6 +505,12 @@ async fn unknown_id_has_no_side_effects() {
         .unwrap();
     let unknown = SlateId(999_999);
 
+    // Construction populated the week's metadata; the unknown-id lookups must
+    // leave it exactly as it stands.
+    let before = store::slates::for_week(fixture.nfl.store.reader(), WEEK_13)
+        .await
+        .expect("for week");
+
     assert!(
         slates::by_id(&fixture.nfl, &unknown)
             .await
@@ -525,11 +531,11 @@ async fn unknown_id_has_no_side_effects() {
             .unwrap(),
         "no week snapshot was created"
     );
-    assert!(
+    assert_eq!(
         store::slates::for_week(fixture.nfl.store.reader(), WEEK_13)
             .await
-            .unwrap()
-            .is_empty(),
-        "no metadata rows were created"
+            .expect("for week"),
+        before,
+        "the lookups created no metadata rows"
     );
 }

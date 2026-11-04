@@ -1,4 +1,3 @@
-use crate::store::player_link;
 use crate::web::salary_imports::SalaryAdminError;
 use crate::web::{AdminState, salary_imports};
 use crate::{NflDataError, PlayerLink, SalaryWeekOverview};
@@ -49,22 +48,25 @@ async fn resolve_salary_player(
     }) {
         return Err(NflDataError::Schedule);
     }
-    player_link::save_links(
-        &state.nfl.store,
-        &[PlayerLink {
+    state
+        .nfl
+        .save_player_links(&[PlayerLink {
             fd_player_id,
             gsis_player_id: gsis_player_id.to_owned(),
-        }],
-    )
-    .await?;
+        }])
+        .await?;
     salary_imports::salary_week_overview(state, season_week).await
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::DfsPosition;
     use crate::store::player_link;
-    use crate::web::tests::salary_fixture::{admin_state, upload_form};
+    use crate::web::tests::salary_fixture::{
+        admin_slate_id, admin_state, admin_state_in_season, poll_until_snapshot, upload_form,
+    };
     use axum::http::StatusCode;
+    use nfl_model::{DfsPositionSlotType, NflPlayerId};
 
     #[tokio::test]
     async fn resolve_rejects_unknown_players() {
@@ -135,5 +137,63 @@ mod tests {
             .await;
         page.assert_text_contains("Second Receiver");
         assert!(!page.text().contains("All player IDs are resolved"));
+    }
+
+    #[tokio::test]
+    async fn resolving_publishes_the_linked_player_to_the_snapshot() {
+        let state = admin_state_in_season(crate::Season(2025)).await;
+        state.nfl.start_background_tasks();
+
+        // Upload first: Josh Allen auto-matches and publishes.
+        state
+            .server
+            .post("/nfl-data-admin/salary-imports")
+            .multipart(upload_form())
+            .await
+            .assert_status(StatusCode::SEE_OTHER);
+        poll_until_snapshot(
+            "the upload published the matched player",
+            &state.nfl,
+            |snapshot| {
+                snapshot
+                    .player(&admin_slate_id(), &NflPlayerId("00-1".into()))
+                    .is_some_and(|player| player.name == "Josh Allen")
+            },
+        )
+        .await;
+
+        // Manual resolution routes through save_player_links: its
+        // notification rebuilds and exposes the resolved player.
+        state
+            .server
+            .post("/nfl-data-admin/salary-imports/2025001/players/999/resolve")
+            .form(&[("gsis_player_id", "00-roster-only")])
+            .await
+            .assert_status(StatusCode::SEE_OTHER);
+        poll_until_snapshot(
+            "the resolution published the linked player",
+            &state.nfl,
+            |snapshot| {
+                snapshot
+                    .player(&admin_slate_id(), &NflPlayerId("00-roster-only".into()))
+                    .is_some_and(|player| player.name == "Roster Receiver")
+            },
+        )
+        .await;
+
+        // Second Receiver (888) is still unmatched, so the WR bucket holds
+        // only the resolved player.
+        let snapshot = state.nfl.snapshot();
+        let wr = snapshot.salaried_players_for_position(
+            &admin_slate_id(),
+            &DfsPositionSlotType::Position(DfsPosition::Wr),
+        );
+        assert_eq!(
+            wr.iter()
+                .map(|player| player.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Roster Receiver"],
+            "the still-unmatched row published nothing"
+        );
     }
 }

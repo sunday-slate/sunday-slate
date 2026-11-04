@@ -4,6 +4,7 @@ use crate::{PlayerWeekStats as NflPlayerWeekStats, TeamAbbr, TeamWeekStats as Nf
 use nfl_model::NflPlayerId;
 use std::collections::HashMap;
 
+pub(crate) use service::season_averages_from_provider;
 pub use service::{SeasonAverages, season_averages, week_stats};
 
 #[derive(Debug, Clone, PartialEq)]

@@ -17,11 +17,12 @@ use std::sync::{Arc, Mutex};
 
 use arc_swap::ArcSwap;
 use nflverse_data::NflverseData;
-use time::OffsetDateTime;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use crate::snapshot::Snapshot;
+use crate::snapshot::SnapshotSources;
+use crate::snapshot::updates::UpdateInputs;
 pub use config::NflDataConfig;
 pub use data_revision::DataRevision;
 pub use error::NflDataError;
@@ -54,83 +55,75 @@ pub struct WeeklySummary {
 }
 
 pub struct NflData {
-    snapshot: ArcSwap<Snapshot>,
+    /// The published snapshot; the shared handle lets the update worker swap
+    /// it while readers keep the snapshot they took.
+    snapshot: Arc<ArcSwap<Snapshot>>,
     provider: NflverseData,
     fanduel: fanduel_data::FanduelData,
     store: store::Store,
     refresh_interval: Option<std::time::Duration>,
     season: Season,
-    /// Receive end of the provider's sync notification channel, taken once by
-    /// [`Self::start_background_tasks`]; `None` before start and after it.
-    nflverse_sync_notify: Mutex<Option<mpsc::UnboundedReceiver<()>>>,
-    /// The task draining that channel; aborted on drop.
-    slate_worker: Mutex<Option<JoinHandle<()>>>,
+    /// The update worker's input receivers, taken once by
+    /// [`Self::start_background_tasks`].
+    update_inputs: Mutex<Option<UpdateInputs>>,
+    /// Asks the update worker to rebuild; saves send it after their
+    /// persistence commits.
+    snapshot_changes_tx: mpsc::UnboundedSender<()>,
+    /// The update worker's task; aborted on drop.
+    update_worker: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl Drop for NflData {
     fn drop(&mut self) {
         if let Some(worker) = self
-            .slate_worker
+            .update_worker
             .get_mut()
             .unwrap_or_else(|error| error.into_inner())
             .take()
         {
-            // Dropping a JoinHandle only detaches; the worker holds provider
-            // and store clones and would otherwise outlive the handle.
+            // Dropping a JoinHandle only detaches; the worker holds source
+            // clones and would outlive the handle.
             worker.abort();
         }
     }
 }
 
 impl NflData {
-    /// Start configured internal background work. Repeated calls are safe.
-    ///
-    /// Also fills the slate tables and keeps them current: once here, then
-    /// again after each sync that reports no failed dataset.
+    /// Start configured internal background work. Repeated calls are safe: the
+    /// scheduler refreshes upstream datasets when configured, and the update
+    /// worker keeps the slates and published snapshot current.
     pub fn start_background_tasks(&self) {
         if let Some(interval) = self.refresh_interval {
             self.provider.start_scheduler(interval);
         }
-        self.start_slate_worker();
+        self.start_update_worker();
     }
 
-    /// Stop future automatic task triggers without cancelling an active refresh.
-    ///
-    /// The slate worker keeps running: with no trigger left it idles on its
-    /// channel, and aborting it here would make a later start unable to
-    /// restore the receiver.
+    /// Stop future automatic task triggers without cancelling an active
+    /// refresh. The update worker keeps running: aborting it here would make a
+    /// later start unable to restore its receivers.
     pub fn stop_background_tasks(&self) {
         self.provider.stop_scheduler();
     }
 
-    /// Populate slates once and keep doing so after each successful sync. The
-    /// receiver is taken on the first call, so later calls are no-ops.
-    fn start_slate_worker(&self) {
-        let Some(mut sync_notify) = self
-            .nflverse_sync_notify
+    /// Spawn the update worker; the receivers are taken on the first call, so
+    /// later calls are no-ops.
+    fn start_update_worker(&self) {
+        let Some(inputs) = self
+            .update_inputs
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .take()
         else {
             return;
         };
-        let provider = self.provider.clone();
-        let store = self.store.clone();
-        let season = self.season;
-        let worker = tokio::spawn(async move {
-            loop {
-                if let Err(error) =
-                    slates::populate_at(&provider, &store, season, OffsetDateTime::now_utc()).await
-                {
-                    tracing::warn!(%error, "slate population failed");
-                }
-                if sync_notify.recv().await.is_none() {
-                    return;
-                }
-            }
-        });
+        let worker = tokio::spawn(crate::snapshot::updates::run(
+            SnapshotSources::from(self),
+            Arc::clone(&self.snapshot),
+            inputs,
+        ));
         *self
-            .slate_worker
+            .update_worker
             .lock()
             .unwrap_or_else(|error| error.into_inner()) = Some(worker);
     }
@@ -156,7 +149,8 @@ impl NflData {
             .map_err(NflDataError::Fanduel)
     }
 
-    /// Persist typed FanDuel source rows after caller-specific validation.
+    /// Persist typed FanDuel source rows. A save touching the configured
+    /// season notifies the update worker after the persistence commits.
     pub async fn save_fanduel_salaries(
         &self,
         salaries: &[SalariedPlayer],
@@ -164,7 +158,31 @@ impl NflData {
         self.fanduel
             .save_salaried_players(salaries)
             .await
-            .map_err(NflDataError::Fanduel)
+            .map_err(NflDataError::Fanduel)?;
+        if salaries
+            .iter()
+            .any(|salary| salary.game.season_week.season == self.season())
+        {
+            self.notify_snapshot_change();
+        }
+        Ok(())
+    }
+
+    /// Persist FanDuel→GSIS player links, notifying the update worker on a
+    /// successful nonempty save.
+    pub(crate) async fn save_player_links(&self, links: &[PlayerLink]) -> Result<(), NflDataError> {
+        if links.is_empty() {
+            return Ok(());
+        }
+        store::player_link::save_links(&self.store, links).await?;
+        self.notify_snapshot_change();
+        Ok(())
+    }
+
+    /// Ask the update worker to rebuild. A closed receiver is ignored: the
+    /// worker is optional.
+    fn notify_snapshot_change(&self) {
+        let _ = self.snapshot_changes_tx.send(());
     }
 
     /// Read stored FanDuel salary source rows for an exact contest week.
@@ -208,15 +226,19 @@ impl NflData {
         self.snapshot.load_full()
     }
 
-    /// Opens all databases and runs their migrations.
+    /// Opens all databases, runs their migrations, reconciles the configured
+    /// season's slates, and builds the initial snapshot. Any failure is a
+    /// connection error; background work starts only through
+    /// [`Self::start_background_tasks`].
     pub async fn connect(config: NflDataConfig) -> Result<Self, NflDataError> {
         let refresh_interval = config
             .refresh_interval
             .filter(|interval| !interval.is_zero());
-        let (sync_notify, sync_receiver) = mpsc::unbounded_channel();
+        let (sync_events, sync_events_receiver) = mpsc::unbounded_channel();
         let provider =
-            NflverseData::connect_with_sync_notify(config.clone().into(), Some(sync_notify))
+            NflverseData::connect_with_sync_events(config.clone().into(), Some(sync_events))
                 .await?;
+        let (snapshot_changes_tx, snapshot_changes) = mpsc::unbounded_channel();
         let fanduel = if config.fanduel_database_url == "sqlite::memory:" {
             fanduel_data::FanduelData::in_memory().await
         } else {
@@ -230,10 +252,17 @@ impl NflData {
             store,
             refresh_interval,
             season: config.season,
-            nflverse_sync_notify: Mutex::new(Some(sync_receiver)),
-            slate_worker: Mutex::new(None),
-            snapshot: ArcSwap::from_pointee(Snapshot::default()),
+            snapshot: Arc::new(ArcSwap::from_pointee(Snapshot::default())),
+            update_inputs: Mutex::new(Some(UpdateInputs {
+                sync_events: sync_events_receiver,
+                snapshot_changes,
+            })),
+            snapshot_changes_tx,
+            update_worker: Mutex::new(None),
         };
+
+        // The initial build reads stored slates, so reconcile them first.
+        slates::refresh(&nfl_data).await?;
 
         let snapshot = Snapshot::build(&nfl_data).await?;
         nfl_data.store_snapshot(snapshot);
@@ -242,8 +271,18 @@ impl NflData {
     }
 
     /// A fresh, empty, in-memory cache: migrations applied, nothing synced.
+    /// The provider still emits sync events to this handle's update worker.
     pub async fn in_memory() -> Result<Self, NflDataError> {
-        let provider = NflverseData::in_memory().await?;
+        let (sync_events, sync_events_receiver) = mpsc::unbounded_channel();
+        let provider = NflverseData::connect_with_sync_events(
+            nflverse_data::NflverseDataConfig {
+                database_url: "sqlite::memory:".into(),
+                ..Default::default()
+            },
+            Some(sync_events),
+        )
+        .await?;
+        let (snapshot_changes_tx, snapshot_changes) = mpsc::unbounded_channel();
         let fanduel = fanduel_data::FanduelData::in_memory().await?;
         let store = store::Store::in_memory().await?;
         Ok(Self {
@@ -252,9 +291,13 @@ impl NflData {
             store,
             refresh_interval: None,
             season: Season::default(),
-            nflverse_sync_notify: Mutex::new(None),
-            slate_worker: Mutex::new(None),
-            snapshot: ArcSwap::from_pointee(Snapshot::default()),
+            snapshot: Arc::new(ArcSwap::from_pointee(Snapshot::default())),
+            update_inputs: Mutex::new(Some(UpdateInputs {
+                sync_events: sync_events_receiver,
+                snapshot_changes,
+            })),
+            snapshot_changes_tx,
+            update_worker: Mutex::new(None),
         })
     }
 
@@ -281,35 +324,7 @@ impl NflData {
         &self,
         ids: &[I],
     ) -> Result<HashMap<String, PlayerIdentity>, NflDataError> {
-        let players = self.players_by_gsis(ids).await?;
-        let unnamed: Vec<&str> = ids
-            .iter()
-            .map(|id| id.as_ref())
-            .filter(|id| !players.contains_key(*id))
-            .collect();
-        let roster = self
-            .provider
-            .weekly_roster_entries_by_gsis(&unnamed)
-            .await?;
-        let named = players.into_iter().map(|(id, p)| {
-            let identity = PlayerIdentity {
-                name: p.full_name,
-                team: p.latest_team,
-                position: p.position,
-                headshot_url: p.headshot_url,
-            };
-            (id, identity)
-        });
-        let rostered = roster.into_iter().map(|(id, e)| {
-            let identity = PlayerIdentity {
-                name: e.full_name,
-                team: Some(e.team),
-                position: e.position,
-                headshot_url: None,
-            };
-            (id, identity)
-        });
-        Ok(named.chain(rostered).collect())
+        identity::identify(&self.provider, ids).await
     }
 
     /// Seed weekly roster entries directly, for tests and tooling.

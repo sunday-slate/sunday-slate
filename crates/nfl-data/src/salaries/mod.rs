@@ -110,7 +110,7 @@ impl NflData {
             }
             let _ = game_id;
         }
-        player_link::save_links(&self.store, &mapped).await?;
+        self.save_player_links(&mapped).await?;
         Ok(())
     }
 }
