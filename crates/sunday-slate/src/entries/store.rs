@@ -5,11 +5,12 @@ use itertools::Itertools;
 use crate::contests::{Contest, ContestId};
 use crate::entries::model::{
     ContestEntry, EntryDetails, EntryId, EntrySlot, EntryTeam, FantasyTeamEntries,
-    FantasyTeamEntry, Lineup, LineupError, NflPlayerId, RosterSlot, SlotValue,
+    FantasyTeamEntry, Lineup, LineupError, NflPlayerId, PlayerOrDefenseId, RosterSlot,
 };
 use crate::fantasy_teams::FantasyTeamId;
 use crate::media::MediaId;
 use crate::media::store::{LogoColumns, build_logo};
+use crate::player_salaries::model::DfsPosition;
 use nfl_data::TeamAbbr;
 use sqlx::{Sqlite, SqliteConnection};
 use time::PrimitiveDateTime;
@@ -309,9 +310,9 @@ where
 fn entry_slot(slot: RosterSlot, gsis: Option<NflPlayerId>, team: Option<TeamAbbr>) -> EntrySlot {
     let value = match slot {
         RosterSlot::Def => {
-            SlotValue::Defense(team.expect("entry_slots CHECK: DEF carries a team_abbr"))
+            PlayerOrDefenseId::Defense(team.expect("entry_slots CHECK: DEF carries a team_abbr"))
         }
-        _ => SlotValue::Player(
+        _ => PlayerOrDefenseId::Player(
             gsis.expect("entry_slots CHECK: a player slot carries a gsis_player_id"),
         ),
     };
@@ -418,29 +419,27 @@ where
     .await
 }
 
-/// A contest slate's salaries: player salaries keyed by gsis id, D/ST
-/// salaries keyed by team abbr. Absent picks (import gap) are not in the maps.
+/// A contest slate's salaries, keyed by what the slot holds. Absent picks
+/// (import gap) are not in the map.
 #[derive(Default)]
 pub struct SlateSalaries {
-    pub players: HashMap<NflPlayerId, i64>,
-    pub defenses: HashMap<TeamAbbr, i64>,
+    prices: HashMap<PlayerOrDefenseId, i64>,
 }
 
 impl SlateSalaries {
-    /// File one salary row: a defense keys by team, anything else by gsis id
-    /// (a player row without one is an import gap and prices nothing).
-    pub fn insert_row(
-        &mut self,
-        is_defense: bool,
-        gsis: Option<NflPlayerId>,
-        team: TeamAbbr,
-        salary: i64,
-    ) {
-        if is_defense {
-            self.defenses.insert(team, salary);
-        } else if let Some(id) = gsis {
-            self.players.insert(id, salary);
-        }
+    /// File one price: a defense keys by team, a player by gsis id.
+    pub fn insert(&mut self, value: PlayerOrDefenseId, salary: i64) {
+        self.prices.insert(value, salary);
+    }
+
+    pub fn player(&self, id: &NflPlayerId) -> Option<i64> {
+        self.prices
+            .get(&PlayerOrDefenseId::Player(id.clone()))
+            .copied()
+    }
+
+    pub fn defense(&self, team: &TeamAbbr) -> Option<i64> {
+        self.prices.get(&PlayerOrDefenseId::Defense(*team)).copied()
     }
 }
 
@@ -456,7 +455,7 @@ where
     let rows = sqlx::query!(
         r#"SELECT s.gsis_player_id AS "gsis_player_id?: NflPlayerId",
                   s.team_abbr      AS "team_abbr!: TeamAbbr",
-                  s.dfs_position   AS "dfs_position!: String",
+                  s.dfs_position   AS "dfs_position!: DfsPosition",
                   s.salary         AS "salary!: i64"
            FROM nfl_player_salaries s
            JOIN contest_games cg ON cg.game_id = s.game_id
@@ -468,12 +467,14 @@ where
 
     let mut salaries = SlateSalaries::default();
     for r in rows {
-        salaries.insert_row(
-            r.dfs_position == "DST",
-            r.gsis_player_id,
-            r.team_abbr,
-            r.salary,
-        );
+        let value = if r.dfs_position.is_defense() {
+            PlayerOrDefenseId::Defense(r.team_abbr)
+        } else if let Some(id) = r.gsis_player_id {
+            PlayerOrDefenseId::Player(id)
+        } else {
+            continue;
+        };
+        salaries.insert(value, r.salary);
     }
     Ok(salaries)
 }
@@ -507,7 +508,7 @@ pub async fn upsert_with_lineup(
     for EntrySlot { slot, value } in lineup.to_slots() {
         let slot_name = slot.to_string();
         match value {
-            SlotValue::Player(player_id) => {
+            PlayerOrDefenseId::Player(player_id) => {
                 sqlx::query!(
                     r#"INSERT INTO entry_slots (entry_id, roster_slot, gsis_player_id)
                        VALUES (?1, ?2, ?3)"#,
@@ -518,7 +519,7 @@ pub async fn upsert_with_lineup(
                 .execute(&mut *conn)
                 .await?;
             }
-            SlotValue::Defense(team) => {
+            PlayerOrDefenseId::Defense(team) => {
                 sqlx::query!(
                     r#"INSERT INTO entry_slots (entry_id, roster_slot, team_abbr)
                        VALUES (?1, ?2, ?3)"#,
@@ -950,10 +951,10 @@ mod tests {
         let s = slate_salaries(&pool, ContestId(contest))
             .await
             .expect("load");
-        assert_eq!(s.players.get(&NflPlayerId("00-A".into())), Some(&5700));
-        assert_eq!(s.defenses.get(&TeamAbbr::KC), Some(&3500));
+        assert_eq!(s.player(&NflPlayerId("00-A".into())), Some(5700));
+        assert_eq!(s.defense(&TeamAbbr::KC), Some(3500));
         assert!(
-            !s.players.contains_key(&NflPlayerId("00-Z".into())),
+            s.player(&NflPlayerId("00-Z".into())).is_none(),
             "off-slate salary excluded"
         );
     }

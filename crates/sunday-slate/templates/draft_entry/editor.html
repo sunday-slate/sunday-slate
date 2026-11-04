@@ -47,26 +47,26 @@
   {# Nine slot rows, roster order #}
   <div class="pick-list">
     {% for row in page.slots %}
-    {% if row.value.is_some() %}
+    {% if let Some(n) = row.info.as_ref() %}
     <div class="pick pick-row">
-      {% call info::pick_media(row.info) %}{% endcall %}
+      {% call info::pick_media(n) %}{% endcall %}
       <div class="pick-body">
         <div class="pick-header flex items-baseline justify-between gap-2">
           <div class="flex min-w-0 items-baseline gap-1">
-            <span class="mr-1 rounded bg-base-300 px-1.5 py-0.5 text-[11px] font-bold tracking-wide text-base-content/70">{{ row.label }}</span>
-            <span class="pick-name{% if row.info.is_long_name() %} pick-name--long{% endif %}">
-              <span class="pick-name-full text-[17px] font-medium text-accent">{{ row.info.name }}</span>
-              <span class="pick-name-abbr text-[17px] font-medium text-accent">{{ row.info.abbreviated_name() }}</span>
+            <span class="mr-1 rounded bg-base-300 px-1.5 py-0.5 text-[11px] font-bold tracking-wide text-base-content/70">{{ row.slot.position_label() }}</span>
+            <span class="pick-name{% if n.is_long_name() %} pick-name--long{% endif %}">
+              <span class="pick-name-full text-[17px] font-medium text-accent">{{ n.name() }}</span>
+              <span class="pick-name-abbr text-[17px] font-medium text-accent">{{ n.abbreviated_name() }}</span>
             </span>
             {% match row.injury() %}{% when Some with (c) %}{% call injuries::chip(c) %}{% endcall %}{% when None %}{% endmatch %}
           </div>
-          <div class="text-base font-bold tnum">{{ row.info.salary_str() }}</div>
+          <div class="text-base font-bold tnum">{{ n.salary_str() }}</div>
         </div>
-        {% call info::info_columns(row.info) %}{% endcall %}
+        {% call info::info_columns(n) %}{% endcall %}
       </div>
       {% if !page.locked %}
       <a href="/contests/{{ contest_id }}/draft-entry/{{ row.slot }}"
-         class="grid place-items-center self-center px-3" aria-label="Swap {{ row.label }}">
+         class="grid place-items-center self-center px-3" aria-label="Swap {{ row.slot.position_label() }}">
         <i class="ph ph-arrows-left-right text-2xl text-base-content/60"></i>
       </a>
       {% else %}
@@ -77,12 +77,12 @@
     {% if !page.locked %}
     <a href="/contests/{{ contest_id }}/draft-entry/{{ row.slot }}"
        class="pick pick-row w-full text-left hover:bg-base-200">
-      {% call info::empty_slot_body(row.info, row.label, false) %}{% endcall %}
+      {% call info::empty_slot_body(row.avatar_url(), row.slot.position_label(), false) %}{% endcall %}
       <i class="ph ph-plus self-center pr-4 text-xl text-base-content/40"></i>
     </a>
     {% else %}
     <div class="pick pick-row">
-      {% call info::empty_slot_body(row.info, row.label, true) %}{% endcall %}
+      {% call info::empty_slot_body(row.avatar_url(), row.slot.position_label(), true) %}{% endcall %}
     </div>
     {% endif %}
     {% endif %}

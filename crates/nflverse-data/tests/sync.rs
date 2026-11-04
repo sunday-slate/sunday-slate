@@ -172,7 +172,7 @@ async fn fresh_sync_populates_every_dataset() {
     assert_eq!(prater.team, TeamAbbr::BUF);
     assert_eq!(prater.rushing_yards, 0);
 
-    // Team week stats are pbp-derived: the one game yields both teams' D/ST
+    // Team week stats are pbp-derived: the one game yields both teams' DST
     // rows (ordered by team). points_allowed is the OPPONENT's offensive points
     // computed at ingest -- ARI allowed NO's 6, NO allowed ARI's 7+3=10.
     let team = nfl.team_week_stats(Season(2025), Week(1)).await.unwrap();

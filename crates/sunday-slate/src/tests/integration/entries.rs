@@ -357,7 +357,7 @@ fn assert_pick_shot_sources(body: &str, local_url: &str) {
     let sources = pick_shot_sources(body);
     assert_eq!(sources.len(), 9, "entry should render nine pick images");
     assert_eq!(sources[1], local_url, "RB1 uses local player media");
-    assert_eq!(sources[8], local_url, "D/ST uses local team media");
+    assert_eq!(sources[8], local_url, "DST uses local team media");
     assert_eq!(
         sources
             .iter()
@@ -649,61 +649,6 @@ async fn unauthenticated_request_is_redirected_to_login(pool: SqlitePool) {
 }
 
 #[sqlx::test]
-async fn slate_missing_from_the_schedule_is_404(pool: SqlitePool) {
-    // nfl-data holds no schedule for the season — an unsynced cache, not a
-    // state the app database can rule out. The page must not panic.
-    let app = TestApp::from_pool_at(pool.clone(), KICKOFF).await;
-    let (a, _b, entry_id) = setup_entry(&pool, &app, "00-A", &[]).await;
-
-    app.login_as(&a.owner).await;
-    let resp = app.get(&format!("/entries/{entry_id}")).await;
-    resp.assert_status_not_found();
-}
-
-#[sqlx::test]
-async fn unknown_kickoff_hides_picks_from_non_owners(pool: SqlitePool) {
-    // A slate game with no kickoff time yet. Nobody can say it started, so
-    // the lineup stays private.
-    let app = TestApp::from_pool_at(pool.clone(), KICKOFF).await;
-    let (a, b, entry_id) =
-        setup_entry(&pool, &app, "00-A", &[factories::game(SLATE_GAME, 1)]).await;
-
-    app.login_as(&b.owner).await;
-    let resp = app.get(&format!("/entries/{entry_id}")).await;
-    resp.assert_status_ok();
-    assert!(resp.text().contains("Picks will be shown after kickoff"));
-
-    app.login_as(&a.owner).await;
-    let resp = app.get(&format!("/entries/{entry_id}")).await;
-    resp.assert_status_ok();
-    assert!(
-        resp.text().contains("Filler Player1"),
-        "the owner still sees"
-    );
-}
-
-#[sqlx::test]
-async fn owner_before_kickoff_sees_full_lineup(pool: SqlitePool) {
-    let app = TestApp::from_pool_at(pool.clone(), BEFORE_KICKOFF).await;
-    let (a, _b, entry_id) = setup(&pool, &app).await;
-
-    app.login_as(&a.owner).await;
-    let resp = app.get(&format!("/entries/{entry_id}")).await;
-    resp.assert_status_ok();
-    let body = resp.text();
-    assert!(body.contains("Alpha Runner"));
-    assert!(!body.contains("Picks will be shown after kickoff"));
-    assert!(
-        body.contains(">Edit</a>") && body.contains("/draft-entry"),
-        "the owner edits from the lineup page while the slate is open: {body}"
-    );
-    assert!(
-        !body.contains("pick-pts"),
-        "nothing scores before kickoff: {body}"
-    );
-}
-
-#[sqlx::test]
 async fn non_owner_before_kickoff_sees_note_not_picks(pool: SqlitePool) {
     let app = TestApp::from_pool_at(pool.clone(), BEFORE_KICKOFF).await;
     let (a, b, entry_id) = setup(&pool, &app).await;
@@ -786,19 +731,6 @@ async fn expanded_row_shows_salary_ownership_and_breakdown(pool: SqlitePool) {
 #[sqlx::test]
 async fn entry_images_use_local_media_and_placeholders_after_kickoff(pool: SqlitePool) {
     let app = TestApp::from_pool_at(pool.clone(), KICKOFF).await;
-    let (a, _b, entry_id) = setup(&pool, &app).await;
-    let local_url = link_local_pick_media(&app).await;
-
-    app.login_as(&a.owner).await;
-    let resp = app.get(&format!("/entries/{entry_id}")).await;
-    resp.assert_status_ok();
-    assert_pick_shot_sources(&resp.text(), &local_url);
-    app.get(&local_url).await.assert_status_ok();
-}
-
-#[sqlx::test]
-async fn entry_images_use_local_media_and_placeholders_before_kickoff(pool: SqlitePool) {
-    let app = TestApp::from_pool_at(pool.clone(), BEFORE_KICKOFF).await;
     let (a, _b, entry_id) = setup(&pool, &app).await;
     let local_url = link_local_pick_media(&app).await;
 

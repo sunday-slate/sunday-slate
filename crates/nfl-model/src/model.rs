@@ -199,8 +199,8 @@ pub struct PlayerWeekStats {
     pub fumble_recovery_tds: u32,
 }
 
-/// One team's per-week D/ST line, aggregated from play-by-play. Every field is
-/// a FanDuel D/ST scoring input. `touchdowns` collapses defensive, return, and
+/// One team's per-week DST line, aggregated from play-by-play. Every field is
+/// a FanDuel DST scoring input. `touchdowns` collapses defensive, return, and
 /// special-teams TDs (all score +6). `points_allowed` is the opponent's
 /// offensive points (FanDuel's points-allowed), not the scoreboard total.
 #[derive(Debug, Clone, PartialEq)]
@@ -221,7 +221,7 @@ pub struct TeamWeekStats {
     pub blocked_kicks: u32,
     /// Defensive extra-point and two-point returns (+2 each).
     pub conversion_returns: u32,
-    /// Opponent's offensive points — FanDuel's D/ST points-allowed.
+    /// Opponent's offensive points — FanDuel's DST points-allowed.
     pub points_allowed: i32,
 }
 

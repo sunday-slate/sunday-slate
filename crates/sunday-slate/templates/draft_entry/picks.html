@@ -28,7 +28,7 @@
   <label class="input input-sm h-9 flex-1 items-center gap-2 rounded-full border-none bg-base-200">
     <i class="ph ph-magnifying-glass text-base text-base-content/50"></i>
     <input type="search" class="grow" x-ref="search" x-model="q"
-           placeholder="{{ self.search_placeholder() }}" aria-label="{{ self.search_placeholder() }}"
+           placeholder="{{ self.slot.search_placeholder() }}" aria-label="{{ self.slot.search_placeholder() }}"
            autocapitalize="off" autocorrect="off" spellcheck="false"
            @keydown.escape.prevent="searching = false; q = ''">
     <button type="button" class="text-base-content/40" aria-label="Clear search"
@@ -55,7 +55,7 @@
     {% for c in choices %}
     {% if c.is_picked %}
     <div class="pick pick-row bg-primary/5"
-         data-name="{{ c.info.name|lower }}" x-show="$el.dataset.name.includes(needle)">
+         data-name="{{ c.info.name()|lower }}" x-show="$el.dataset.name.includes(needle)">
       {% call info::pick_media(c.info) %}{% endcall %}
       <div class="pick-body">
         {% call info::pick_header_with_chip("bg-primary/15 text-primary", c, c.over_cap) %}{% endcall %}
@@ -64,19 +64,15 @@
       {# `contents` keeps the form out of layout, so the icon sits exactly
          where the other rows put their plus. #}
       <form method="post" action="/contests/{{ contest_id }}/draft-entry/{{ slot }}/clear" class="contents">
-        <button type="submit" class="grid place-items-center self-center px-3 text-error" aria-label="Remove {{ c.info.name }}">
+        <button type="submit" class="grid place-items-center self-center px-3 text-error" aria-label="Remove {{ c.info.name() }}">
           <i class="ph ph-minus-circle text-3xl"></i>
         </button>
       </form>
     </div>
     {% else %}
     <form class="pick" method="post" action="/contests/{{ contest_id }}/draft-entry/{{ slot }}"
-          data-name="{{ c.info.name|lower }}" x-show="$el.dataset.name.includes(needle)">
-      {% if self.is_def() %}
-      <input type="hidden" name="team_abbr" value="{{ c.value_key() }}">
-      {% else %}
-      <input type="hidden" name="gsis_id" value="{{ c.value_key() }}">
-      {% endif %}
+          data-name="{{ c.info.name()|lower }}" x-show="$el.dataset.name.includes(needle)">
+      <input type="hidden" name="value" value="{{ c.info.value() }}">
       <button type="submit" class="pick-row w-full text-left hover:bg-base-200">
         {% call info::pick_media(c.info) %}{% endcall %}
         <div class="pick-body">
@@ -93,7 +89,7 @@
   </div>
 
   <div class="px-4 py-12 text-center text-base-content/50" x-show="empty" x-cloak>
-    No {{ self.search_noun() }} match “<span class="font-medium" x-text="q.trim()"></span>”.
+    No {{ self.slot.search_noun() }} match “<span class="font-medium" x-text="q.trim()"></span>”.
   </div>
 </div>
 {% endblock %}

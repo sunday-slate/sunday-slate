@@ -3,25 +3,25 @@
 
 use std::collections::HashMap;
 
+use nfl_data::salaried_players::SalariedPlayer;
 use nfl_data::{
     Game, LiveGamePhase, PlayerIdentity, PlayerWeekStats as NflPlayerWeekStats, Season, TeamAbbr,
 };
 
+use crate::avatars::Avatars;
 use crate::contests::ContestId;
 use crate::contests::published_slate;
 use crate::contests::service as contests;
 use crate::entries::EntryId;
 use crate::entries::store;
 use crate::entries::store::SlateSalaries;
-use crate::entries::{Lineup, NflPlayerId, RosterSlot};
+use crate::entries::{Lineup, NflPlayerId, PlayerOrDefenseId, RosterSlot};
 use crate::fantasy_teams::monogram;
 use crate::fantasy_teams::store as fantasy_teams;
 use crate::injuries::InjuryDesignation;
 use crate::live::{self, ContestScores, Coverage, LiveContestSnapshot};
 use crate::media::Media;
-use crate::scoring::service as scoring_service;
-use crate::scoring::service::SeasonAverages;
-use crate::scoring::{self, PointsPerGame, Score, WeekStats};
+use crate::scoring::{self, Score, WeekStats};
 use crate::{AppError, AppState, User};
 use time::OffsetDateTime;
 
@@ -176,7 +176,7 @@ pub fn game_line(slate: &[Game], team: &str) -> Option<GameLine> {
         })
 }
 
-/// How a row shows its subject: a player photo, a D/ST team logo, or the
+/// How a row shows its subject: a player photo, a DST team logo, or the
 /// silhouette placeholder when a player has no photo.
 enum Avatar {
     Headshot(String),
@@ -198,94 +198,86 @@ pub(crate) const SILHOUETTE: &str = "/static/img/headshot-placeholder.svg";
 /// The salary cap for a nine-slot FanDuel-style lineup.
 pub const SALARY_CAP: i64 = 60_000;
 
-/// The pre-kickoff pick block every lineup page renders the same way:
-/// identity, this week's matchup and kickoff, price, and season pace. The
-/// editor, the pick lists, and the entry preview all embed one.
+/// The placeholder image for a row with no avatar.
+pub(crate) fn silhouette_url() -> String {
+    crate::assets::versioned(SILHOUETTE)
+}
+
+/// The pre-kickoff pick block every lineup page renders the same way: the
+/// pick's slate facts plus the local avatar the page supplies.
 pub struct PickInfo {
-    pub(crate) name: String,
+    salaried: SalariedPlayer,
     avatar: Avatar,
-    pub(crate) team: Option<String>,
-    pub(crate) game: Option<GameLine>,
-    /// `"Sun 11/23 1:00pm"` Eastern; `None` while the game has no kickoff time.
-    pub(crate) kickoff: Option<String>,
-    pub(crate) salary: Option<i64>,
-    pub(crate) fppg: Option<f64>,
-    pub(crate) played: Option<u32>,
+    injury: Option<InjuryDesignation>,
 }
 
 impl PickInfo {
-    /// A player pick. `pace` is its season-to-date FPPG and games played.
-    pub(crate) fn player(
-        name: String,
-        headshot: Option<&Media>,
-        team: Option<String>,
-        slate: &[Game],
-        salary: Option<i64>,
-        pace: Option<PointsPerGame>,
+    /// A pick from its salaried slate row, with the local headshot or logo
+    /// and the slate report's designation.
+    pub(crate) fn new(
+        salaried: SalariedPlayer,
+        media: Option<&Media>,
+        injury: Option<InjuryDesignation>,
     ) -> Self {
-        PickInfo {
-            name,
-            avatar: match headshot {
+        let avatar = if salaried.position.is_defense() {
+            Avatar::TeamLogo(media.map_or_else(|| SILHOUETTE.to_string(), |media| media.url()))
+        } else {
+            match media {
                 Some(media) => Avatar::Headshot(media.url()),
                 None => Avatar::Silhouette,
-            },
-            game: team.as_deref().and_then(|t| scoreless_game_line(slate, t)),
-            kickoff: team.as_deref().and_then(|t| team_kickoff(slate, t)),
-            team,
-            salary,
-            fppg: pace.map(|p| p.avg_points),
-            played: pace.map(|p| p.games_played),
+            }
+        };
+        Self {
+            salaried,
+            avatar,
+            injury,
         }
     }
 
-    /// A D/ST pick, named `"KC D/ST"` and shown with the team logo.
-    pub(crate) fn defense(
-        team: &TeamAbbr,
-        logo: Option<&Media>,
-        slate: &[Game],
-        salary: Option<i64>,
-        pace: Option<PointsPerGame>,
-    ) -> Self {
-        PickInfo {
-            name: format!("{} D/ST", team.as_str()),
-            avatar: Avatar::TeamLogo(
-                logo.map_or_else(|| SILHOUETTE.to_string(), |media| media.url()),
-            ),
-            game: scoreless_game_line(slate, team.as_str()),
-            kickoff: team_kickoff(slate, team.as_str()),
-            team: Some(team.as_str().to_owned()),
-            salary,
-            fppg: pace.map(|p| p.avg_points),
-            played: pace.map(|p| p.games_played),
+    /// The pick's injury badge, when the report has it.
+    pub fn injury(&self) -> Option<crate::injuries::InjuryChip> {
+        self.injury.map(crate::injuries::chip)
+    }
+
+    pub fn name(&self) -> &str {
+        &self.salaried.name
+    }
+
+    /// The pick's price for the slate.
+    pub fn salary(&self) -> i64 {
+        i64::from(self.salaried.salary)
+    }
+
+    /// The pick's game with scores stripped: nothing has been played from the
+    /// editor's or preview's point of view.
+    pub fn game(&self) -> GameLine {
+        let game = &self.salaried.game;
+        GameLine {
+            away: game.away_team.as_str().to_owned(),
+            away_score: None,
+            home: game.home_team.as_str().to_owned(),
+            home_score: None,
+            home_is_pick: game.home_team == self.salaried.team,
         }
     }
 
-    /// An unfilled slot: nameless, silhouette avatar, nothing to show.
-    pub(crate) fn empty() -> Self {
-        PickInfo {
-            name: String::new(),
-            avatar: Avatar::Silhouette,
-            team: None,
-            game: None,
-            kickoff: None,
-            salary: None,
-            fppg: None,
-            played: None,
-        }
+    /// `"Sun 11/23 1:00pm"` Eastern, `None` while the game has no kickoff time.
+    pub fn kickoff(&self) -> Option<String> {
+        self.salaried.game.kickoff_eastern().map(short_kickoff)
     }
 
-    /// The compact row name; D/ST names return unchanged.
+    /// The compact row name; DST names return unchanged.
     pub fn abbreviated_name(&self) -> String {
         if self.is_dst() {
-            self.name.clone()
+            self.name().to_owned()
         } else {
-            abbreviated_name(&self.name)
+            abbreviated_name(self.name())
         }
     }
 
     /// Whether the name exceeds the content heuristic for a row.
     pub fn is_long_name(&self) -> bool {
-        is_long_name(&self.name)
+        is_long_name(self.name())
     }
 
     /// The row's image source.
@@ -293,47 +285,47 @@ impl PickInfo {
         self.avatar.url()
     }
 
-    /// Whether this pick represents a D/ST.
-    pub fn is_dst(&self) -> bool {
-        self.avatar_is_logo()
-    }
-
     /// A team logo sits contained and padded; a photo fills the cell.
     pub fn avatar_is_logo(&self) -> bool {
         matches!(self.avatar, Avatar::TeamLogo(_))
     }
 
-    pub fn game(&self) -> Option<&GameLine> {
-        self.game.as_ref()
+    /// Whether this pick represents a DST.
+    pub fn is_dst(&self) -> bool {
+        self.avatar_is_logo()
     }
 
-    /// The pick's team, the fallback when no slate game features it.
+    /// The pick's team, for the row that has no game line.
     pub fn team_str(&self) -> String {
-        self.team.clone().unwrap_or_else(|| "—".into())
+        self.salaried.team.as_str().to_owned()
     }
 
-    /// `"$5,700"`, or `"—"` for an unpriced pick.
+    /// `"$5,700"` for the pick's slate price.
     pub fn salary_str(&self) -> String {
-        match self.salary {
-            Some(v) => format!("${}", scoring::format_thousands(v)),
-            None => "—".into(),
+        format!("${}", scoring::format_thousands(self.salary()))
+    }
+
+    /// The picker's position caption: `"QB"`, `"DST"`, ...
+    pub fn badge(&self) -> String {
+        String::from(self.salaried.position)
+    }
+
+    /// What the picker submits for this pick.
+    pub fn value(&self) -> PlayerOrDefenseId {
+        match self.salaried.id.as_ref() {
+            Some(id) => PlayerOrDefenseId::Player(id.clone()),
+            None => PlayerOrDefenseId::Defense(self.salaried.team),
         }
     }
 
-    /// `"18.4"` for the info column, `"—"` without season history.
+    /// `"18.4"` for the info column.
     pub fn fppg_str(&self) -> String {
-        match self.fppg {
-            Some(f) => format!("{f:.1}"),
-            None => "—".into(),
-        }
+        format!("{:.1}", self.salaried.fppg)
     }
 
-    /// `"10"` for the info column, `"—"` without season history.
+    /// `"10"` for the info column.
     pub fn played_str(&self) -> String {
-        match self.played {
-            Some(n) => n.to_string(),
-            None => "—".into(),
-        }
+        self.salaried.games_played.to_string()
     }
 }
 
@@ -355,7 +347,7 @@ pub struct SlotRow {
     opponent: Option<String>,
     game: Option<GameLine>,
     /// The collapsed row's headline box score — position-specific for a
-    /// player (passing / rushing / receiving), the defensive line for a D/ST.
+    /// player (passing / rushing / receiving), the defensive line for a DST.
     top_stats: String,
     score: Score,
     points: Option<f64>,
@@ -372,6 +364,10 @@ pub struct SlotRow {
 }
 
 impl SlotRow {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     pub fn dom_id(&self) -> String {
         self.dom_id.to_owned()
     }
@@ -380,7 +376,7 @@ impl SlotRow {
         self.injury.map(crate::injuries::chip)
     }
 
-    /// The compact row name; D/ST names return unchanged.
+    /// The compact row name; DST names return unchanged.
     pub fn abbreviated_name(&self) -> String {
         if self.slot == RosterSlot::Def.position_label() {
             self.name.clone()
@@ -605,25 +601,24 @@ fn top_stats_line(slot: RosterSlot, position: Option<&str>, stats: &NflPlayerWee
 #[allow(clippy::too_many_arguments)]
 pub fn build_picks(
     lineup: &Lineup,
-    names: &HashMap<String, PlayerIdentity>,
+    names: &HashMap<NflPlayerId, PlayerIdentity>,
     stats: &WeekStats,
     slate: &[Game],
     salaries: &SlateSalaries,
     ownership: &Ownership,
-    headshots: &HashMap<String, Media>,
-    defense_logo: Option<&Media>,
+    avatars: &Avatars,
     injuries: &HashMap<NflPlayerId, InjuryDesignation>,
 ) -> Picks {
     let mut rows: Vec<SlotRow> = lineup
         .player_slots()
         .into_iter()
         .map(|(slot, id)| {
-            let known = names.get(id.as_ref());
+            let known = names.get(id);
             let stat = stats.players.get(id);
             let team = stat
                 .map(|s| s.team.as_str().to_owned())
                 .or_else(|| known.and_then(|k| k.team.as_ref().map(|t| t.as_str().to_owned())));
-            let avatar = match headshots.get(id.as_ref()) {
+            let avatar = match avatars.get(&PlayerOrDefenseId::Player(id.clone())) {
                 Some(media) => Avatar::Headshot(media.url()),
                 None => Avatar::Silhouette,
             };
@@ -648,7 +643,7 @@ pub fn build_picks(
                 period: None,
                 clock: None,
                 stale: false,
-                salary: salaries.players.get(id).copied(),
+                salary: salaries.player(id),
                 ownership: ownership.player(id),
                 injury: injuries.get(id).copied(),
             }
@@ -662,9 +657,11 @@ pub fn build_picks(
     rows.push(SlotRow {
         slot: RosterSlot::Def.position_label(),
         dom_id: RosterSlot::Def.dom_id(),
-        name: format!("{def_team} D/ST"),
+        name: format!("{def_team} DST"),
         avatar: Avatar::TeamLogo(
-            defense_logo.map_or_else(|| SILHOUETTE.to_string(), |media| media.url()),
+            avatars
+                .get(&PlayerOrDefenseId::Defense(lineup.def))
+                .map_or_else(|| SILHOUETTE.to_string(), |media| media.url()),
         ),
         team: Some(def_team.clone()),
         kickoff: team_kickoff(slate, &def_team),
@@ -682,7 +679,7 @@ pub fn build_picks(
         period: None,
         clock: None,
         stale: false,
-        salary: salaries.defenses.get(&lineup.def).copied(),
+        salary: salaries.defense(&lineup.def),
         ownership: ownership.defense(&lineup.def),
         injury: None,
     });
@@ -810,54 +807,52 @@ impl EntryPreview {
     }
 }
 
-/// One preview row: the slot and who fills it.
+/// One preview row: the slot and who fills it, `None` when the slate has no
+/// priced row for the pick.
 pub struct PreviewRow {
     pub slot: &'static str,
-    pub info: PickInfo,
+    pub info: Option<PickInfo>,
 }
 
 /// Preview rows in roster order, plus the total salary spent. Game scores are
 /// stripped: nothing has been played from this entry's point of view.
 pub fn build_preview(
     lineup: &Lineup,
-    names: &HashMap<String, PlayerIdentity>,
-    slate: &[Game],
-    salaries: &SlateSalaries,
-    averages: &SeasonAverages,
-    headshots: &HashMap<String, Media>,
-    defense_logo: Option<&Media>,
+    player: impl Fn(&NflPlayerId) -> Option<SalariedPlayer>,
+    defense: impl Fn(&TeamAbbr) -> Option<SalariedPlayer>,
+    avatars: &Avatars,
 ) -> (Vec<PreviewRow>, i64) {
     let mut rows: Vec<PreviewRow> = lineup
         .player_slots()
         .into_iter()
-        .map(|(slot, id)| {
-            let known = names.get(id.as_ref());
-            PreviewRow {
-                slot: slot.position_label(),
-                info: PickInfo::player(
-                    known.map_or_else(|| id.as_ref().to_string(), |k| k.name.clone()),
-                    headshots.get(id.as_ref()),
-                    known.and_then(|k| k.team.as_ref().map(|t| t.as_str().to_owned())),
-                    slate,
-                    salaries.players.get(id).copied(),
-                    averages.players.get(id).copied(),
-                ),
-            }
+        .map(|(slot, id)| PreviewRow {
+            slot: slot.position_label(),
+            info: player(id).map(|salaried| {
+                PickInfo::new(
+                    salaried,
+                    avatars.get(&PlayerOrDefenseId::Player(id.clone())),
+                    None,
+                )
+            }),
         })
         .collect();
 
     rows.push(PreviewRow {
         slot: RosterSlot::Def.position_label(),
-        info: PickInfo::defense(
-            &lineup.def,
-            defense_logo,
-            slate,
-            salaries.defenses.get(&lineup.def).copied(),
-            averages.dsts.get(&lineup.def).copied(),
-        ),
+        info: defense(&lineup.def).map(|salaried| {
+            PickInfo::new(
+                salaried,
+                avatars.get(&PlayerOrDefenseId::Defense(lineup.def)),
+                None,
+            )
+        }),
     });
 
-    let spent = rows.iter().filter_map(|r| r.info.salary).sum();
+    let spent = rows
+        .iter()
+        .filter_map(|row| row.info.as_ref())
+        .map(PickInfo::salary)
+        .sum();
     (rows, spent)
 }
 
@@ -886,14 +881,6 @@ pub(crate) fn is_long_name(name: &str) -> bool {
 
 /// `game_line` with any scores stripped, for pre-kickoff pages: replayed dev
 /// data may already carry them, but nothing has been played yet.
-pub(crate) fn scoreless_game_line(slate: &[Game], team: &str) -> Option<GameLine> {
-    game_line(slate, team).map(|mut g| {
-        g.away_score = None;
-        g.home_score = None;
-        g
-    })
-}
-
 /// The team's slate kickoff as `"Sun 11/23 1:00pm"` Eastern, `None` while
 /// unscheduled.
 pub(crate) fn team_kickoff(slate: &[Game], team: &str) -> Option<String> {
@@ -917,38 +904,41 @@ fn short_kickoff(et: OffsetDateTime) -> String {
 /// include each player and each team defense.
 #[derive(Default)]
 pub struct Ownership {
-    players: HashMap<NflPlayerId, f64>,
-    defenses: HashMap<TeamAbbr, f64>,
+    shares: HashMap<PlayerOrDefenseId, f64>,
 }
 
 impl Ownership {
     pub fn player(&self, id: &NflPlayerId) -> Option<f64> {
-        self.players.get(id).copied()
+        self.shares
+            .get(&PlayerOrDefenseId::Player(id.clone()))
+            .copied()
     }
     pub fn defense(&self, team: &TeamAbbr) -> Option<f64> {
-        self.defenses.get(team).copied()
+        self.shares.get(&PlayerOrDefenseId::Defense(*team)).copied()
     }
 }
 
 /// Count each pick across all lineups and divide by the lineup count.
 pub fn compute_ownership<'a>(lineups: impl IntoIterator<Item = &'a Lineup>) -> Ownership {
     let mut total = 0.0;
-    let mut player_counts: HashMap<NflPlayerId, u32> = HashMap::new();
-    let mut def_counts: HashMap<TeamAbbr, u32> = HashMap::new();
+    let mut counts: HashMap<PlayerOrDefenseId, u32> = HashMap::new();
     for lineup in lineups {
         total += 1.0;
         for id in lineup.player_ids() {
-            *player_counts.entry(id.clone()).or_insert(0) += 1;
+            *counts
+                .entry(PlayerOrDefenseId::Player(id.clone()))
+                .or_insert(0) += 1;
         }
-        *def_counts.entry(lineup.def).or_insert(0) += 1;
+        *counts
+            .entry(PlayerOrDefenseId::Defense(lineup.def))
+            .or_insert(0) += 1;
     }
     let frac = |c: u32| c as f64 / total;
     Ownership {
-        players: player_counts
+        shares: counts
             .into_iter()
-            .map(|(k, c)| (k, frac(c)))
+            .map(|(value, count)| (value, frac(count)))
             .collect(),
-        defenses: def_counts.into_iter().map(|(k, c)| (k, frac(c))).collect(),
     }
 }
 pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryView, AppError> {
@@ -961,29 +951,26 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
     let season = Season(state.config.season);
     let season_games = state.nfl.games(season).await?;
     let slate = published_slate(reader, entry.contest.id, &season_games).await?;
-    let week = contests::slate_week(&slate).ok_or(AppError::NotFound)?;
     let now = state.now();
 
     let is_owner = entry.team.user_id == viewer.id;
     let kicked_off = contests::slate_locked(&slate, now);
 
     if is_owner && !kicked_off {
-        let ids = entry.lineup.player_ids();
-        let player_ids: Vec<&str> = ids.iter().map(|id| id.as_ref()).collect();
-        let names = state.nfl.identify(&ids).await?;
-        let avatars =
-            crate::avatars::for_lineup(&state.db, &player_ids, &[entry.lineup.def.as_str()])
-                .await?;
-        let salaries = store::slate_salaries(reader, entry.contest.id).await?;
-        let averages = scoring_service::season_averages(&state.nfl, season, &ids, week).await?;
+        let values: Vec<PlayerOrDefenseId> = entry
+            .lineup
+            .to_slots()
+            .into_iter()
+            .map(|slot| slot.value)
+            .collect();
+        let avatars = crate::avatars::by_id(&state.db, &values).await?;
+        let snapshot = state.nfl.snapshot();
+        let slate_id = entry.contest.slate_id().ok_or(AppError::NotFound)?;
         let (rows, spent) = build_preview(
             &entry.lineup,
-            &names,
-            &slate,
-            &salaries,
-            &averages,
-            &avatars.players,
-            avatars.teams.get(entry.lineup.def.as_str()),
+            |id| snapshot.player(&slate_id, id).cloned(),
+            |team| snapshot.defense(&slate_id, team).cloned(),
+            &avatars,
         );
         return Ok(EntryView::Preview(EntryPreview {
             team_name: entry.team.name,
@@ -998,7 +985,6 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
 
     let (picks, rank, score) = if kicked_off {
         let ids = entry.lineup.player_ids();
-        let player_ids: Vec<&str> = ids.iter().map(|id| id.as_ref()).collect();
         let source = live::load_contest_scores(state, entry.contest.id).await?;
         let stream_eligible = live::stream_eligible(state, entry.contest.id, &source).await?;
         let unsynced = WeekStats::default();
@@ -1007,10 +993,20 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
             ContestScores::Provisional(snapshot) => (&snapshot.stats, snapshot.scored_games()),
             ContestScores::Upcoming | ContestScores::Unavailable => (&unsynced, slate.clone()),
         };
-        let names = state.nfl.identify(&ids).await?;
-        let avatars =
-            crate::avatars::for_lineup(&state.db, &player_ids, &[entry.lineup.def.as_str()])
-                .await?;
+        let names: HashMap<NflPlayerId, PlayerIdentity> = state
+            .nfl
+            .identify(&ids)
+            .await?
+            .into_iter()
+            .map(|(id, identity)| (NflPlayerId(id), identity))
+            .collect();
+        let values: Vec<PlayerOrDefenseId> = entry
+            .lineup
+            .to_slots()
+            .into_iter()
+            .map(|slot| slot.value)
+            .collect();
+        let avatars = crate::avatars::by_id(&state.db, &values).await?;
         let contest_entries = store::by_contest(reader, entry.contest.id, entry.league_id).await?;
         let salaries = store::slate_salaries(reader, entry.contest.id).await?;
 
@@ -1039,8 +1035,7 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
             &display_slate,
             &salaries,
             &ownership,
-            &avatars.players,
-            avatars.teams.get(entry.lineup.def.as_str()),
+            &avatars,
             &live::slate_tuple(&slate)
                 .and_then(|key| state.injuries.report(&key))
                 .map(|report| report.by_gsis)
@@ -1109,7 +1104,7 @@ mod tests {
     }
 
     /// Every pick named, each on KC.
-    fn names() -> HashMap<String, PlayerIdentity> {
+    fn names() -> HashMap<NflPlayerId, PlayerIdentity> {
         [
             ("00-QB", "Quinn Back"),
             ("00-RB1", "Alpha Runner"),
@@ -1121,7 +1116,12 @@ mod tests {
             ("00-FLEX", "Flex Player"),
         ]
         .into_iter()
-        .map(|(gsis, name)| (gsis.to_string(), factories::identity(name, Some("KC"))))
+        .map(|(gsis, name)| {
+            (
+                NflPlayerId(gsis.to_string()),
+                factories::identity(name, Some("KC")),
+            )
+        })
         .collect()
     }
 
@@ -1153,7 +1153,7 @@ mod tests {
 
     /// The default page inputs, with each part overridable by a test.
     struct Fixture {
-        names: HashMap<String, PlayerIdentity>,
+        names: HashMap<NflPlayerId, PlayerIdentity>,
         stats: WeekStats,
         salaries: SlateSalaries,
         ownership: Ownership,
@@ -1164,10 +1164,7 @@ mod tests {
             Fixture {
                 names: names(),
                 stats: week_stats(),
-                salaries: SlateSalaries {
-                    players: HashMap::new(),
-                    defenses: HashMap::new(),
-                },
+                salaries: SlateSalaries::default(),
                 ownership: compute_ownership(&[lineup()]),
             }
         }
@@ -1175,14 +1172,10 @@ mod tests {
 
     impl Fixture {
         fn picks(&self) -> Picks {
-            self.picks_with(&HashMap::new(), None)
+            self.picks_with(&Avatars::default())
         }
 
-        fn picks_with(
-            &self,
-            headshots: &HashMap<String, Media>,
-            defense_logo: Option<&Media>,
-        ) -> Picks {
+        fn picks_with(&self, avatars: &Avatars) -> Picks {
             build_picks(
                 &lineup(),
                 &self.names,
@@ -1190,8 +1183,7 @@ mod tests {
                 &slate(),
                 &self.salaries,
                 &self.ownership,
-                headshots,
-                defense_logo,
+                avatars,
                 &HashMap::new(),
             )
         }
@@ -1331,7 +1323,7 @@ mod tests {
         );
         assert_eq!(picks.rows[0].name, "Quinn Back");
         assert_eq!(picks.rows[1].name, "Alpha Runner");
-        assert_eq!(picks.rows[8].name, "KC D/ST");
+        assert_eq!(picks.rows[8].name, "KC DST");
     }
 
     #[test]
@@ -1359,8 +1351,11 @@ mod tests {
     fn player_row_uses_local_media_then_silhouette() {
         let f = Fixture::default();
         let media = Media::fixture("headshot.png", time::macros::datetime!(2026-08-09 12:00:00));
-        let headshots = HashMap::from([("00-QB".to_string(), media.clone())]);
-        let picks = f.picks_with(&headshots, None);
+        let avatars = HashMap::from([(
+            PlayerOrDefenseId::Player(NflPlayerId("00-QB".into())),
+            media.clone(),
+        )]);
+        let picks = f.picks_with(&avatars);
         assert_eq!(picks.rows[0].avatar_url(), media.url());
         assert!(!picks.rows[0].avatar_is_logo());
         assert_eq!(
@@ -1380,9 +1375,10 @@ mod tests {
     #[test]
     fn row_carries_game_line_and_salary_and_ownership() {
         let mut f = Fixture::default();
-        f.salaries
-            .players
-            .insert(NflPlayerId("00-RB1".into()), 5700);
+        f.salaries.insert(
+            PlayerOrDefenseId::Player(NflPlayerId("00-RB1".into())),
+            5700,
+        );
         let picks = f.picks();
         let rb1 = &picks.rows[1];
         let g = rb1.game().expect("game line");
@@ -1555,8 +1551,10 @@ mod tests {
     #[test]
     fn matchup_renders_dash_with_no_team_and_no_stat_row() {
         let mut f = Fixture::default();
-        f.names
-            .insert("00-QB".into(), factories::identity("Quinn Back", None));
+        f.names.insert(
+            NflPlayerId("00-QB".into()),
+            factories::identity("Quinn Back", None),
+        );
         let picks = f.picks();
         assert_eq!(picks.rows[0].matchup_str(), "—");
     }
@@ -1594,16 +1592,44 @@ mod tests {
         assert_eq!(abbreviated_name("RJ Harvey"), "RJ Harvey");
     }
 
+    /// A priced slate row on the KC game, kicking off at 1:00pm Eastern.
+    fn salaried(
+        id: Option<&str>,
+        name: &str,
+        position: nfl_data::DfsPosition,
+        salary: u32,
+        fppg: f64,
+        games_played: u8,
+    ) -> SalariedPlayer {
+        SalariedPlayer {
+            id: id.map(|id| NflPlayerId(id.into())),
+            game: std::sync::Arc::new(factories::game_at(
+                "2025_01_BUF_KC",
+                1,
+                time::macros::datetime!(2025-09-07 13:00 -4),
+            )),
+            name: name.into(),
+            position,
+            team: TeamAbbr::KC,
+            salary,
+            games_played,
+            fppg,
+        }
+    }
+
     #[test]
     fn abbreviated_name_preserves_defense_rows() {
-        let team = TeamAbbr::KC;
-        let info = PickInfo::defense(&team, None, &[], None, None);
+        let info = PickInfo::new(
+            salaried(None, "KC DST", nfl_data::DfsPosition::Dst, 3_000, 0.0, 0),
+            None,
+            None,
+        );
         assert!(info.is_dst());
-        assert_eq!(info.abbreviated_name(), "KC D/ST");
+        assert_eq!(info.abbreviated_name(), "KC DST");
 
         let picks = picks();
         let defense = &picks.rows[8];
-        assert_eq!(defense.abbreviated_name(), "KC D/ST");
+        assert_eq!(defense.abbreviated_name(), "KC DST");
     }
 
     #[test]
@@ -1614,56 +1640,64 @@ mod tests {
 
     #[test]
     fn preview_rows_carry_salary_and_schedule_never_scores() {
-        let averages = SeasonAverages {
-            players: [(
-                NflPlayerId("00-RB1".into()),
-                PointsPerGame {
-                    avg_points: 11.0,
-                    games_played: 2,
-                },
-            )]
-            .into(),
-            dsts: [(
-                TeamAbbr::KC,
-                PointsPerGame {
-                    avg_points: 6.5,
-                    games_played: 2,
-                },
-            )]
-            .into(),
-        };
+        let players: HashMap<NflPlayerId, SalariedPlayer> = lineup()
+            .player_slots()
+            .into_iter()
+            .map(|(_, id)| {
+                let (fppg, games) = if id.as_ref() == "00-RB1" {
+                    (11.0, 2)
+                } else {
+                    (0.0, 0)
+                };
+                (
+                    id.clone(),
+                    salaried(
+                        Some(id.as_ref()),
+                        id.as_ref(),
+                        nfl_data::DfsPosition::Rb,
+                        5_000,
+                        fppg,
+                        games,
+                    ),
+                )
+            })
+            .collect();
+        let defense = salaried(None, "KC DST", nfl_data::DfsPosition::Dst, 3_000, 6.5, 2);
         let (rows, spent) = build_preview(
             &lineup(),
-            &names(),
-            &slate(),
-            &SlateSalaries::default(),
-            &averages,
-            &HashMap::new(),
-            None,
+            |id| players.get(id).cloned(),
+            |team| (*team == TeamAbbr::KC).then(|| defense.clone()),
+            &Avatars::default(),
         );
         assert_eq!(rows.len(), 9, "all nine slots");
         assert_eq!(
             spent,
-            rows.iter().filter_map(|r| r.info.salary).sum::<i64>(),
+            rows.iter()
+                .filter_map(|r| r.info.as_ref())
+                .map(PickInfo::salary)
+                .sum::<i64>(),
             "spent is the sum of known salaries"
         );
         for row in &rows {
-            if let Some(g) = row.info.game() {
-                assert_eq!(g.away_score, None, "no game scores before kickoff");
-                assert_eq!(g.home_score, None);
-            }
+            let g = row.info.as_ref().expect("priced row").game();
+            assert_eq!(g.away_score, None, "no game scores before kickoff");
+            assert_eq!(g.home_score, None);
         }
         // Season pace flows to both position groups.
         let rb1 = rows
             .iter()
             .find(|r| r.slot == RosterSlot::Rb1.position_label())
-            .expect("RB1 row");
-        assert_eq!(rb1.info.fppg, Some(11.0));
-        assert_eq!(rb1.info.played, Some(2));
+            .expect("RB1 row")
+            .info
+            .as_ref()
+            .expect("priced row");
+        assert_eq!(rb1.fppg_str(), "11.0");
+        assert_eq!(rb1.played_str(), "2");
         let def = &rows[8];
         assert_eq!(def.slot, RosterSlot::Def.position_label());
-        assert_eq!(def.info.fppg, Some(6.5));
-        assert_eq!(def.info.played, Some(2));
+        let def = def.info.as_ref().expect("priced row");
+        assert_eq!(def.fppg_str(), "6.5");
+        assert_eq!(def.played_str(), "2");
     }
 
     #[test]
@@ -1678,7 +1712,7 @@ mod tests {
     #[test]
     fn unknown_player_renders_raw_id_and_dash_matchup() {
         let mut f = Fixture::default();
-        f.names.remove("00-QB");
+        f.names.remove(&NflPlayerId("00-QB".into()));
         let picks = f.picks();
         let qb = &picks.rows[0];
         assert_eq!(qb.name, "00-QB");

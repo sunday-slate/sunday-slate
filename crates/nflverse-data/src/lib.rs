@@ -193,7 +193,7 @@ impl NflverseData {
         store::player_stats::for_week(self.inner.store.reader(), season, week).await
     }
 
-    /// All teams' pbp-derived D/ST lines for one week (sacks, takeaways, TDs,
+    /// All teams' pbp-derived DST lines for one week (sacks, takeaways, TDs,
     /// blocks, conversion returns, and points_allowed = the opponent's
     /// offensive points). Ordered by team.
     pub async fn team_week_stats(

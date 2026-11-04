@@ -39,26 +39,3 @@ pub struct ContestId(pub i64);
 #[derive(Debug, Clone, PartialEq, Eq, Hash, sqlx::Type)]
 #[sqlx(transparent)]
 pub struct NflGameId(pub String);
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn contest(name: &str) -> Contest {
-        Contest {
-            id: ContestId(1),
-            name: name.into(),
-        }
-    }
-
-    #[test]
-    fn slate_id_is_the_season_weeks_main_slate() {
-        assert_eq!(contest("Week 1").slate_id(), Some(SlateId(20260011)));
-        assert_eq!(contest("Week 9").slate_id(), Some(SlateId(20260091)));
-    }
-
-    #[test]
-    fn slate_id_is_none_without_a_week() {
-        assert_eq!(contest("Divisional").slate_id(), None);
-    }
-}

@@ -5,7 +5,7 @@ pub mod store;
 
 pub use model::{
     ContestEntry, EntryDetails, EntryId, EntrySlot, EntryTeam, FantasyTeamEntries,
-    FantasyTeamEntry, Lineup, LineupError, NflPlayerId, RosterSlot, SlotValue,
+    FantasyTeamEntry, Lineup, LineupError, NflPlayerId, PlayerOrDefenseId, RosterSlot,
 };
 pub use store::EntriesError;
 

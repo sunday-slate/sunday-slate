@@ -1,7 +1,7 @@
 use crate::salaried_players::{self, SalariedPlayer, SalariedPlayersBySlot};
 use crate::slates::{self, Slate, SlateId};
 use crate::{NflData, NflDataError};
-use nfl_model::{DfsPositionSlotType, NflPlayerId, TeamAbbr};
+use nfl_model::{DfsPositionSlotType, NflPlayerId, PlayerOrDefenseId, TeamAbbr};
 use std::collections::{BTreeMap, HashMap};
 
 /// One slate's salaried players: the position buckets plus direct lookups by
@@ -68,7 +68,10 @@ impl Snapshot {
             .map(|slate| (slate.id, slate))
             .collect();
 
-        Ok(Self { slates, salaried_players: salaried })
+        Ok(Self {
+            slates,
+            salaried_players: salaried,
+        })
     }
 
     /// All slates with salaried players in ascending order
@@ -91,6 +94,18 @@ impl Snapshot {
     /// no such defense.
     pub fn defense(&self, slate_id: &SlateId, team: &TeamAbbr) -> Option<&SalariedPlayer> {
         self.salaried_players.get(slate_id)?.defenses.get(team)
+    }
+
+    /// The salaried row for a player or a defense, whichever the id names.
+    pub fn salaried_player(
+        &self,
+        slate_id: &SlateId,
+        value: &PlayerOrDefenseId,
+    ) -> Option<&SalariedPlayer> {
+        match value {
+            PlayerOrDefenseId::Player(id) => self.player(slate_id, id),
+            PlayerOrDefenseId::Defense(team) => self.defense(slate_id, team),
+        }
     }
 
     pub fn salaried_players_for_position(

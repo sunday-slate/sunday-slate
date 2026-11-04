@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::scoring::{self, PointsPerGame, WeekStats};
 
-/// Season-to-date FPPG and games played for both NFL Players and Team D/ST
+/// Season-to-date FPPG and games played for both NFL Players and Team DST
 #[derive(Debug, Default)]
 pub struct SeasonAverages {
     pub players: HashMap<NflPlayerId, PointsPerGame>,

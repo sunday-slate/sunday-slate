@@ -175,7 +175,7 @@ impl PlayerFacts {
         averages: &scoring::SeasonAverages,
         game: &Arc<Game>,
     ) -> Option<SalariedPlayer> {
-        // a D/ST entry has no player: its points come from the team's
+        // a DST entry has no player: its points come from the team's
         // defensive line, keyed by team rather than gsis id
         if salary.position.is_defense() {
             let (games_played, fppg) = averages
@@ -187,7 +187,7 @@ impl PlayerFacts {
             return Some(SalariedPlayer {
                 id: None,
                 game: Arc::clone(game),
-                name: format!("{} D/ST", salary.team),
+                name: format!("{} DST", salary.team),
                 position: salary.position,
                 team: salary.team,
                 salary: salary.salary,

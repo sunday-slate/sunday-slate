@@ -23,7 +23,7 @@ use crate::scoring;
 use crate::tests::utils::in_memory_pool;
 
 const SEASON: u16 = 2025;
-// Every FanDuel scoring category is now derived from nflverse: the D/ST ones
+// Every FanDuel scoring category is now derived from nflverse: the DST ones
 // from play-by-play, and FU/TD (offensive fumble-recovery TD) from the player
 // feed's fumble_recovery_tds. Nothing is quarantined.
 const UNCOVERED: [&str; 0] = [];

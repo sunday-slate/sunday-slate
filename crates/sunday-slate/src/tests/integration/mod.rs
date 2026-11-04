@@ -6,7 +6,6 @@ mod contest_details;
 mod contest_list;
 mod contest_validation;
 mod contests;
-mod draft_entry;
 mod entries;
 mod first_user_setup;
 mod health;

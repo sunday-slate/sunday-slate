@@ -391,7 +391,7 @@ impl NflData {
             .map_err(NflDataError::Nflverse)
     }
 
-    /// All teams' pbp-derived D/ST lines for one week (sacks, takeaways, TDs,
+    /// All teams' pbp-derived DST lines for one week (sacks, takeaways, TDs,
     /// blocks, conversion returns, and points_allowed = the opponent's
     /// offensive points). Ordered by team.
     pub async fn team_week_stats(
