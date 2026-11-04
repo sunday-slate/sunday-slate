@@ -123,7 +123,7 @@ async fn import_salary_csv(
         .map_err(|_| NflDataError::Schedule)?;
     state.nfl.save_fanduel_salaries(&source).await?;
     let linked = state.nfl.reconcile_salary_week(season_week).await;
-    let rebuilt = state.nfl.rebuild_snapshot().await;
+    let rebuilt = state.nfl.reconcile_slates_and_rebuild().await;
     linked?;
     rebuilt?;
     salary_imports::salary_week_overview(state, season_week).await

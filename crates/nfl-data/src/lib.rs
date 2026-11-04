@@ -53,10 +53,13 @@ pub struct WeeklySummary {
     pub unmatched_count: usize,
 }
 
-/// A committed asset this handle's snapshot can see: its own season, or a
-/// shared players/schedules asset, which spans every season.
+/// Identity fallback can read weekly rosters from any season.
 fn update_is_relevant(update: &nflverse_data::AssetUpdate, season: Season) -> bool {
-    update.season == Some(season) || matches!(update.dataset, Dataset::Schedules | Dataset::Players)
+    update.season == Some(season)
+        || matches!(
+            update.dataset,
+            Dataset::Schedules | Dataset::Players | Dataset::WeeklyRosters
+        )
 }
 
 /// The stored slate state a build reads: metadata plus game membership.
@@ -177,7 +180,7 @@ impl NflData {
 
     /// Reconcile the configured season's slates and republish. Returns after
     /// the new snapshot is published, or leaves the old one on error.
-    async fn reconcile_slates_and_rebuild(&self) -> Result<(), NflDataError> {
+    pub(crate) async fn reconcile_slates_and_rebuild(&self) -> Result<(), NflDataError> {
         let _publication = self.publication.lock().await;
         slates::refresh(self).await?;
         self.build_and_publish().await
