@@ -984,7 +984,7 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
     }
 
     let (picks, rank, score) = if kicked_off {
-        let ids = entry.lineup.player_ids();
+        let ids = entry.lineup.player_ids().map(Clone::clone);
         let source = live::load_contest_scores(state, entry.contest.id).await?;
         let stream_eligible = live::stream_eligible(state, entry.contest.id, &source).await?;
         let unsynced = WeekStats::default();
@@ -993,13 +993,7 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
             ContestScores::Provisional(snapshot) => (&snapshot.stats, snapshot.scored_games()),
             ContestScores::Upcoming | ContestScores::Unavailable => (&unsynced, slate.clone()),
         };
-        let names: HashMap<NflPlayerId, PlayerIdentity> = state
-            .nfl
-            .identify(&ids)
-            .await?
-            .into_iter()
-            .map(|(id, identity)| (NflPlayerId(id), identity))
-            .collect();
+        let names = state.nfl.identify(&ids).await?;
         let values: Vec<PlayerOrDefenseId> = entry
             .lineup
             .to_slots()

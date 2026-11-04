@@ -18,10 +18,10 @@ pub async fn resolve(
     let season_week = SeasonWeek::decode(encoded).ok_or(AppError::NotFound)?;
     let identities = state
         .nfl
-        .identify(&[form.gsis_player_id.as_str()])
+        .identify(&[nfl_model::NflPlayerId(form.gsis_player_id.clone())])
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
-    if !identities.contains_key(&form.gsis_player_id) {
+    if !identities.contains_key(&nfl_model::NflPlayerId(form.gsis_player_id.clone())) {
         return Err(AppError::BadRequest("unknown GSIS player ID".into()));
     }
     import::resolve_salary_player(

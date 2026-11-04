@@ -20,8 +20,8 @@ pub(crate) async fn admin_state() -> AdminFixture {
     admin_fixture(nfl, Season(2025))
 }
 
-/// An admin fixture whose handle is configured for `handle_season`: the update
-/// worker only publishes the configured season.
+/// An admin fixture whose handle is configured for `handle_season`: a build
+/// only publishes the configured season.
 pub(crate) async fn admin_state_in_season(handle_season: Season) -> AdminFixture {
     let nfl = Arc::new(
         NflData::connect(NflDataConfig {
@@ -39,7 +39,8 @@ pub(crate) async fn admin_state_in_season(handle_season: Season) -> AdminFixture
 }
 
 /// Both admin fixtures' provider seeding: two players, the BUF@NYJ week-1
-/// game, and the roster-only receiver, all in 2025.
+/// game, and the roster-only receiver, all in 2025. The seeded rows land after
+/// construction, so the slates are reconciled explicitly.
 async fn seed_admin_slate(nfl: &NflData) {
     nfl.seed_for_test(
         &[
@@ -94,6 +95,7 @@ async fn seed_admin_slate(nfl: &NflData) {
     }])
     .await
     .unwrap();
+    nfl.refresh_slates().await.unwrap();
 }
 
 fn admin_fixture(nfl: Arc<NflData>, admin_season: Season) -> AdminFixture {
@@ -121,45 +123,6 @@ pub(crate) fn admin_slate_id() -> crate::slates::SlateId {
         ) * 10
             + 1,
     )
-}
-
-/// Poll the published snapshot until `pred` holds, panicking with `what`
-/// after five seconds.
-pub(crate) async fn poll_until_snapshot(
-    what: &'static str,
-    nfl: &NflData,
-    mut pred: impl FnMut(&crate::snapshot::Snapshot) -> bool,
-) {
-    tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        loop {
-            if pred(&nfl.snapshot()) {
-                return;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .expect(what);
-}
-
-/// Poll until the published snapshot is no longer pointer-equal to `before`.
-/// A value-identical publication still counts: the pointer distinguishes "a
-/// build ran" from "nothing happened".
-pub(crate) async fn poll_until_publication(
-    what: &'static str,
-    nfl: &NflData,
-    before: &std::sync::Arc<crate::snapshot::Snapshot>,
-) {
-    tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        loop {
-            if !std::sync::Arc::ptr_eq(before, &nfl.snapshot()) {
-                return;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .expect(what);
 }
 
 pub(crate) const DASHBOARD_CSV: &str = r#""Id","Position","First Name","Nickname","Last Name","FPPG","Played","Salary","Game","Team","Opponent","Injury Indicator","Injury Details"

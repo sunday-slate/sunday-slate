@@ -17,8 +17,11 @@ pub async fn resolve(
     axum::Form(form): axum::Form<ResolveForm>,
 ) -> Result<impl IntoResponse, SalaryAdminError> {
     let season_week = crate::SeasonWeek::decode(encoded).ok_or(SalaryAdminError::NotFound)?;
-    let identities = state.nfl.identify(&[form.gsis_player_id.as_str()]).await?;
-    if !identities.contains_key(&form.gsis_player_id) {
+    let identities = state
+        .nfl
+        .identify(&[nfl_model::NflPlayerId(form.gsis_player_id.clone())])
+        .await?;
+    if !identities.contains_key(&nfl_model::NflPlayerId(form.gsis_player_id.clone())) {
         return Err(SalaryAdminError::BadRequest(
             "unknown GSIS player ID".into(),
         ));
@@ -55,6 +58,7 @@ async fn resolve_salary_player(
             gsis_player_id: gsis_player_id.to_owned(),
         }])
         .await?;
+    state.nfl.rebuild_snapshot().await?;
     salary_imports::salary_week_overview(state, season_week).await
 }
 
@@ -63,7 +67,7 @@ mod tests {
     use crate::DfsPosition;
     use crate::store::player_link;
     use crate::web::tests::salary_fixture::{
-        admin_slate_id, admin_state, admin_state_in_season, poll_until_snapshot, upload_form,
+        admin_slate_id, admin_state, admin_state_in_season, upload_form,
     };
     use axum::http::StatusCode;
     use nfl_model::{DfsPositionSlotType, NflPlayerId};
@@ -140,9 +144,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn resolving_publishes_the_linked_player_to_the_snapshot() {
+    async fn resolving_publishes_the_linked_player_before_the_response() {
         let state = admin_state_in_season(crate::Season(2025)).await;
-        state.nfl.start_background_tasks();
 
         // Upload first: Josh Allen auto-matches and publishes.
         state
@@ -151,39 +154,31 @@ mod tests {
             .multipart(upload_form())
             .await
             .assert_status(StatusCode::SEE_OTHER);
-        poll_until_snapshot(
-            "the upload published the matched player",
-            &state.nfl,
-            |snapshot| {
-                snapshot
-                    .player(&admin_slate_id(), &NflPlayerId("00-1".into()))
-                    .is_some_and(|player| player.name == "Josh Allen")
-            },
-        )
-        .await;
+        assert!(
+            state
+                .nfl
+                .snapshot()
+                .player(&admin_slate_id(), &NflPlayerId("00-1".into()))
+                .is_some_and(|player| player.name == "Josh Allen")
+        );
 
-        // Manual resolution routes through save_player_links: its
-        // notification rebuilds and exposes the resolved player.
+        // Manual resolution persists the link and republishes once.
         state
             .server
             .post("/nfl-data-admin/salary-imports/2025001/players/999/resolve")
             .form(&[("gsis_player_id", "00-roster-only")])
             .await
             .assert_status(StatusCode::SEE_OTHER);
-        poll_until_snapshot(
-            "the resolution published the linked player",
-            &state.nfl,
-            |snapshot| {
-                snapshot
-                    .player(&admin_slate_id(), &NflPlayerId("00-roster-only".into()))
-                    .is_some_and(|player| player.name == "Roster Receiver")
-            },
-        )
-        .await;
+        let snapshot = state.nfl.snapshot();
+        assert!(
+            snapshot
+                .player(&admin_slate_id(), &NflPlayerId("00-roster-only".into()))
+                .is_some_and(|player| player.name == "Roster Receiver"),
+            "the completed resolution is visible immediately"
+        );
 
         // Second Receiver (888) is still unmatched, so the WR bucket holds
         // only the resolved player.
-        let snapshot = state.nfl.snapshot();
         let wr = snapshot.salaried_players_for_position(
             &admin_slate_id(),
             &DfsPositionSlotType::Position(DfsPosition::Wr),

@@ -3,7 +3,6 @@
 
 use crate::{NflData, NflDataError, Season, TeamAbbr, Week};
 use nfl_model::NflPlayerId;
-use nflverse_data::NflverseData;
 use std::collections::{HashMap, HashSet};
 
 use crate::scoring::{self, PointsPerGame, WeekStats};
@@ -21,22 +20,11 @@ pub async fn season_averages(
     ids: &[impl AsRef<str>],
     before: Week,
 ) -> Result<SeasonAverages, NflDataError> {
-    season_averages_from_provider(&nfl.provider, season, ids, before).await
-}
-
-/// [`season_averages`] against the provider directly; builds that hold only
-/// the cloned sources call this.
-pub(crate) async fn season_averages_from_provider(
-    provider: &NflverseData,
-    season: Season,
-    ids: &[impl AsRef<str>],
-    before: Week,
-) -> Result<SeasonAverages, NflDataError> {
     let wanted: HashSet<&str> = ids.iter().map(|i| i.as_ref()).collect();
     let mut players: HashMap<NflPlayerId, (f64, u32)> = HashMap::new();
     let mut dsts: HashMap<TeamAbbr, (f64, u32)> = HashMap::new();
     for week in 1..before.0 {
-        for line in provider.player_week_stats(season, Week(week)).await? {
+        for line in nfl.player_week_stats(season, Week(week)).await? {
             if !wanted.contains(line.gsis_id.as_str()) {
                 continue;
             }
@@ -46,7 +34,7 @@ pub(crate) async fn season_averages_from_provider(
             *points += scoring::score_player(&line).total;
             *games += 1;
         }
-        for t in provider.team_week_stats(season, Week(week)).await? {
+        for t in nfl.team_week_stats(season, Week(week)).await? {
             let (points, games) = dsts.entry(t.team).or_insert_with(|| (0.0, 0));
             *points += scoring::score_defense(&t).total;
             *games += 1;

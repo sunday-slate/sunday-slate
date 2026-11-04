@@ -1,10 +1,8 @@
-use crate::identity;
 use crate::salaried_players::SalariedPlayer;
-use crate::slates::{Slate, SlateId, games_from_parts};
-use crate::snapshot::SnapshotSources;
+use crate::slates::{self, Slate, SlateId};
 use crate::store::player_link;
-use crate::{NflDataError, PlayerIdentity, scoring};
-use fanduel_data::{FanduelData, Matchup, SalariedPlayer as FdSalariedPlayer};
+use crate::{NflData, NflDataError, PlayerIdentity, scoring};
+use fanduel_data::{Matchup, SalariedPlayer as FdSalariedPlayer};
 use nfl_model::{DfsPosition, DfsPositionSlotType, Game, NflPlayerId, SeasonWeek};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -15,17 +13,17 @@ pub(crate) type SalariedPlayersBySlot = HashMap<DfsPositionSlotType, Vec<Salarie
 /// Salaried players for every given slate, bucketed by the roster slots they
 /// can fill.
 pub(crate) async fn build_salaried_players(
-    sources: &SnapshotSources,
+    nfl: &NflData,
     slates: &[Slate],
 ) -> Result<HashMap<SlateId, SalariedPlayersBySlot>, NflDataError> {
     let weeks: HashSet<SeasonWeek> = slates.iter().map(|slate| slate.season_week).collect();
-    let salaries_by_week = salaries_by_week(&sources.fanduel, weeks).await?;
-    let facts = PlayerFacts::load(sources, &salaries_by_week).await?;
+    let salaries_by_week = salaries_by_week(nfl, weeks).await?;
+    let facts = PlayerFacts::load(nfl, &salaries_by_week).await?;
 
     // each slate needs its own games, so slates are visited one at a time
     let mut by_slate = HashMap::new();
     for slate in slates {
-        let players = slate_salaried_players(sources, slate, &salaries_by_week, &facts).await?;
+        let players = slate_salaried_players(nfl, slate, &salaries_by_week, &facts).await?;
         by_slate.insert(slate.id, players);
     }
     Ok(by_slate)
@@ -33,12 +31,12 @@ pub(crate) async fn build_salaried_players(
 
 /// One salary read per week, shared by every slate in that week.
 async fn salaries_by_week(
-    fanduel: &FanduelData,
+    nfl: &NflData,
     weeks: HashSet<SeasonWeek>,
 ) -> Result<HashMap<SeasonWeek, Vec<FdSalariedPlayer>>, NflDataError> {
     let mut by_week = HashMap::new();
     for week in weeks {
-        by_week.insert(week, fanduel.salaried_players_for(week).await?);
+        by_week.insert(week, nfl.fanduel.salaried_players_for(week).await?);
     }
     Ok(by_week)
 }
@@ -47,7 +45,7 @@ async fn salaries_by_week(
 /// fill. A slate whose week has no salaries, or that matches no games, gets an
 /// empty entry.
 async fn slate_salaried_players(
-    sources: &SnapshotSources,
+    nfl: &NflData,
     slate: &Slate,
     salaries_by_week: &HashMap<SeasonWeek, Vec<FdSalariedPlayer>>,
     facts: &PlayerFacts,
@@ -62,7 +60,7 @@ async fn slate_salaried_players(
     // remove any fd players not in the slate
     let fd_games: Vec<fanduel_data::Game> =
         salaries.iter().map(|salary| salary.game.clone()).collect();
-    let games = fd_game_map(sources, &slate.id, &fd_games).await?;
+    let games = fd_game_map(nfl, &slate.id, &fd_games).await?;
 
     // every week with salaries got an averages pass in `PlayerFacts::load`
     let averages = &facts.averages_by_week[&slate.season_week];
@@ -121,7 +119,7 @@ impl PlayerFacts {
     /// Resolve every salary in `salaries_by_week` through persisted links and
     /// nflverse identities, then take one averages pass per week.
     async fn load(
-        sources: &SnapshotSources,
+        nfl: &NflData,
         salaries_by_week: &HashMap<SeasonWeek, Vec<FdSalariedPlayer>>,
     ) -> Result<Self, NflDataError> {
         // map FanDuel IDs to Nflverse gsis IDs
@@ -131,20 +129,15 @@ impl PlayerFacts {
             .filter_map(|salary| salary.player.as_ref().map(|player| player.id))
             .collect();
         let nfl_id_by_fd_id: HashMap<u32, NflPlayerId> =
-            player_link::links_for_fd_ids(sources.store.reader(), &fd_ids)
+            player_link::links_for_fd_ids(nfl.store.reader(), &fd_ids)
                 .await?
                 .into_iter()
                 .map(|(fd_id, gsis_id)| (fd_id, NflPlayerId(gsis_id)))
                 .collect();
 
         // then gsis IDs to display facts
-        let gsis_ids: Vec<String> = nfl_id_by_fd_id.values().map(|id| id.0.clone()).collect();
-        let identities: HashMap<NflPlayerId, PlayerIdentity> =
-            identity::identify(&sources.provider, &gsis_ids)
-                .await?
-                .into_iter()
-                .map(|(gsis_id, ident)| (NflPlayerId(gsis_id), ident))
-                .collect();
+        let gsis_ids: Vec<NflPlayerId> = nfl_id_by_fd_id.values().cloned().collect();
+        let identities = nfl.identify(&gsis_ids).await?;
 
         // averages are week-scoped, so one pass per week covers all of its slates
         let mut averages_by_week = HashMap::new();
@@ -158,13 +151,7 @@ impl PlayerFacts {
                 .filter_map(|player| nfl_id_by_fd_id.get(&player.id))
                 .map(|id| id.0.clone())
                 .collect();
-            let averages = scoring::season_averages_from_provider(
-                &sources.provider,
-                week.season,
-                &ids,
-                week.week,
-            )
-            .await?;
+            let averages = scoring::season_averages(nfl, week.season, &ids, week.week).await?;
             averages_by_week.insert(*week, averages);
         }
 
@@ -227,11 +214,11 @@ impl PlayerFacts {
 }
 
 async fn fd_game_map(
-    sources: &SnapshotSources,
+    nfl: &NflData,
     slate_id: &SlateId,
     fd_games: &[fanduel_data::Game],
 ) -> Result<HashMap<Matchup, Arc<Game>>, NflDataError> {
-    let games = games_from_parts(&sources.provider, &sources.store, slate_id).await?;
+    let games = slates::games(nfl, slate_id).await?;
     let matchups: HashSet<Matchup> = fd_games.iter().map(|g| g.matchup.clone()).collect();
 
     let res = matchups

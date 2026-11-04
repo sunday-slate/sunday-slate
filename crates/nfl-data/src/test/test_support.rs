@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -63,38 +62,33 @@ pub(crate) struct NflverseMock {
     pub(crate) server: MockServer,
     /// Asset listings per release tag, replaced by tests between syncs.
     releases: Arc<Mutex<BTreeMap<String, Vec<MockAsset>>>>,
-    /// Response delay for every release fetch and download, in milliseconds.
-    delay_ms: Arc<AtomicU64>,
 }
 
 impl NflverseMock {
     pub(crate) async fn start() -> Self {
         let server = MockServer::start().await;
         let releases: Arc<Mutex<BTreeMap<String, Vec<MockAsset>>>> = Arc::default();
-        let delay_ms = Arc::new(AtomicU64::new(0));
         let base = server.uri();
 
         // Asset downloads are any top-level path; release listings live under
         // /repos/…, whose separators never match.
         {
             let releases = Arc::clone(&releases);
-            let delay_ms = Arc::clone(&delay_ms);
             Mock::given(method("GET"))
                 .and(path_regex("^/[a-zA-Z0-9_.]+$"))
                 .respond_with(move |request: &Request| {
                     let name = request.url.path().trim_start_matches('/');
                     let releases = releases.lock().unwrap_or_else(|error| error.into_inner());
-                    let delay = Duration::from_millis(delay_ms.load(Ordering::SeqCst));
                     match releases
                         .values()
                         .flatten()
                         .find(|asset| asset.name == name)
                         .cloned()
                     {
-                        Some(asset) => ResponseTemplate::new(asset.status)
-                            .set_body_string(asset.body)
-                            .set_delay(delay),
-                        None => ResponseTemplate::new(404).set_delay(delay),
+                        Some(asset) => {
+                            ResponseTemplate::new(asset.status).set_body_string(asset.body)
+                        }
+                        None => ResponseTemplate::new(404),
                     }
                 })
                 .mount(&server)
@@ -108,7 +102,6 @@ impl NflverseMock {
             "pbp",
         ] {
             let releases = Arc::clone(&releases);
-            let delay_ms = Arc::clone(&delay_ms);
             let base = base.clone();
             Mock::given(method("GET"))
                 .and(path(format!(
@@ -116,7 +109,6 @@ impl NflverseMock {
                 )))
                 .respond_with(move |_request: &Request| {
                     let releases = releases.lock().unwrap_or_else(|error| error.into_inner());
-                    let delay = Duration::from_millis(delay_ms.load(Ordering::SeqCst));
                     let empty: Vec<MockAsset> = Vec::new();
                     let assets = releases.get(tag).unwrap_or(&empty);
                     // Hand-built JSON: every value is fixture-controlled ASCII.
@@ -131,16 +123,11 @@ impl NflverseMock {
                         .collect();
                     ResponseTemplate::new(200)
                         .set_body_string(format!("{{\"assets\":[{}]}}", items.join(",")))
-                        .set_delay(delay)
                 })
                 .mount(&server)
                 .await;
         }
-        Self {
-            server,
-            releases,
-            delay_ms,
-        }
+        Self { server, releases }
     }
 
     /// Replace a release tag's asset listing.
@@ -149,14 +136,6 @@ impl NflverseMock {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .insert(tag.to_owned(), assets);
-    }
-
-    /// Delay every response from now on.
-    pub(crate) fn set_delay(&self, delay: Duration) {
-        self.delay_ms.store(
-            u64::try_from(delay.as_millis()).unwrap_or(u64::MAX),
-            Ordering::SeqCst,
-        );
     }
 
     pub(crate) fn uri(&self) -> String {

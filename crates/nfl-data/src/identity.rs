@@ -1,4 +1,4 @@
-use nfl_model::TeamAbbr;
+use nfl_model::{NflPlayerId, TeamAbbr};
 use nflverse_data::NflverseData;
 use std::collections::HashMap;
 
@@ -20,13 +20,13 @@ pub struct PlayerIdentity {
 /// for the misses; unknown ids are absent from the map.
 pub(crate) async fn identify(
     provider: &NflverseData,
-    ids: &[impl AsRef<str>],
-) -> Result<HashMap<String, PlayerIdentity>, NflDataError> {
+    ids: &[NflPlayerId],
+) -> Result<HashMap<NflPlayerId, PlayerIdentity>, NflDataError> {
     let players = provider.players_by_gsis(ids).await?;
-    let unnamed: Vec<&str> = ids
+    let unnamed: Vec<NflPlayerId> = ids
         .iter()
-        .map(|id| id.as_ref())
-        .filter(|id| !players.contains_key(*id))
+        .filter(|id| !players.contains_key(id.0.as_str()))
+        .cloned()
         .collect();
     let roster = provider.weekly_roster_entries_by_gsis(&unnamed).await?;
     let named = players.into_iter().map(|(id, p)| {
@@ -36,7 +36,7 @@ pub(crate) async fn identify(
             position: p.position,
             headshot_url: p.headshot_url,
         };
-        (id, identity)
+        (NflPlayerId(id), identity)
     });
     let rostered = roster.into_iter().map(|(id, e)| {
         let identity = PlayerIdentity {
@@ -45,7 +45,7 @@ pub(crate) async fn identify(
             position: e.position,
             headshot_url: None,
         };
-        (id, identity)
+        (NflPlayerId(id), identity)
     });
     Ok(named.chain(rostered).collect())
 }

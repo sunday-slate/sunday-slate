@@ -12,17 +12,16 @@ mod store;
 mod test;
 mod web;
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::collections::{BTreeMap, HashMap};
+use std::sync::{Arc, Mutex, Weak};
 
 use arc_swap::ArcSwap;
-use nflverse_data::NflverseData;
+use nflverse_data::{NflverseData, SyncEvent};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
+use crate::slates::{Slate, SlateId};
 use crate::snapshot::Snapshot;
-use crate::snapshot::SnapshotSources;
-use crate::snapshot::updates::UpdateInputs;
 pub use config::NflDataConfig;
 pub use data_revision::DataRevision;
 pub use error::NflDataError;
@@ -54,22 +53,39 @@ pub struct WeeklySummary {
     pub unmatched_count: usize,
 }
 
+/// A committed asset this handle's snapshot can see: its own season, or a
+/// shared players/schedules asset, which spans every season.
+fn update_is_relevant(update: &nflverse_data::AssetUpdate, season: Season) -> bool {
+    update.season == Some(season) || matches!(update.dataset, Dataset::Schedules | Dataset::Players)
+}
+
+/// The stored slate state a build reads: metadata plus game membership.
+async fn stored_slates(
+    nfl: &NflData,
+) -> Result<BTreeMap<SlateId, (Slate, Vec<String>)>, NflDataError> {
+    let mut state = BTreeMap::new();
+    for slate in slates::all(nfl).await? {
+        let game_ids = store::slates::game_ids(nfl.store.reader(), &slate.id).await?;
+        state.insert(slate.id, (slate, game_ids));
+    }
+    Ok(state)
+}
+
 pub struct NflData {
-    /// The published snapshot; the shared handle lets the update worker swap
-    /// it while readers keep the snapshot they took.
-    snapshot: Arc<ArcSwap<Snapshot>>,
+    /// The published snapshot; the shared handle lets a rebuild swap it while
+    /// readers keep the snapshot they took.
+    snapshot: ArcSwap<Snapshot>,
     provider: NflverseData,
     fanduel: fanduel_data::FanduelData,
     store: store::Store,
     refresh_interval: Option<std::time::Duration>,
     season: Season,
-    /// The update worker's input receivers, taken once by
+    /// Serializes slate reconciliation, builds, and publication.
+    publication: tokio::sync::Mutex<()>,
+    /// Receive end of the provider's sync events, taken once by
     /// [`Self::start_background_tasks`].
-    update_inputs: Mutex<Option<UpdateInputs>>,
-    /// Asks the update worker to rebuild; saves send it after their
-    /// persistence commits.
-    snapshot_changes_tx: mpsc::UnboundedSender<()>,
-    /// The update worker's task; aborted on drop.
+    sync_events: Mutex<Option<mpsc::UnboundedReceiver<SyncEvent>>>,
+    /// The notification task; aborted on drop.
     update_worker: Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -90,9 +106,9 @@ impl Drop for NflData {
 
 impl NflData {
     /// Start configured internal background work. Repeated calls are safe: the
-    /// scheduler refreshes upstream datasets when configured, and the update
-    /// worker keeps the slates and published snapshot current.
-    pub fn start_background_tasks(&self) {
+    /// scheduler refreshes upstream datasets when configured, and the
+    /// notification task republishes the snapshot after each relevant sync.
+    pub fn start_background_tasks(self: &Arc<Self>) {
         if let Some(interval) = self.refresh_interval {
             self.provider.start_scheduler(interval);
         }
@@ -100,32 +116,96 @@ impl NflData {
     }
 
     /// Stop future automatic task triggers without cancelling an active
-    /// refresh. The update worker keeps running: aborting it here would make a
-    /// later start unable to restore its receivers.
+    /// refresh. The notification task keeps running: aborting it here would
+    /// make a later start unable to restore its receiver.
     pub fn stop_background_tasks(&self) {
         self.provider.stop_scheduler();
     }
 
-    /// Spawn the update worker; the receivers are taken on the first call, so
+    /// Spawn the notification task; the receiver is taken on the first call, so
     /// later calls are no-ops.
-    fn start_update_worker(&self) {
-        let Some(inputs) = self
-            .update_inputs
+    fn start_update_worker(self: &Arc<Self>) {
+        let Some(mut sync_events) = self
+            .sync_events
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .take()
         else {
             return;
         };
-        let worker = tokio::spawn(crate::snapshot::updates::run(
-            SnapshotSources::from(self),
-            Arc::clone(&self.snapshot),
-            inputs,
-        ));
+        // A weak owner keeps a dropped handle droppable: the task upgrades
+        // only to process one event and releases it before waiting again.
+        let updates = Arc::downgrade(self);
+        let worker = tokio::spawn(async move {
+            while let Some(event) = sync_events.recv().await {
+                let Some(nfl) = Weak::upgrade(&updates) else {
+                    return;
+                };
+                nfl.apply_sync_event(event).await;
+            }
+        });
         *self
             .update_worker
             .lock()
             .unwrap_or_else(|error| error.into_inner()) = Some(worker);
+    }
+
+    /// Apply one completed sync: republish when the configured season's data
+    /// changed, otherwise reconcile the slates only.
+    async fn apply_sync_event(&self, event: SyncEvent) {
+        let relevant = event
+            .updates
+            .iter()
+            .any(|update| update_is_relevant(update, self.season));
+        let outcome = if relevant {
+            // A committed relevant asset rebuilds even when a sibling dataset
+            // failed: its rows are in the store either way.
+            self.reconcile_slates_and_rebuild().await
+        } else if event.all_ok {
+            // An unchanged or historical-only sync still reconciles the
+            // slates, and republishes only when that changed what a build
+            // reads.
+            self.reconcile_slates_if_changed().await
+        } else {
+            // Nothing committed that this season can see.
+            return;
+        };
+        if let Err(error) = outcome {
+            tracing::warn!(%error, "snapshot update after sync failed");
+        }
+    }
+
+    /// Reconcile the configured season's slates and republish. Returns after
+    /// the new snapshot is published, or leaves the old one on error.
+    async fn reconcile_slates_and_rebuild(&self) -> Result<(), NflDataError> {
+        let _publication = self.publication.lock().await;
+        slates::refresh(self).await?;
+        self.build_and_publish().await
+    }
+
+    /// Reconcile the slates, republishing only when their stored state changed.
+    async fn reconcile_slates_if_changed(&self) -> Result<(), NflDataError> {
+        let _publication = self.publication.lock().await;
+        let before = stored_slates(self).await?;
+        slates::refresh(self).await?;
+        if stored_slates(self).await? == before {
+            return Ok(());
+        }
+        self.build_and_publish().await
+    }
+
+    /// Rebuild the snapshot and publish it. A failed build keeps the snapshot
+    /// readers already hold; the next request to rebuild tries again.
+    pub(crate) async fn rebuild_snapshot(&self) -> Result<(), NflDataError> {
+        let _publication = self.publication.lock().await;
+        self.build_and_publish().await
+    }
+
+    /// [`Self::rebuild_snapshot`] with the publication lock already held.
+    async fn build_and_publish(&self) -> Result<(), NflDataError> {
+        let snapshot = Snapshot::build(self).await?;
+        self.snapshot.store(Arc::new(snapshot));
+        Ok(())
     }
 
     /// Read an opaque hint for changes in the complete provider freshness snapshot.
@@ -149,8 +229,8 @@ impl NflData {
             .map_err(NflDataError::Fanduel)
     }
 
-    /// Persist typed FanDuel source rows. A save touching the configured
-    /// season notifies the update worker after the persistence commits.
+    /// Persist typed FanDuel source rows. Callers republish the snapshot at
+    /// their workflow boundary, once the whole import is persisted.
     pub async fn save_fanduel_salaries(
         &self,
         salaries: &[SalariedPlayer],
@@ -158,31 +238,17 @@ impl NflData {
         self.fanduel
             .save_salaried_players(salaries)
             .await
-            .map_err(NflDataError::Fanduel)?;
-        if salaries
-            .iter()
-            .any(|salary| salary.game.season_week.season == self.season())
-        {
-            self.notify_snapshot_change();
-        }
-        Ok(())
+            .map_err(NflDataError::Fanduel)
     }
 
-    /// Persist FanDuel→GSIS player links, notifying the update worker on a
-    /// successful nonempty save.
+    /// Persist FanDuel→GSIS player links. Callers republish the snapshot at
+    /// their workflow boundary, once the whole import is persisted.
     pub(crate) async fn save_player_links(&self, links: &[PlayerLink]) -> Result<(), NflDataError> {
         if links.is_empty() {
             return Ok(());
         }
         store::player_link::save_links(&self.store, links).await?;
-        self.notify_snapshot_change();
         Ok(())
-    }
-
-    /// Ask the update worker to rebuild. A closed receiver is ignored: the
-    /// worker is optional.
-    fn notify_snapshot_change(&self) {
-        let _ = self.snapshot_changes_tx.send(());
     }
 
     /// Read stored FanDuel salary source rows for an exact contest week.
@@ -218,10 +284,6 @@ impl NflData {
         Ok(summaries)
     }
 
-    pub(crate) fn store_snapshot(&self, next: Snapshot) {
-        self.snapshot.store(Arc::new(next));
-    }
-
     pub fn snapshot(&self) -> Arc<Snapshot> {
         self.snapshot.load_full()
     }
@@ -238,7 +300,6 @@ impl NflData {
         let provider =
             NflverseData::connect_with_sync_events(config.clone().into(), Some(sync_events))
                 .await?;
-        let (snapshot_changes_tx, snapshot_changes) = mpsc::unbounded_channel();
         let fanduel = if config.fanduel_database_url == "sqlite::memory:" {
             fanduel_data::FanduelData::in_memory().await
         } else {
@@ -252,37 +313,24 @@ impl NflData {
             store,
             refresh_interval,
             season: config.season,
-            snapshot: Arc::new(ArcSwap::from_pointee(Snapshot::default())),
-            update_inputs: Mutex::new(Some(UpdateInputs {
-                sync_events: sync_events_receiver,
-                snapshot_changes,
-            })),
-            snapshot_changes_tx,
+            snapshot: ArcSwap::from_pointee(Snapshot::default()),
+            publication: tokio::sync::Mutex::new(()),
+            sync_events: Mutex::new(Some(sync_events_receiver)),
             update_worker: Mutex::new(None),
         };
 
         // The initial build reads stored slates, so reconcile them first.
         slates::refresh(&nfl_data).await?;
-
-        let snapshot = Snapshot::build(&nfl_data).await?;
-        nfl_data.store_snapshot(snapshot);
+        nfl_data.build_and_publish().await?;
 
         Ok(nfl_data)
     }
 
     /// A fresh, empty, in-memory cache: migrations applied, nothing synced.
-    /// The provider still emits sync events to this handle's update worker.
+    /// Nothing builds a snapshot behind the caller's back: seeding tests
+    /// republish explicitly.
     pub async fn in_memory() -> Result<Self, NflDataError> {
-        let (sync_events, sync_events_receiver) = mpsc::unbounded_channel();
-        let provider = NflverseData::connect_with_sync_events(
-            nflverse_data::NflverseDataConfig {
-                database_url: "sqlite::memory:".into(),
-                ..Default::default()
-            },
-            Some(sync_events),
-        )
-        .await?;
-        let (snapshot_changes_tx, snapshot_changes) = mpsc::unbounded_channel();
+        let provider = NflverseData::in_memory().await?;
         let fanduel = fanduel_data::FanduelData::in_memory().await?;
         let store = store::Store::in_memory().await?;
         Ok(Self {
@@ -291,12 +339,9 @@ impl NflData {
             store,
             refresh_interval: None,
             season: Season::default(),
-            snapshot: Arc::new(ArcSwap::from_pointee(Snapshot::default())),
-            update_inputs: Mutex::new(Some(UpdateInputs {
-                sync_events: sync_events_receiver,
-                snapshot_changes,
-            })),
-            snapshot_changes_tx,
+            snapshot: ArcSwap::from_pointee(Snapshot::default()),
+            publication: tokio::sync::Mutex::new(()),
+            sync_events: Mutex::new(None),
             update_worker: Mutex::new(None),
         })
     }
@@ -320,10 +365,10 @@ impl NflData {
 
     /// Display facts per gsis id: `players` first, weekly rosters for the
     /// misses; unknown ids are absent from the map.
-    pub async fn identify<I: AsRef<str>>(
+    pub async fn identify(
         &self,
-        ids: &[I],
-    ) -> Result<HashMap<String, PlayerIdentity>, NflDataError> {
+        ids: &[nfl_model::NflPlayerId],
+    ) -> Result<HashMap<nfl_model::NflPlayerId, PlayerIdentity>, NflDataError> {
         identity::identify(&self.provider, ids).await
     }
 
@@ -477,20 +522,27 @@ mod identify_tests {
             .await
             .unwrap();
 
-        let got = nfl.identify(&["00-P", "00-R", "00-X"]).await.unwrap();
+        let got = nfl
+            .identify(&[
+                nfl_model::NflPlayerId("00-P".into()),
+                nfl_model::NflPlayerId("00-R".into()),
+                nfl_model::NflPlayerId("00-X".into()),
+            ])
+            .await
+            .unwrap();
 
-        let from_players = &got["00-P"];
+        let from_players = &got[&nfl_model::NflPlayerId("00-P".into())];
         assert_eq!(from_players.name, "Player Table");
         assert_eq!(from_players.team, Some(TeamAbbr::KC));
         assert_eq!(from_players.position.as_deref(), Some("RB"));
 
-        let from_roster = &got["00-R"];
+        let from_roster = &got[&nfl_model::NflPlayerId("00-R".into())];
         assert_eq!(from_roster.name, "Roster Only");
         assert_eq!(from_roster.team, Some(TeamAbbr::BUF));
         assert_eq!(from_roster.position.as_deref(), Some("WR"));
 
         // An id in neither source has no identity to report.
-        assert!(!got.contains_key("00-X"));
+        assert!(!got.contains_key(&nfl_model::NflPlayerId("00-X".into())));
     }
 
     #[tokio::test]
@@ -508,8 +560,13 @@ mod identify_tests {
         };
         nfl.seed_for_test(&[player], &[]).await.unwrap();
 
-        let out = nfl.identify(&["00-HEAD"]).await.unwrap();
-        let id = out.get("00-HEAD").expect("identified");
+        let out = nfl
+            .identify(&[nfl_model::NflPlayerId("00-HEAD".into())])
+            .await
+            .unwrap();
+        let id = out
+            .get(&nfl_model::NflPlayerId("00-HEAD".into()))
+            .expect("identified");
         assert_eq!(
             id.headshot_url.as_deref(),
             Some("https://img.example/photo.png")

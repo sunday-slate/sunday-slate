@@ -107,7 +107,11 @@ async fn read_upload(mut mp: Multipart) -> Result<SalaryUpload, SalaryAdminError
     Ok(SalaryUpload { season_week, csv })
 }
 
-/// Validate the slate, persist the CSV, and apply persisted links.
+/// Validate the slate, persist the CSV, apply persisted links, and republish
+/// the snapshot once.
+///
+/// Persistence happens before the rebuild, so a later failure still republishes
+/// what was committed; the original failure is what the caller sees.
 async fn import_salary_csv(
     state: &AdminState,
     season_week: SeasonWeek,
@@ -118,15 +122,17 @@ async fn import_salary_csv(
     salaries::resolve_slate_games(&games, &season_week, &salaries::salary_matchups(&source))
         .map_err(|_| NflDataError::Schedule)?;
     state.nfl.save_fanduel_salaries(&source).await?;
-    state.nfl.reconcile_salary_week(season_week).await?;
+    let linked = state.nfl.reconcile_salary_week(season_week).await;
+    let rebuilt = state.nfl.rebuild_snapshot().await;
+    linked?;
+    rebuilt?;
     salary_imports::salary_week_overview(state, season_week).await
 }
 
 #[cfg(test)]
 mod tests {
     use crate::web::tests::salary_fixture::{
-        DASHBOARD_CSV, admin_slate_id, admin_state, admin_state_in_season, poll_until_publication,
-        poll_until_snapshot, upload_form,
+        admin_slate_id, admin_state, admin_state_in_season, upload_form,
     };
     use crate::{DfsPosition, Season};
     use axum::http::StatusCode;
@@ -295,11 +301,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn uploaded_salaries_publish_matched_players() {
+    async fn uploaded_salaries_publish_matched_players_before_the_response() {
         let state = admin_state_in_season(Season(2025)).await;
-        state.nfl.start_background_tasks();
 
-        // Josh Allen auto-matches; the two receivers stay unmatched.
+        // Josh Allen auto-matches; the two receivers stay unmatched. The
+        // handler rebuilds before responding, so no polling is involved.
         state
             .server
             .post("/nfl-data-admin/salary-imports")
@@ -307,20 +313,15 @@ mod tests {
             .await
             .assert_status(StatusCode::SEE_OTHER);
 
-        // The salary save and the link save both published.
-        poll_until_snapshot(
-            "the upload published the matched player",
-            &state.nfl,
-            |snapshot| {
-                snapshot
-                    .player(&admin_slate_id(), &NflPlayerId("00-1".into()))
-                    .is_some_and(|player| player.name == "Josh Allen")
-            },
-        )
-        .await;
+        let snapshot = state.nfl.snapshot();
+        assert!(
+            snapshot
+                .player(&admin_slate_id(), &NflPlayerId("00-1".into()))
+                .is_some_and(|player| player.name == "Josh Allen"),
+            "the completed upload is visible immediately"
+        );
 
         // The unmatched receivers published nothing.
-        let snapshot = state.nfl.snapshot();
         assert!(
             snapshot
                 .salaried_players_for_position(
@@ -334,68 +335,5 @@ mod tests {
                 .player(&admin_slate_id(), &NflPlayerId("00-roster-only".into()))
                 .is_none()
         );
-    }
-
-    #[tokio::test]
-    async fn build_between_salary_commit_and_automatic_link_save_publishes_link() {
-        let state = admin_state_in_season(Season(2025)).await;
-        let week = crate::SeasonWeek {
-            season: Season(2025),
-            season_type: crate::SeasonType::Reg,
-            week: crate::Week(1),
-        };
-
-        // Wait out the startup publication, so the build below is the salary
-        // notification's.
-        let before_startup = state.nfl.snapshot();
-        state.nfl.start_background_tasks();
-        poll_until_publication("the startup pass published", &state.nfl, &before_startup).await;
-
-        // The upload handler's sequence, split at the matching step: salaries
-        // commit first, before any links.
-        let salaries = state
-            .nfl
-            .parse_fanduel_csv(week, DASHBOARD_CSV.as_bytes())
-            .expect("parse salaries");
-        let before = state.nfl.snapshot();
-        state
-            .nfl
-            .save_fanduel_salaries(&salaries)
-            .await
-            .expect("save salaries");
-
-        // The salary notification published a linkless build.
-        poll_until_publication(
-            "the salary commit published a linkless build",
-            &state.nfl,
-            &before,
-        )
-        .await;
-        assert!(
-            state
-                .nfl
-                .snapshot()
-                .player(&admin_slate_id(), &NflPlayerId("00-1".into()))
-                .is_none(),
-            "no player is matched before the links commit"
-        );
-
-        // The automatic matching commits after that build; its notification
-        // must still publish the linked player.
-        state
-            .nfl
-            .reconcile_salary_week(week)
-            .await
-            .expect("reconcile the week");
-        poll_until_snapshot(
-            "the automatic link save published the matched player",
-            &state.nfl,
-            |snapshot| {
-                snapshot
-                    .player(&admin_slate_id(), &NflPlayerId("00-1".into()))
-                    .is_some_and(|player| player.name == "Josh Allen")
-            },
-        )
-        .await;
     }
 }

@@ -38,7 +38,12 @@ async fn empty_provider_reads_preserve_missing_result_behavior() {
     assert!(nfl.games(Season(2025)).await.unwrap().is_empty());
     assert!(nfl.players().await.unwrap().is_empty());
     assert!(nfl.players_by_gsis(&["missing"]).await.unwrap().is_empty());
-    assert!(nfl.identify(&["missing"]).await.unwrap().is_empty());
+    assert!(
+        nfl.identify(&[nfl_model::NflPlayerId("missing".into())])
+            .await
+            .unwrap()
+            .is_empty()
+    );
     let team = TeamAbbr::KC;
     assert!(
         nfl.weekly_roster(Season(2025), Week(1), &team)
@@ -102,13 +107,36 @@ async fn seeded_records_preserve_identity_and_prefer_players() {
             .len(),
         2
     );
-    let identities = nfl.identify(&["00-P", "00-R", "missing"]).await.unwrap();
+    let identities = nfl
+        .identify(&[
+            nfl_model::NflPlayerId("00-P".into()),
+            nfl_model::NflPlayerId("00-R".into()),
+            nfl_model::NflPlayerId("missing".into()),
+        ])
+        .await
+        .unwrap();
     assert_eq!(identities.len(), 2);
-    assert_eq!(identities["00-P"].name, "Player Table");
-    assert_eq!(identities["00-P"].headshot_url, player().headshot_url);
-    assert_eq!(identities["00-R"].name, "Roster Name");
-    assert_eq!(identities["00-R"].team, Some(TeamAbbr::BUF));
-    assert!(identities["00-R"].headshot_url.is_none());
+    assert_eq!(
+        identities[&nfl_model::NflPlayerId("00-P".into())].name,
+        "Player Table"
+    );
+    assert_eq!(
+        identities[&nfl_model::NflPlayerId("00-P".into())].headshot_url,
+        player().headshot_url
+    );
+    assert_eq!(
+        identities[&nfl_model::NflPlayerId("00-R".into())].name,
+        "Roster Name"
+    );
+    assert_eq!(
+        identities[&nfl_model::NflPlayerId("00-R".into())].team,
+        Some(TeamAbbr::BUF)
+    );
+    assert!(
+        identities[&nfl_model::NflPlayerId("00-R".into())]
+            .headshot_url
+            .is_none()
+    );
     assert_eq!(
         nfl.data_revision().await.unwrap(),
         nfl.data_revision().await.unwrap()

@@ -75,9 +75,9 @@ where
     let total = players.len() + teams.len();
     let mut report = FetchReport::default();
     publish(progress, total, &report);
-    let player_ids: Vec<&str> = players
+    let player_ids: Vec<nfl_model::NflPlayerId> = players
         .iter()
-        .map(|player| player.gsis_player_id.as_str())
+        .map(|player| nfl_model::NflPlayerId(player.gsis_player_id.clone()))
         .collect();
     let identities = if player_ids.is_empty() {
         std::collections::HashMap::new()
@@ -87,7 +87,8 @@ where
     let client = reqwest::Client::new();
 
     for player in players {
-        let Some(identity) = identities.get(&player.gsis_player_id) else {
+        let Some(identity) = identities.get(&nfl_model::NflPlayerId(player.gsis_player_id.clone()))
+        else {
             report.skipped += 1;
             publish(progress, total, &report);
             continue;
