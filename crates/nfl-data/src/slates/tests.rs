@@ -168,6 +168,24 @@ async fn assert_week_13_fixed(nfl: &NflData, main_id: SlateId, thanksgiving_id: 
     );
 }
 
+#[tokio::test]
+async fn counts_for_season_reports_membership_per_slate() {
+    let fixture = Fixture::connect().await;
+    fixture
+        .nfl
+        .seed_for_test(&[], &week_13_games())
+        .await
+        .unwrap();
+    populate(&fixture.nfl, MONDAY).await;
+
+    let counts = store::slates::counts_for_season(fixture.nfl.store.reader(), Season(2025))
+        .await
+        .expect("counts");
+    let week = stored_week(&fixture.nfl, WEEK_13).await;
+    assert_eq!(counts[&slate_named(&week, "Week 13").id], 2);
+    assert_eq!(counts[&slate_named(&week, "Thanksgiving").id], 3);
+}
+
 fn ids(games: &[Game]) -> Vec<&str> {
     games.iter().map(|game| game.game_id.as_str()).collect()
 }

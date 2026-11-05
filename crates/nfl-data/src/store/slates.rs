@@ -38,7 +38,7 @@ pub(crate) async fn counts_for_season(
         return Ok(HashMap::new());
     };
     let rows: Vec<(i64, i64)> = sqlx::query_as(
-        r#"SELECT slates.id, COUNT(slate_games.gsis_game_id)
+        r#"SELECT slates.id, COUNT(slate_games.game_id)
                FROM slates
                LEFT JOIN slate_games ON slate_games.slate_id = slates.id
                WHERE slates.season_week BETWEEN ? AND ?
