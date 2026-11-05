@@ -12,6 +12,7 @@ use nfl_data::{
     ProviderResponse, Season, SeasonType, SeasonWeek, TeamAbbr, TeamWeekStats as NflTeamWeekStats,
     Week,
 };
+use nfl_model::NflPlayerId;
 use sqlx::SqlitePool;
 use time::OffsetDateTime;
 use time::macros::datetime;
@@ -325,7 +326,8 @@ async fn link_local_pick_media(app: &TestApp) -> String {
                 2,
             )
             .await?;
-            player_store::set_headshot_media_id(&mut *conn, "00-A", media_id).await?;
+            player_store::set_headshot_media_id(&mut *conn, &NflPlayerId("00-A".into()), media_id)
+                .await?;
             team_store::set_logo_media_id(&mut *conn, "KC", media_id).await?;
             Ok(media_id)
         })

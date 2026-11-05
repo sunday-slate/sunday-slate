@@ -9,10 +9,10 @@ use time::OffsetDateTime;
 use time::macros::datetime;
 use utils::background::RunnerState;
 
-use super::Snapshot;
-use crate::salaried_players::SalariedPlayer;
+use super::{SalariedPlayers, Snapshot};
+use crate::salaried_players::{SalariedPlayer, SalariedPlayersBySlot};
 use crate::scoring::{score_defense, score_player};
-use crate::slates::{self, SlateId};
+use crate::slates::{self, Slate, SlateId};
 use crate::store::player_link::{self, PlayerLink};
 use crate::{
     Game, NflData, NflDataConfig, Player, PlayerWeekStats, Season, SeasonType, SeasonWeek,
@@ -490,4 +490,115 @@ async fn a_failed_rebuild_keeps_the_published_snapshot() {
     recreate_table(&dbs.provider_url(), &definition).await;
     nfl.rebuild_snapshot().await.expect("the next build");
     assert!(!Arc::ptr_eq(&published, &nfl.snapshot()));
+}
+
+fn accessor_slate(id: i64, name: &str) -> Slate {
+    Slate {
+        id: SlateId(id),
+        season_week: SEASON_WEEK_5,
+        name: name.into(),
+        kickoff: Some(datetime!(2026-10-04 17:00 UTC)),
+    }
+}
+
+fn salaried(
+    nfl_player_id: Option<NflPlayerId>,
+    name: &str,
+    position: DfsPosition,
+    team: TeamAbbr,
+    salary: u32,
+) -> SalariedPlayer {
+    SalariedPlayer {
+        id: nfl_player_id,
+        game: Arc::new(Game {
+            game_id: "2026_05_BUF_KC".into(),
+            season_week: SEASON_WEEK_5,
+            kickoff: Some(datetime!(2026-10-04 17:00 UTC)),
+            home_team: TeamAbbr::BUF,
+            away_team: TeamAbbr::KC,
+            home_score: None,
+            away_score: None,
+        }),
+        name: name.into(),
+        position,
+        team,
+        salary,
+        games_played: 0,
+        fppg: 0.0,
+    }
+}
+
+#[test]
+fn current_slate_is_the_greatest_populated_id() {
+    assert!(
+        Snapshot::default().current_slate().is_none(),
+        "an empty snapshot has no current slate"
+    );
+
+    let later = accessor_slate(2, "Week 2");
+    let mut snapshot = Snapshot::default();
+    snapshot
+        .slates
+        .insert(SlateId(1), accessor_slate(1, "Week 1"));
+    snapshot.slates.insert(later.id, later.clone());
+
+    assert_eq!(snapshot.current_slate(), Some(&later));
+}
+
+#[test]
+fn players_for_slate_is_player_only_and_position_independent() {
+    let slate_id = SlateId(1);
+    let mack = salaried(
+        Some(NflPlayerId("00-MACK".into())),
+        "Mack Runner",
+        DfsPosition::Rb,
+        TeamAbbr::KC,
+        9000,
+    );
+    let gamma = salaried(
+        Some(NflPlayerId("00-GAMMA".into())),
+        "Gamma Catch",
+        DfsPosition::Wr,
+        TeamAbbr::KC,
+        12000,
+    );
+    let kc_dst = salaried(None, "KC DST", DfsPosition::Dst, TeamAbbr::KC, 4800);
+
+    let mut by_slot = SalariedPlayersBySlot::new();
+    by_slot.insert(
+        DfsPositionSlotType::Position(DfsPosition::Rb),
+        vec![mack.clone()],
+    );
+    by_slot.insert(
+        DfsPositionSlotType::Position(DfsPosition::Wr),
+        vec![gamma.clone()],
+    );
+    by_slot.insert(DfsPositionSlotType::Flex, vec![gamma.clone(), mack.clone()]);
+    by_slot.insert(
+        DfsPositionSlotType::Position(DfsPosition::Dst),
+        vec![kc_dst],
+    );
+    let mut snapshot = Snapshot::default();
+    snapshot
+        .slates
+        .insert(slate_id, accessor_slate(slate_id.0, "Week 5"));
+    snapshot
+        .salaried_players
+        .insert(slate_id, SalariedPlayers::new(by_slot));
+
+    let players = snapshot
+        .players_for_slate(&slate_id)
+        .expect("populated slate");
+    let mut ids: Vec<&str> = players.keys().map(NflPlayerId::as_ref).collect();
+    ids.sort_unstable();
+    assert_eq!(ids, ["00-GAMMA", "00-MACK"], "no flex duplicates, no DST");
+    assert_eq!(players[&NflPlayerId("00-MACK".into())].salary, 9000);
+    assert_eq!(players[&NflPlayerId("00-MACK".into())].name, "Mack Runner");
+    assert_eq!(players[&NflPlayerId("00-GAMMA".into())].salary, 12000);
+    assert_eq!(players[&NflPlayerId("00-GAMMA".into())].name, "Gamma Catch");
+
+    assert!(
+        snapshot.players_for_slate(&SlateId(99)).is_none(),
+        "an unknown slate has no player map"
+    );
 }

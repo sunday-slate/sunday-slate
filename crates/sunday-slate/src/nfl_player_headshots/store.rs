@@ -1,22 +1,23 @@
 use std::collections::HashMap;
 
+use nfl_model::NflPlayerId;
 use sqlx::Sqlite;
 
 use crate::media::{Media, MediaId, store as media_store};
 
-/// Player discovery is intentionally disabled until its replacement lands:
-/// nothing enumerates players that still need a headshot, so a fetch run sees
-/// no player candidates and only refreshes team logos.
-pub async fn missing_headshots<'e, E>(_ex: E) -> Result<Vec<nfl_model::NflPlayerId>, sqlx::Error>
+/// Cached gsis ids. Table row is the marker, even if the file is gone.
+pub async fn cached_player_ids<'e, E>(ex: E) -> Result<Vec<NflPlayerId>, sqlx::Error>
 where
     E: sqlx::Executor<'e, Database = Sqlite>,
 {
-    Ok(Vec::new())
+    sqlx::query_scalar::<_, NflPlayerId>("SELECT nfl_player_id FROM nfl_player_headshots")
+        .fetch_all(ex)
+        .await
 }
 
 pub async fn set_headshot_media_id<'e, E>(
     ex: E,
-    gsis_player_id: &str,
+    nfl_player_id: &NflPlayerId,
     media_id: MediaId,
 ) -> Result<(), sqlx::Error>
 where
@@ -25,20 +26,12 @@ where
     sqlx::query!(
         r#"INSERT INTO nfl_player_headshots (nfl_player_id, headshot_media_id) VALUES (?1, ?2)
            ON CONFLICT (nfl_player_id) DO UPDATE SET headshot_media_id = excluded.headshot_media_id"#,
-        gsis_player_id,
+        nfl_player_id,
         media_id,
     )
     .execute(ex)
     .await
     .map(|_| ())
-}
-
-/// Count of players with no cached headshot. Zero while discovery is disabled.
-pub async fn count_missing_headshots<'e, E>(_ex: E) -> Result<i64, sqlx::Error>
-where
-    E: sqlx::Executor<'e, Database = Sqlite>,
-{
-    Ok(0)
 }
 
 pub async fn headshots_for<'e, E>(
@@ -74,7 +67,7 @@ mod tests {
         let media_id = media_store::insert(&pool, "headshot.png", "image/png", 12, 256, 128)
             .await
             .expect("media");
-        set_headshot_media_id(&pool, "00-LINKED", media_id)
+        set_headshot_media_id(&pool, &NflPlayerId("00-LINKED".into()), media_id)
             .await
             .expect("link");
 

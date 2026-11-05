@@ -84,9 +84,25 @@ impl Snapshot {
         self.slates.values()
     }
 
+    /// Greatest populated slate id; `None` when empty. ID order, not kickoff.
+    pub fn current_slate(&self) -> Option<&Slate> {
+        self.slates.last_key_value().map(|(_, slate)| slate)
+    }
+
     /// The slate with this id, or `None` when it has no salaried players.
     pub fn slate(&self, id: &SlateId) -> Option<&Slate> {
         self.slates.get(id)
+    }
+
+    /// Player-only index for `slate_id`; `None` when unpopulated.
+    /// All positions, no flex duplicates, no defenses.
+    pub fn players_for_slate(
+        &self,
+        slate_id: &SlateId,
+    ) -> Option<&HashMap<NflPlayerId, SalariedPlayer>> {
+        self.salaried_players
+            .get(slate_id)
+            .map(|slate| &slate.players)
     }
 
     /// The player with this gsis id on `slate_id`, or `None` when the slate

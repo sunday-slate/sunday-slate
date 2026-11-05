@@ -31,9 +31,12 @@ async fn fetch(hx: HxRequest, State(state): State<AppState>) -> Result<Response,
 mod tests {
 
     use crate::media::store as media_store;
+    use crate::nfl_player_headshots::store as player_store;
     use crate::tests::TestApp;
     use crate::tests::factories::{self, UserOptions};
+    use crate::tests::{headshot_player, headshot_salary_games, publish_headshot_slate};
     use http::StatusCode;
+    use nfl_model::NflPlayerId;
 
     async fn link_all_teams(app: &TestApp) {
         let media_id = media_store::insert(&app.pool, "admin-dummy.png", "image/png", 1, 1, 1)
@@ -75,6 +78,66 @@ mod tests {
         assert!(team_count.contains(">32</dd>"));
         assert!(body.contains(r#"method="post" action="/admin/avatars/fetch""#));
         assert!(body.contains("Fetch missing images"));
+    }
+
+    #[tokio::test]
+    async fn admin_avatar_index_counts_only_the_latest_slate() {
+        let app = admin_app().await;
+        let players = vec![
+            headshot_player(
+                NflPlayerId("00-OLD".into()),
+                "Old",
+                "Timer",
+                Some("http://assets.invalid/old.png"),
+            ),
+            headshot_player(
+                NflPlayerId("00-CACHED".into()),
+                "Cached",
+                "Runner",
+                Some("http://assets.invalid/cached.png"),
+            ),
+            headshot_player(
+                NflPlayerId("00-NEW".into()),
+                "New",
+                "Runner",
+                Some("http://assets.invalid/new.png"),
+            ),
+            headshot_player(NflPlayerId("00-NOSOURCE".into()), "No", "Source", None),
+        ];
+        app.nfl
+            .seed_for_test(&players, &headshot_salary_games())
+            .await
+            .expect("seed provider");
+        publish_headshot_slate(&app, 1, &players[..1]).await;
+        publish_headshot_slate(&app, 2, &players[1..]).await;
+        let media = media_store::insert(&app.pool, "admin-cached.png", "image/png", 1, 1, 1)
+            .await
+            .expect("cached media");
+        player_store::set_headshot_media_id(&app.pool, &NflPlayerId("00-CACHED".into()), media)
+            .await
+            .expect("prelink cached");
+        player_store::set_headshot_media_id(&app.pool, &NflPlayerId("00-CACHEONLY".into()), media)
+            .await
+            .expect("cache-only id");
+
+        let page = app.get("/admin/avatars").await;
+        page.assert_status_ok();
+        let body = page.text();
+        let count = body
+            .split("Players missing headshots</dt>")
+            .nth(1)
+            .expect("player count")
+            .split("</dd>")
+            .next()
+            .expect("count closes")
+            .rsplit('>')
+            .next()
+            .expect("count digits")
+            .trim();
+        assert_eq!(
+            count, "2",
+            "downloadable and sourceless latest-slate players are missing"
+        );
     }
 
     #[tokio::test]
