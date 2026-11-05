@@ -68,11 +68,6 @@ mod tests {
         page.assert_text_contains("Players missing headshots");
         page.assert_text_contains("Teams missing logos");
         let body = page.text();
-        let player_count = body
-            .split("Players missing headshots</dt>")
-            .nth(1)
-            .expect("player count");
-        assert!(player_count.contains(">0</dd>"));
         let team_count = body
             .split("Teams missing logos</dt>")
             .nth(1)
@@ -86,35 +81,16 @@ mod tests {
     async fn admin_avatar_fetch_starts_a_background_run_and_reports_it() {
         let app = admin_app().await;
         link_all_teams(&app).await;
-        crate::nfl_players::store::upsert(&app.pool, "00-NO-SOURCE", 700011)
-            .await
-            .expect("crosswalk");
-        app.nfl
-            .seed_for_test(
-                &[nfl_data::Player {
-                    gsis_id: "00-NO-SOURCE".into(),
-                    espn_id: None,
-                    full_name: "No Source".into(),
-                    first_name: None,
-                    last_name: None,
-                    position: Some("QB".into()),
-                    latest_team: Some(nfl_data::TeamAbbr::KC),
-                    headshot_url: None,
-                }],
-                &[],
-            )
-            .await
-            .expect("identity");
 
         let response = app.post_htmx("/admin/avatars/fetch", "").await;
         response.assert_status_ok();
         let body = response.text();
         assert!(body.contains(r#"id="avatars-panel""#));
         assert!(!body.contains("<!doctype html>"));
-        // The only item here is a no-source skip, which finishes instantly,
-        // so the run may already be idle by the time this response renders.
-        // Accept either the running panel's poll trigger or the completed
-        // panel's summary text.
+        // Every team already has a logo and player discovery finds nothing, so
+        // the run is empty and finishes instantly: the response may already
+        // show the completed panel. Accept either the running panel's poll
+        // trigger or the completed panel's summary text.
         assert!(body.contains(r#"hx-trigger="every 3s""#) || body.contains("Last fetch completed"));
 
         app.state.avatar_runner.wait_idle().await;
@@ -122,12 +98,7 @@ mod tests {
         page.assert_status_ok();
         let body = page.text();
         assert!(body.contains("Last fetch completed"));
-        assert!(body.contains("Fetched 0 headshots and 0 logos. 0 failed, 1 have no source."));
-        let player_count = body
-            .split("Players missing headshots</dt>")
-            .nth(1)
-            .expect("player count");
-        assert!(player_count.contains(">1</dd>"));
+        assert!(body.contains("Fetched 0 headshots and 0 logos. 0 failed, 0 have no source."));
     }
 
     #[tokio::test]

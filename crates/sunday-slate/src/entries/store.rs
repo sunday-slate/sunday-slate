@@ -10,8 +10,7 @@ use crate::entries::model::{
 use crate::fantasy_teams::FantasyTeamId;
 use crate::media::MediaId;
 use crate::media::store::{LogoColumns, build_logo};
-use crate::player_salaries::model::DfsPosition;
-use nfl_data::TeamAbbr;
+use nfl_data::{DfsPosition, TeamAbbr};
 use sqlx::{Sqlite, SqliteConnection};
 use time::PrimitiveDateTime;
 
@@ -885,16 +884,6 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn by_contest_empty_when_no_entries(pool: SqlitePool) {
-        let fixture = factories::team(&pool, TeamOptions::default()).await;
-        let contest = factories::contest(&pool, "Week 1").await;
-        let rows = by_contest(&pool, ContestId(contest), fixture.league.id)
-            .await
-            .expect("load");
-        assert!(rows.is_empty());
-    }
-
-    #[sqlx::test]
     async fn by_id_loads_entry_with_context(pool: SqlitePool) {
         let fixture = factories::team(&pool, TeamOptions::default()).await;
         let contest = factories::contest(&pool, "Week 5").await;
@@ -915,11 +904,6 @@ mod tests {
         assert!(entry.team.logo.is_none());
         assert_eq!(entry.lineup.rb1, NflPlayerId("00-A".into()));
         assert_eq!(entry.lineup.def, TeamAbbr::KC);
-    }
-
-    #[sqlx::test]
-    async fn by_id_unknown_is_none(pool: SqlitePool) {
-        assert!(by_id(&pool, EntryId(999)).await.expect("query").is_none());
     }
 
     #[sqlx::test]

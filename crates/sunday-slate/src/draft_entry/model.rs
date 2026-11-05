@@ -81,15 +81,4 @@ impl DraftEntry {
     pub fn has_picks(&self) -> bool {
         RosterSlot::iter().any(|s| self.get(s).is_some())
     }
-
-    /// The gsis ids currently occupying the eight player slots.
-    pub fn filled_player_ids(&self) -> Vec<NflPlayerId> {
-        [
-            &self.qb, &self.rb1, &self.rb2, &self.wr1, &self.wr2, &self.wr3, &self.te, &self.flex,
-        ]
-        .into_iter()
-        .flatten()
-        .cloned()
-        .collect()
-    }
 }

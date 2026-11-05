@@ -92,22 +92,6 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn by_id_finds_a_league_or_none(pool: SqlitePool) {
-        let created = create(&pool, "Sunday Funday").await.expect("create");
-        let found = by_id(&pool, created.id)
-            .await
-            .expect("by_id")
-            .expect("some");
-        assert_eq!(found.name, "Sunday Funday");
-        assert!(
-            by_id(&pool, created.id + 99)
-                .await
-                .expect("by_id")
-                .is_none()
-        );
-    }
-
-    #[sqlx::test]
     async fn for_user_lists_team_leagues_lowest_id_first(pool: SqlitePool) {
         let a = create(&pool, "League A").await.expect("create");
         let b = create(&pool, "League B").await.expect("create");

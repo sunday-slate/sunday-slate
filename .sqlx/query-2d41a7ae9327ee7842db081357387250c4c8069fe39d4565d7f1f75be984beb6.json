@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO nfl_player_headshots (nfl_player_id, headshot_media_id) VALUES (?1, ?2)\n           ON CONFLICT (nfl_player_id) DO UPDATE SET headshot_media_id = excluded.headshot_media_id",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "2d41a7ae9327ee7842db081357387250c4c8069fe39d4565d7f1f75be984beb6"
+}

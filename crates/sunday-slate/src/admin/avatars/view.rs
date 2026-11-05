@@ -4,7 +4,7 @@ use time::OffsetDateTime;
 use crate::avatars::{FetchProgress, FetchReport};
 use crate::background::{LastRunExt, LastRunView};
 use crate::chrome::Chrome;
-use crate::nfl_players::store as player_store;
+use crate::nfl_player_headshots::store as player_store;
 use crate::nfl_teams::store as team_store;
 use crate::web::FormView;
 use crate::{AppError, AppState};

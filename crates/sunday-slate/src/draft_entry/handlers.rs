@@ -159,7 +159,6 @@ mod tests {
     use crate::entries::service::PickInfo;
     use crate::entries::{NflPlayerId, RosterSlot};
     use crate::injuries::InjuryDesignation;
-    use crate::scoring::PointsPerGame;
     use crate::tests::factories;
     use nfl_data::salaried_players::SalariedPlayer;
     use nfl_data::{DfsPosition, TeamAbbr};
@@ -172,7 +171,7 @@ mod tests {
         name: &str,
         position: DfsPosition,
         salary: u32,
-        pace: Option<PointsPerGame>,
+        pace: Option<(f64, u32)>,
     ) -> SalariedPlayer {
         SalariedPlayer {
             id: (!position.is_defense()).then(|| NflPlayerId(format!("00-{name}"))),
@@ -185,12 +184,12 @@ mod tests {
             position,
             team: TeamAbbr::KC,
             salary,
-            games_played: pace.map_or(0, |pace| u8::try_from(pace.games_played).unwrap_or(0)),
-            fppg: pace.map_or(0.0, |pace| pace.avg_points),
+            games_played: pace.map_or(0, |(_, games)| u8::try_from(games).unwrap_or(0)),
+            fppg: pace.map_or(0.0, |(avg, _)| avg),
         }
     }
 
-    fn player_info(name: &str, salary: i64, pace: Option<PointsPerGame>) -> PickInfo {
+    fn player_info(name: &str, salary: i64, pace: Option<(f64, u32)>) -> PickInfo {
         PickInfo::new(
             salaried(name, DfsPosition::Qb, salary as u32, pace),
             None,
@@ -288,10 +287,7 @@ mod tests {
                 info: Some(player_info(
                     &format!("Player {slot}"),
                     6_800,
-                    Some(PointsPerGame {
-                        avg_points: 15.5,
-                        games_played: 3,
-                    }),
+                    Some((15.5, 3)),
                 )),
             })
             .collect();
@@ -314,14 +310,7 @@ mod tests {
                 SlotChoice {
                     is_picked: true,
                     over_cap: false,
-                    info: player_info(
-                        "Quinn Back",
-                        8_000,
-                        Some(PointsPerGame {
-                            avg_points: 20.5,
-                            games_played: 2,
-                        }),
-                    ),
+                    info: player_info("Quinn Back", 8_000, Some((20.5, 2))),
                 },
                 SlotChoice {
                     is_picked: false,
@@ -343,14 +332,7 @@ mod tests {
             choices: vec![SlotChoice {
                 is_picked: false,
                 over_cap: true,
-                info: player_info(
-                    "Quinn Back",
-                    8_000,
-                    Some(PointsPerGame {
-                        avg_points: 20.5,
-                        games_played: 2,
-                    }),
-                ),
+                info: player_info("Quinn Back", 8_000, Some((20.5, 2))),
             }],
         }
         .render()
@@ -429,14 +411,7 @@ mod tests {
         page.cap.filled = 1;
         for row in &mut page.slots {
             if row.slot == RosterSlot::Qb {
-                row.info = Some(player_info(
-                    "Quinn Back",
-                    8_000,
-                    Some(PointsPerGame {
-                        avg_points: 20.5,
-                        games_played: 2,
-                    }),
-                ));
+                row.info = Some(player_info("Quinn Back", 8_000, Some((20.5, 2))));
             }
         }
         let html = EditorView {
@@ -471,14 +446,7 @@ mod tests {
                 SlotChoice {
                     is_picked: true,
                     over_cap: false,
-                    info: player_info(
-                        "Quinn Back",
-                        8_000,
-                        Some(PointsPerGame {
-                            avg_points: 20.5,
-                            games_played: 2,
-                        }),
-                    ),
+                    info: player_info("Quinn Back", 8_000, Some((20.5, 2))),
                 },
                 SlotChoice {
                     is_picked: false,

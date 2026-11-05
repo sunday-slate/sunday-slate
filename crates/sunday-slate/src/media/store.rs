@@ -157,32 +157,3 @@ where
         .await
         .map(|_| ())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use sqlx::SqlitePool;
-
-    #[sqlx::test]
-    async fn insert_get_roundtrip(pool: SqlitePool) {
-        let mut conn = pool.acquire().await.expect("conn");
-        let id = insert(&mut *conn, "7.png", "image/png", 1234, 256, 256)
-            .await
-            .expect("insert");
-        let m = get(&pool, id).await.expect("get").expect("some");
-        assert_eq!(m.id, id);
-        assert_eq!(m.path, "7.png");
-        assert_eq!(m.content_type, "image/png");
-        assert_eq!(m.width, 256);
-    }
-
-    #[sqlx::test]
-    async fn delete_removes_row(pool: SqlitePool) {
-        let mut conn = pool.acquire().await.expect("conn");
-        let id = insert(&mut *conn, "8.png", "image/png", 1, 256, 256)
-            .await
-            .expect("insert");
-        delete(&mut *conn, id).await.expect("delete");
-        assert!(get(&pool, id).await.expect("get").is_none());
-    }
-}

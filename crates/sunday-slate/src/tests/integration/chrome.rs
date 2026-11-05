@@ -386,7 +386,6 @@ async fn admin_subtree_closes_to_canonical_parent() {
     for (path, parent) in [
         ("/admin/contests", "/admin"),
         ("/admin/contests/setup", "/admin/contests"),
-        ("/admin/salary-imports", "/admin"),
         ("/admin/avatars", "/admin"),
     ] {
         let resp = app.get(path).await;

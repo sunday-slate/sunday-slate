@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use crate::entries::PlayerOrDefenseId;
 use crate::media::Media;
-use crate::nfl_players::store as player_store;
+use crate::nfl_player_headshots::store as player_store;
 use crate::nfl_teams::store as team_store;
 use crate::{AppError, Db};
 

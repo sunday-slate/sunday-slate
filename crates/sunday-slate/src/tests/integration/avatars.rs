@@ -1,7 +1,6 @@
 use sqlx::SqlitePool;
 
 use crate::media::store as media_store;
-use crate::nfl_players::store as player_store;
 use crate::tests::TestApp;
 use crate::tests::factories::{self, UserOptions};
 use crate::tests::utils::attr_before;
@@ -27,26 +26,6 @@ async fn admin_fetches_missing_images_from_rendered_links(pool: SqlitePool) {
         .execute(&pool)
         .await
         .expect("link teams");
-    player_store::upsert(&pool, "00-JOURNEY", 700009)
-        .await
-        .expect("crosswalk");
-    app.nfl
-        .seed_for_test(
-            &[nfl_data::Player {
-                gsis_id: "00-JOURNEY".into(),
-                espn_id: None,
-                full_name: "Journey Player".into(),
-                first_name: None,
-                last_name: None,
-                position: Some("QB".into()),
-                latest_team: Some(nfl_data::TeamAbbr::KC),
-                headshot_url: None,
-            }],
-            &[],
-        )
-        .await
-        .expect("identity");
-
     let admin_body = app.get("/admin").await.text();
     let player_images_href = attr_before(&admin_body, "href", "Player Images");
     assert_eq!(player_images_href, "/admin/avatars");
@@ -63,10 +42,5 @@ async fn admin_fetches_missing_images_from_rendered_links(pool: SqlitePool) {
     let result = app.get("/admin/avatars").await;
     result.assert_status_ok();
     let body = result.text();
-    assert!(body.contains("Fetched 0 headshots and 0 logos. 0 failed, 1 have no source."));
-    let player_count = body
-        .split("Players missing headshots</dt>")
-        .nth(1)
-        .expect("player count");
-    assert!(player_count.contains(">1</dd>"));
+    assert!(body.contains("Fetched 0 headshots and 0 logos. 0 failed, 0 have no source."));
 }

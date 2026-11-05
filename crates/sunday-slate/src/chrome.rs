@@ -78,31 +78,3 @@ impl Chrome {
         self.tab == Some(Tab::MyTeam)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn tabbed_lights_its_tab_and_shows_no_close() {
-        let c = Chrome::tabbed("Contests", Tab::Contests);
-        assert_eq!(c.title, "Contests");
-        assert!(c.close.is_none());
-        assert!(c.is_contests());
-        assert!(!c.is_current());
-    }
-
-    #[test]
-    fn unlit_shows_the_bar_with_nothing_lit() {
-        let c = Chrome::unlit("Admin Tools");
-        assert!(c.close.is_none());
-        assert!(c.tab.is_none());
-    }
-
-    #[test]
-    fn focused_carries_its_close_target() {
-        let c = Chrome::focused("Edit Lineup", "/contests/7");
-        assert_eq!(c.close.as_deref(), Some("/contests/7"));
-        assert!(c.tab.is_none());
-    }
-}

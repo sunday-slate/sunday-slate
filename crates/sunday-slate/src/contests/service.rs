@@ -126,14 +126,6 @@ impl SeasonSlates {
         })
     }
 
-    /// Each scheduled game's Eastern kickoff, keyed by gsis id.
-    pub(crate) fn kickoffs(&self) -> HashMap<&str, OffsetDateTime> {
-        self.games
-            .iter()
-            .filter_map(|g| Some((g.game_id.as_str(), g.kickoff_eastern()?)))
-            .collect()
-    }
-
     /// Pair each contest with its slate's earliest and latest kickoff.
     /// Contests with no frozen slate, or no game in the current schedule, are dropped.
     pub fn slate_contests(&self, contests: &[Contest]) -> Vec<SlateContest> {

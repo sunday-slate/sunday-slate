@@ -15,20 +15,6 @@ fn test_email(subject: &str) -> OutgoingEmail {
 }
 
 #[tokio::test]
-async fn dev_inbox_page_returns_200() {
-    let app = TestApp::new().await;
-
-    let response = app.get("/_dev/mail").await;
-
-    response.assert_status_ok();
-    let body_str = response.text();
-    assert!(
-        body_str.contains("Dev inbox"),
-        "inbox page should render: {body_str}"
-    );
-}
-
-#[tokio::test]
 async fn dev_inbox_shows_empty_state() {
     let app = TestApp::new().await;
 

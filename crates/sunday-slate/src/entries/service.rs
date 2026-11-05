@@ -295,11 +295,6 @@ impl PickInfo {
         self.avatar_is_logo()
     }
 
-    /// The pick's team, for the row that has no game line.
-    pub fn team_str(&self) -> String {
-        self.salaried.team.as_str().to_owned()
-    }
-
     /// `"$5,700"` for the pick's slate price.
     pub fn salary_str(&self) -> String {
         format!("${}", scoring::format_thousands(self.salary()))

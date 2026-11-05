@@ -18,7 +18,7 @@ use tower::ServiceExt;
 
 use crate::live::live_game;
 use crate::media::{self, store as media_store};
-use crate::nfl_players::store as player_store;
+use crate::nfl_player_headshots::store as player_store;
 use crate::nfl_teams::store as team_store;
 use crate::tests::factories::{self, GeneratedTeam, TeamOptions};
 use crate::tests::test_app::TestApp;
@@ -315,7 +315,6 @@ async fn link_local_pick_media(app: &TestApp) -> String {
         .state
         .db
         .write_tx(async |conn| -> Result<_, crate::AppError> {
-            let player = player_store::upsert(&mut *conn, "00-A", 700010).await?;
             let media_id = media::save_png(
                 &mut *conn,
                 &app.state.config.media_dir,
@@ -326,7 +325,7 @@ async fn link_local_pick_media(app: &TestApp) -> String {
                 2,
             )
             .await?;
-            player_store::set_headshot_media_id(&mut *conn, player.id, media_id).await?;
+            player_store::set_headshot_media_id(&mut *conn, "00-A", media_id).await?;
             team_store::set_logo_media_id(&mut *conn, "KC", media_id).await?;
             Ok(media_id)
         })

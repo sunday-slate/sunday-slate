@@ -78,13 +78,10 @@ const AMBIENT_ID_ROUTES: &[&str] = &[
     "/contests/{id}/draft-entry/save",
     "/contests/{id}/draft-entry/{slot}",
     "/contests/{id}/draft-entry/{slot}/clear",
-    // Admin contest and salary tooling: global, gated by `AdminUser`.
+    // Admin contest tooling: global, gated by `AdminUser`.
     "/{id}",
     "/{id}/slate",
     "/{week}",
-    "/{week}/players/{fd_player_id}",
-    "/{week}/players/{fd_player_id}/search",
-    "/{week}/players/{fd_player_id}/resolve",
 ];
 
 /// Resolve the request's league — and the user's team in it — and cache both
