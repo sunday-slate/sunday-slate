@@ -10,7 +10,7 @@ use crate::entries::model::{
 use crate::fantasy_teams::FantasyTeamId;
 use crate::media::MediaId;
 use crate::media::store::{LogoColumns, build_logo};
-use nfl_data::{DfsPosition, TeamAbbr};
+use nfl_data::TeamAbbr;
 use sqlx::{Sqlite, SqliteConnection};
 use time::PrimitiveDateTime;
 
@@ -416,66 +416,6 @@ where
     )
     .fetch_optional(ex)
     .await
-}
-
-/// A contest slate's salaries, keyed by what the slot holds. Absent picks
-/// (import gap) are not in the map.
-#[derive(Default)]
-pub struct SlateSalaries {
-    prices: HashMap<PlayerOrDefenseId, i64>,
-}
-
-impl SlateSalaries {
-    /// File one price: a defense keys by team, a player by gsis id.
-    pub fn insert(&mut self, value: PlayerOrDefenseId, salary: i64) {
-        self.prices.insert(value, salary);
-    }
-
-    pub fn player(&self, id: &NflPlayerId) -> Option<i64> {
-        self.prices
-            .get(&PlayerOrDefenseId::Player(id.clone()))
-            .copied()
-    }
-
-    pub fn defense(&self, team: &TeamAbbr) -> Option<i64> {
-        self.prices.get(&PlayerOrDefenseId::Defense(*team)).copied()
-    }
-}
-
-/// Salaries for every game on a contest's frozen slate. One row per player or
-/// team defense priced that week.
-pub async fn slate_salaries<'e, E>(
-    ex: E,
-    contest_id: ContestId,
-) -> Result<SlateSalaries, EntriesError>
-where
-    E: sqlx::Executor<'e, Database = Sqlite> + Copy,
-{
-    let rows = sqlx::query!(
-        r#"SELECT s.gsis_player_id AS "gsis_player_id?: NflPlayerId",
-                  s.team_abbr      AS "team_abbr!: TeamAbbr",
-                  s.dfs_position   AS "dfs_position!: DfsPosition",
-                  s.salary         AS "salary!: i64"
-           FROM nfl_player_salaries s
-           JOIN contest_games cg ON cg.game_id = s.game_id
-           WHERE cg.contest_id = ?1"#,
-        contest_id,
-    )
-    .fetch_all(ex)
-    .await?;
-
-    let mut salaries = SlateSalaries::default();
-    for r in rows {
-        let value = if r.dfs_position.is_defense() {
-            PlayerOrDefenseId::Defense(r.team_abbr)
-        } else if let Some(id) = r.gsis_player_id {
-            PlayerOrDefenseId::Player(id)
-        } else {
-            continue;
-        };
-        salaries.insert(value, r.salary);
-    }
-    Ok(salaries)
 }
 
 /// Upsert the (contest, fantasy team) entry and replace its slots with the
@@ -904,43 +844,6 @@ mod tests {
         assert!(entry.team.logo.is_none());
         assert_eq!(entry.lineup.rb1, NflPlayerId("00-A".into()));
         assert_eq!(entry.lineup.def, TeamAbbr::KC);
-    }
-
-    #[sqlx::test]
-    async fn slate_salaries_keys_players_and_defense(pool: SqlitePool) {
-        let contest = factories::contest(&pool, "Week 1").await;
-        // Freeze the slate onto one game.
-        sqlx::query(
-            "INSERT INTO contest_games (contest_id, game_id) VALUES (?1, '2025_01_BUF_KC')",
-        )
-        .bind(contest)
-        .execute(&pool)
-        .await
-        .unwrap();
-        // A player salary and a DST salary on that game.
-        sqlx::query(
-            "INSERT INTO nfl_player_salaries (game_id, gsis_player_id, team_abbr, dfs_position, salary)
-             VALUES ('2025_01_BUF_KC', '00-A', 'KC', 'RB', 5700)",
-        ).execute(&pool).await.unwrap();
-        sqlx::query(
-            "INSERT INTO nfl_player_salaries (game_id, gsis_player_id, team_abbr, dfs_position, salary)
-             VALUES ('2025_01_BUF_KC', NULL, 'KC', 'DST', 3500)",
-        ).execute(&pool).await.unwrap();
-        // A salary on a game NOT on the slate must be excluded.
-        sqlx::query(
-            "INSERT INTO nfl_player_salaries (game_id, gsis_player_id, team_abbr, dfs_position, salary)
-             VALUES ('2025_01_OTHER', '00-Z', 'SF', 'WR', 9999)",
-        ).execute(&pool).await.unwrap();
-
-        let s = slate_salaries(&pool, ContestId(contest))
-            .await
-            .expect("load");
-        assert_eq!(s.player(&NflPlayerId("00-A".into())), Some(5700));
-        assert_eq!(s.defense(&TeamAbbr::KC), Some(3500));
-        assert!(
-            s.player(&NflPlayerId("00-Z".into())).is_none(),
-            "off-slate salary excluded"
-        );
     }
 
     #[sqlx::test]

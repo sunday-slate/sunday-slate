@@ -14,7 +14,6 @@ use crate::contests::published_slate;
 use crate::contests::service as contests;
 use crate::entries::EntryId;
 use crate::entries::store;
-use crate::entries::store::SlateSalaries;
 use crate::entries::{Lineup, NflPlayerId, PlayerOrDefenseId, RosterSlot};
 use crate::fantasy_teams::monogram;
 use crate::fantasy_teams::store as fantasy_teams;
@@ -599,7 +598,7 @@ pub fn build_picks(
     names: &HashMap<NflPlayerId, PlayerIdentity>,
     stats: &WeekStats,
     slate: &[Game],
-    salaries: &SlateSalaries,
+    salary: impl Fn(&PlayerOrDefenseId) -> Option<i64>,
     ownership: &Ownership,
     avatars: &Avatars,
     injuries: &HashMap<NflPlayerId, InjuryDesignation>,
@@ -613,7 +612,8 @@ pub fn build_picks(
             let team = stat
                 .map(|s| s.team.as_str().to_owned())
                 .or_else(|| known.and_then(|k| k.team.as_ref().map(|t| t.as_str().to_owned())));
-            let avatar = match avatars.get(&PlayerOrDefenseId::Player(id.clone())) {
+            let value = PlayerOrDefenseId::Player(id.clone());
+            let avatar = match avatars.get(&value) {
                 Some(media) => Avatar::Headshot(media.url()),
                 None => Avatar::Silhouette,
             };
@@ -638,7 +638,7 @@ pub fn build_picks(
                 period: None,
                 clock: None,
                 stale: false,
-                salary: salaries.player(id),
+                salary: salary(&value),
                 ownership: ownership.player(id),
                 injury: injuries.get(id).copied(),
             }
@@ -649,13 +649,14 @@ pub fn build_picks(
     let def_team = lineup.def.as_str().to_owned();
     let def_score = defense.map(scoring::score_defense).unwrap_or_default();
     let def_points = def_score.total;
+    let defense_id = PlayerOrDefenseId::Defense(lineup.def);
     rows.push(SlotRow {
         slot: RosterSlot::Def.position_label(),
         dom_id: RosterSlot::Def.dom_id(),
         name: format!("{def_team} DST"),
         avatar: Avatar::TeamLogo(
             avatars
-                .get(&PlayerOrDefenseId::Defense(lineup.def))
+                .get(&defense_id)
                 .map_or_else(|| SILHOUETTE.to_string(), |media| media.url()),
         ),
         team: Some(def_team.clone()),
@@ -674,7 +675,7 @@ pub fn build_picks(
         period: None,
         clock: None,
         stale: false,
-        salary: salaries.defense(&lineup.def),
+        salary: salary(&defense_id),
         ownership: ownership.defense(&lineup.def),
         injury: None,
     });
@@ -997,7 +998,8 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
             .collect();
         let avatars = crate::avatars::by_id(&state.db, &values).await?;
         let contest_entries = store::by_contest(reader, entry.contest.id, entry.league_id).await?;
-        let salaries = store::slate_salaries(reader, entry.contest.id).await?;
+        let salary_snapshot = state.nfl.snapshot();
+        let slate_id = entry.contest.slate_id();
 
         let ownership = compute_ownership(contest_entries.iter().map(|e| &e.lineup));
 
@@ -1022,7 +1024,12 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
             &names,
             week_stats,
             &display_slate,
-            &salaries,
+            |value| {
+                slate_id
+                    .as_ref()
+                    .and_then(|slate_id| salary_snapshot.salaried_player(slate_id, value))
+                    .map(|row| i64::from(row.salary))
+            },
             &ownership,
             &avatars,
             &live::slate_tuple(&slate)
@@ -1144,7 +1151,6 @@ mod tests {
     struct Fixture {
         names: HashMap<NflPlayerId, PlayerIdentity>,
         stats: WeekStats,
-        salaries: SlateSalaries,
         ownership: Ownership,
     }
 
@@ -1153,7 +1159,6 @@ mod tests {
             Fixture {
                 names: names(),
                 stats: week_stats(),
-                salaries: SlateSalaries::default(),
                 ownership: compute_ownership(&[lineup()]),
             }
         }
@@ -1170,7 +1175,7 @@ mod tests {
                 &self.names,
                 &self.stats,
                 &slate(),
-                &self.salaries,
+                |_| None,
                 &self.ownership,
                 avatars,
                 &HashMap::new(),
@@ -1303,78 +1308,27 @@ mod tests {
     }
 
     #[test]
-    fn rows_come_in_roster_order_with_slot_labels() {
+    fn rows_preserve_roster_identity() {
         let picks = picks();
-        let labels: Vec<&str> = picks.rows.iter().map(|r| r.slot).collect();
+        let rows: Vec<(String, &str, &str)> = picks
+            .rows
+            .iter()
+            .map(|r| (r.dom_id(), r.slot, r.name.as_str()))
+            .collect();
         assert_eq!(
-            labels,
-            ["QB", "RB", "RB", "WR", "WR", "WR", "TE", "FLEX", "DEF"]
+            rows,
+            vec![
+                ("qb".to_string(), "QB", "Quinn Back"),
+                ("rb1".to_string(), "RB", "Alpha Runner"),
+                ("rb2".to_string(), "RB", "Beta Runner"),
+                ("wr1".to_string(), "WR", "Wide One"),
+                ("wr2".to_string(), "WR", "Wide Two"),
+                ("wr3".to_string(), "WR", "Wide Three"),
+                ("te".to_string(), "TE", "Tight End"),
+                ("flex".to_string(), "FLEX", "Flex Player"),
+                ("def".to_string(), "DEF", "KC DST"),
+            ]
         );
-        assert_eq!(picks.rows[0].name, "Quinn Back");
-        assert_eq!(picks.rows[1].name, "Alpha Runner");
-        assert_eq!(picks.rows[8].name, "KC DST");
-    }
-
-    #[test]
-    fn rows_have_unique_dom_ids_for_live_updates() {
-        let picks = picks();
-        let ids: Vec<String> = picks.rows.iter().map(SlotRow::dom_id).collect();
-        assert_eq!(
-            ids,
-            ["qb", "rb1", "rb2", "wr1", "wr2", "wr3", "te", "flex", "def"]
-        );
-    }
-
-    #[test]
-    fn scored_row_keeps_full_breakdown_and_splits_points() {
-        let picks = picks();
-        let rb1 = &picks.rows[1];
-        assert_eq!(rb1.stat_line_str(), "100 RuY, 100+ RuY Gm");
-        assert_eq!(rb1.points_whole(), "13");
-        assert_eq!(rb1.points_dec(), ".00");
-        let labels: Vec<String> = rb1.breakdown().iter().map(|l| l.label()).collect();
-        assert!(labels.contains(&"100 RuY".to_string()));
-    }
-
-    #[test]
-    fn player_row_uses_local_media_then_silhouette() {
-        let f = Fixture::default();
-        let media = Media::fixture("headshot.png", time::macros::datetime!(2026-08-09 12:00:00));
-        let avatars = HashMap::from([(
-            PlayerOrDefenseId::Player(NflPlayerId("00-QB".into())),
-            media.clone(),
-        )]);
-        let picks = f.picks_with(&avatars);
-        assert_eq!(picks.rows[0].avatar_url(), media.url());
-        assert!(!picks.rows[0].avatar_is_logo());
-        assert_eq!(
-            picks.rows[3].avatar_url(),
-            crate::assets::versioned(SILHOUETTE)
-        );
-    }
-
-    #[test]
-    fn defense_row_uses_silhouette_when_logo_missing() {
-        let picks = picks();
-        let def = &picks.rows[8];
-        assert!(def.avatar_is_logo());
-        assert_eq!(def.avatar_url(), crate::assets::versioned(SILHOUETTE));
-    }
-
-    #[test]
-    fn row_carries_game_line_and_salary_and_ownership() {
-        let mut f = Fixture::default();
-        f.salaries.insert(
-            PlayerOrDefenseId::Player(NflPlayerId("00-RB1".into())),
-            5700,
-        );
-        let picks = f.picks();
-        let rb1 = &picks.rows[1];
-        let g = rb1.game().expect("game line");
-        assert_eq!(g.home, "KC");
-        assert_eq!(g.home_score, Some(20));
-        assert_eq!(rb1.salary_str(), "$5,700");
-        assert_eq!(rb1.ownership_str(), "100.0%");
     }
 
     #[test]
@@ -1386,6 +1340,8 @@ mod tests {
         .picks();
         assert_eq!(picks.rows[0].salary_str(), "—");
         assert_eq!(picks.rows[0].ownership_str(), "—");
+        assert_eq!(picks.rows[8].salary_str(), "—", "DST salary also dashes");
+        assert_eq!(picks.rows[8].ownership_str(), "—");
     }
 
     #[test]
@@ -1549,36 +1505,18 @@ mod tests {
     }
 
     #[test]
-    fn total_sums_all_nine_slots() {
-        let picks = picks();
-        assert_eq!(picks.total_str().as_deref(), Some("20.00"));
-    }
-
-    #[test]
-    fn abbreviated_name_keeps_everything_after_the_first_word() {
-        assert_eq!(abbreviated_name("Drake Maye"), "D. Maye");
-        assert_eq!(abbreviated_name("Patrick Mahomes"), "P. Mahomes");
-        assert_eq!(abbreviated_name("Jameson Williams"), "J. Williams");
-        assert_eq!(abbreviated_name("Wan'Dale Robinson"), "W. Robinson");
-        assert_eq!(abbreviated_name("Jaxon Smith-Njigba"), "J. Smith-Njigba");
-        assert_eq!(
-            abbreviated_name("Amon-Ra St. Brown Jr."),
-            "A. St. Brown Jr."
-        );
-        assert_eq!(
-            abbreviated_name("Mononymous-Longer-Than-Fits"),
-            "Mononymous-Longer-Than-Fits"
-        );
-    }
-
-    #[test]
-    fn abbreviated_name_preserves_initialed_first_tokens() {
-        assert_eq!(abbreviated_name("T.J. Hockenson"), "T.J. Hockenson");
-    }
-
-    #[test]
-    fn abbreviated_name_preserves_two_character_first_names() {
-        assert_eq!(abbreviated_name("RJ Harvey"), "RJ Harvey");
+    fn abbreviated_name_preserves_surnames_and_short_tokens() {
+        for (full, abbreviated) in [
+            ("Drake Maye", "D. Maye"),
+            ("Wan'Dale Robinson", "W. Robinson"),
+            ("Jaxon Smith-Njigba", "J. Smith-Njigba"),
+            ("Amon-Ra St. Brown Jr.", "A. St. Brown Jr."),
+            ("Mononymous-Longer-Than-Fits", "Mononymous-Longer-Than-Fits"),
+            ("T.J. Hockenson", "T.J. Hockenson"),
+            ("RJ Harvey", "RJ Harvey"),
+        ] {
+            assert_eq!(abbreviated_name(full), abbreviated, "{full}");
+        }
     }
 
     /// A priced slate row on the KC game, kicking off at 1:00pm Eastern.

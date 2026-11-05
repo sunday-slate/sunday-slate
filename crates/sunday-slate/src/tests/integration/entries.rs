@@ -9,7 +9,8 @@ use http_body_util::BodyExt;
 use nfl_data::{
     EspnPlayerId, Game, LiveGamePhase, LiveGameSnapshot, LivePlayerStats, LiveScoreboard,
     LiveScoreboardGame, LiveTeamStats, PlayerWeekStats as NflPlayerWeekStats, ProviderOutcome,
-    ProviderResponse, Season, TeamAbbr, TeamWeekStats as NflTeamWeekStats,
+    ProviderResponse, Season, SeasonType, SeasonWeek, TeamAbbr, TeamWeekStats as NflTeamWeekStats,
+    Week,
 };
 use sqlx::SqlitePool;
 use time::OffsetDateTime;
@@ -227,10 +228,9 @@ async fn setup_entry(
 /// matches no single row, so a total assertion cannot pass on a row instead.
 async fn setup(pool: &SqlitePool, app: &TestApp) -> (GeneratedTeam, GeneratedTeam, i64) {
     let teams = setup_entry(pool, app, "00-A", &[scheduled_game()]).await;
-    app.nfl
-        .seed_for_test(&[factories::player("00-A", "Alpha Runner")], &[])
-        .await
-        .unwrap();
+    let mut alpha = factories::player("00-A", "Alpha Runner");
+    alpha.position = Some("RB".into());
+    app.nfl.seed_for_test(&[alpha], &[]).await.unwrap();
     let buf = TeamAbbr::BUF;
     let kc = TeamAbbr::KC;
     let rb = NflPlayerWeekStats {
@@ -350,6 +350,17 @@ fn pick_shot_sources(body: &str) -> Vec<&str> {
             source.split_once('"').expect("pick-shot image source").0
         })
         .collect()
+}
+
+fn assert_pick_shots_are_silhouettes(body: &str) {
+    let sources = pick_shot_sources(body);
+    assert_eq!(sources.len(), 9, "entry should render nine pick images");
+    assert!(
+        sources
+            .iter()
+            .all(|&source| source.starts_with(crate::entries::service::SILHOUETTE)),
+        "every pick image is a silhouette without local media: {sources:?}"
+    );
 }
 
 fn assert_pick_shot_sources(body: &str, local_url: &str) {
@@ -699,41 +710,172 @@ async fn roster_only_pick_is_named_from_the_weekly_roster(pool: SqlitePool) {
     );
 }
 
+/// A salary-source game in the default season (2026), deliberately separate
+/// from the 2025 scoring schedule: `Contest::slate_id` resolves its "Week N"
+/// name in the default season.
+fn salary_source_game(id: &str, week: u8, kickoff: OffsetDateTime) -> Game {
+    Game {
+        season_week: SeasonWeek {
+            season: Season(2026),
+            season_type: SeasonType::Reg,
+            week: Week(week),
+        },
+        kickoff: Some(kickoff),
+        ..factories::game_at(id, week, kickoff)
+    }
+}
+
+/// The 2026 games the salary snapshot resolves slates from: KC home against
+/// BUF in weeks 1 and 2. Alpha Runner's player row already exists via `setup`.
+async fn seed_snapshot_salaries(app: &TestApp) {
+    app.nfl
+        .seed_for_test(
+            &[],
+            &[
+                salary_source_game("2026_01_BUF_KC", 1, datetime!(2026-09-13 17:00 UTC)),
+                salary_source_game("2026_02_BUF_KC", 2, datetime!(2026-09-20 17:00 UTC)),
+            ],
+        )
+        .await
+        .unwrap();
+}
+
+/// Publish one week's salaries through nfl-data's real admin upload route:
+/// parse, match, persist, and republish the snapshot. Alpha Runner and the KC
+/// DST share a matchup, so the import's slate validation succeeds.
+async fn upload_snapshot_salaries(
+    app: &TestApp,
+    week: u8,
+    player_salary: u32,
+    defense_salary: u32,
+) {
+    let week = match week {
+        1 | 2 => week,
+        other => panic!("snapshot salary fixture supports weeks 1 and 2 only, got {other}"),
+    };
+    let csv = format!(
+        r#""Id","Position","First Name","Nickname","Last Name","FPPG","Played","Salary","Game","Team","Opponent","Injury Indicator","Injury Details"
+"1-100","RB","Alpha","","Runner","0","0","{player_salary}","BUF@KC","KC","BUF","",""
+"1-200","D","Kansas City","","Chiefs","0","0","{defense_salary}","BUF@KC","KC","BUF","",""
+"#
+    );
+    let server = axum_test::TestServer::new(axum::Router::new().nest(
+        "/nfl-data-admin",
+        nfl_data::admin_router::<()>(
+            Arc::clone(&app.nfl),
+            nfl_data::AdminConfig {
+                season: Season(2026),
+                now_override: Some(KICKOFF),
+            },
+        ),
+    ));
+    let form = axum_test::multipart::MultipartForm::new()
+        .add_text("season", "2026")
+        .add_text("season_type", "REG")
+        .add_text("week", week.to_string())
+        .add_part(
+            "csv",
+            axum_test::multipart::Part::bytes(csv.into_bytes()).file_name("salary.csv"),
+        );
+    let response = server
+        .post("/nfl-data-admin/salary-imports")
+        .multipart(form)
+        .await;
+    response.assert_status(StatusCode::SEE_OTHER);
+    assert_eq!(
+        response.header("location").to_str().unwrap(),
+        format!("/nfl-data-admin/salary-imports/2026{week:03}")
+    );
+}
+
+/// One pick's expanded panel: the markup after its panel id, up to the row's
+/// `</details>`. Fails loudly when either anchor is absent.
+fn pick_panel<'a>(body: &'a str, entry_id: i64, slot: &str) -> &'a str {
+    let marker = format!(r#"id="entry-{entry_id}-panel-{slot}""#);
+    let panel = body
+        .split_once(&marker)
+        .unwrap_or_else(|| panic!("missing {slot} pick panel: {marker}"))
+        .1;
+    panel
+        .split_once("</details>")
+        .unwrap_or_else(|| panic!("{slot} pick panel is not closed by </details>"))
+        .0
+}
+
 #[sqlx::test]
 async fn expanded_row_shows_salary_ownership_and_breakdown(pool: SqlitePool) {
     let app = TestApp::from_pool_at(pool.clone(), KICKOFF).await;
     let (a, _b, entry_id) = setup(&pool, &app).await;
-    sqlx::query(
-        "INSERT INTO nfl_player_salaries (game_id, gsis_player_id, team_abbr, dfs_position, salary)
-         VALUES (?1, '00-A', 'KC', 'RB', 5700)",
-    )
-    .bind(SLATE_GAME)
-    .execute(&pool)
-    .await
-    .unwrap();
+    seed_snapshot_salaries(&app).await;
+    // Both weeks are published; the entry's contest resolves to week 1.
+    upload_snapshot_salaries(&app, 1, 5_700, 3_500).await;
+    upload_snapshot_salaries(&app, 2, 9_100, 4_200).await;
 
     app.login_as(&a.owner).await;
-    let body = app.get(&format!("/entries/{entry_id}")).await.text();
+    let resp = app.get(&format!("/entries/{entry_id}")).await;
+    resp.assert_status_ok();
+    let body = resp.text();
 
+    let rb1 = pick_panel(&body, entry_id, "rb1");
     assert!(
-        body.contains(r#"<details name="pick""#),
-        "rows are exclusive-accordion details"
+        rb1.contains("$5,700"),
+        "RB1 salary comes from the week-1 snapshot slate: {rb1}"
     );
-    assert!(body.contains("$5,700"), "salary renders");
-    assert!(body.contains("100.0%"), "ownership renders");
-    // RB1's breakdown: the per-stat line and the 100-yard bonus.
-    assert!(body.contains("Score breakdown"));
-    assert!(body.contains("100 RuY"));
-    assert!(body.contains("100+ RuY Gm"));
+    assert!(rb1.contains("100.0%"), "RB1 ownership renders: {rb1}");
+    assert!(rb1.contains("Score breakdown"), "RB1 breakdown renders");
+    assert!(rb1.contains("100 RuY"), "RB1 per-stat line renders");
+    assert!(rb1.contains("100+ RuY Gm"), "RB1 yardage bonus renders");
+
+    let def = pick_panel(&body, entry_id, "def");
+    assert!(
+        def.contains("$3,500"),
+        "DST salary comes from the week-1 snapshot slate: {def}"
+    );
+    assert!(
+        !body.contains("$9,100"),
+        "week-2 player salary must not leak into a week-1 entry"
+    );
+    assert!(
+        !body.contains("$4,200"),
+        "week-2 DST salary must not leak into a week-1 entry"
+    );
+}
+
+#[sqlx::test]
+async fn entry_salary_does_not_fall_back_to_another_slate(pool: SqlitePool) {
+    let app = TestApp::from_pool_at(pool.clone(), KICKOFF).await;
+    let (a, _b, entry_id) = setup(&pool, &app).await;
+    seed_snapshot_salaries(&app).await;
+    // Only week 2 is priced; the week-1 entry has no slate to read from.
+    upload_snapshot_salaries(&app, 2, 9_100, 4_200).await;
+
+    app.login_as(&a.owner).await;
+    let resp = app.get(&format!("/entries/{entry_id}")).await;
+    resp.assert_status_ok();
+    let body = resp.text();
+
+    let missing = r#"<div class="mt-1 text-base font-bold tabular-nums">—</div>"#;
+    let rb1 = pick_panel(&body, entry_id, "rb1");
+    assert!(rb1.contains(missing), "RB1 salary renders a dash: {rb1}");
+    let def = pick_panel(&body, entry_id, "def");
+    assert!(def.contains(missing), "DST salary renders a dash: {def}");
+    assert!(
+        !body.contains("$9,100") && !body.contains("$4,200"),
+        "another slate's prices must never stand in for a missing slate"
+    );
 }
 
 #[sqlx::test]
 async fn entry_images_use_local_media_and_placeholders_after_kickoff(pool: SqlitePool) {
     let app = TestApp::from_pool_at(pool.clone(), KICKOFF).await;
     let (a, _b, entry_id) = setup(&pool, &app).await;
-    let local_url = link_local_pick_media(&app).await;
 
     app.login_as(&a.owner).await;
+    let before = app.get(&format!("/entries/{entry_id}")).await;
+    before.assert_status_ok();
+    assert_pick_shots_are_silhouettes(&before.text());
+
+    let local_url = link_local_pick_media(&app).await;
     let resp = app.get(&format!("/entries/{entry_id}")).await;
     resp.assert_status_ok();
     assert_pick_shot_sources(&resp.text(), &local_url);
