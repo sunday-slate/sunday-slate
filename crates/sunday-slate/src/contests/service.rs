@@ -96,7 +96,8 @@ pub async fn official_contest_weeks(
 }
 
 /// Pair each contest with its slate's earliest and latest kickoff.
-/// Contests that resolve no games are dropped.
+/// Contests that resolve no games — including slates without salaried
+/// players — are dropped.
 pub fn slate_contests(contests: &[Contest], snapshot: &nfl_data::Snapshot) -> Vec<SlateContest> {
     contests
         .iter()
@@ -117,6 +118,23 @@ pub fn slate_contests(contests: &[Contest], snapshot: &nfl_data::Snapshot) -> Ve
                 first,
                 last,
             })
+        })
+        .collect()
+}
+
+/// The contests the Contests tab lists: every contest that has started (live
+/// or finished) plus the Current Contest while it is still upcoming. Later
+/// contests stay hidden until one of them becomes current.
+pub fn listed_contests(
+    contests: Vec<SlateContest>,
+    current: Option<ContestId>,
+    now: OffsetDateTime,
+) -> Vec<SlateContest> {
+    contests
+        .into_iter()
+        .filter(|contest| {
+            contest_state(contest.first, contest.last, now) != ContestState::Upcoming
+                || current == Some(contest.id)
         })
         .collect()
 }
@@ -500,6 +518,32 @@ mod contest_list_tests {
         );
         let names: Vec<&str> = rows.iter().map(|r| r.name.as_str()).collect();
         assert_eq!(names, vec!["Week 2", "Week 1", "Mystery"]);
+    }
+
+    #[test]
+    fn lists_started_contests_plus_the_current_one() {
+        let at = datetime!(2025 - 09 - 10 12:00 UTC);
+        let past = one_day(1, "Week 1", date!(2025 - 09 - 07));
+        let current = one_day(2, "Week 2", date!(2025 - 09 - 14));
+        let later = one_day(3, "Week 3", date!(2025 - 09 - 21));
+        let current_id = current.id;
+
+        let listed = listed_contests(vec![past, current, later], Some(current_id), at);
+        assert_eq!(
+            listed.iter().map(|c| c.id).collect::<Vec<_>>(),
+            vec![ContestId(1), ContestId(2)],
+            "finished and current contests show; later ones wait"
+        );
+
+        let live = one_day(4, "Week 3", date!(2025 - 09 - 10));
+        let upcoming = one_day(5, "Week 4", date!(2025 - 09 - 21));
+        let live_id = live.id;
+        let listed = listed_contests(vec![live, upcoming], Some(live_id), at);
+        assert_eq!(
+            listed.iter().map(|c| c.id).collect::<Vec<_>>(),
+            vec![ContestId(4)],
+            "a live contest stays listed"
+        );
     }
 
     #[test]

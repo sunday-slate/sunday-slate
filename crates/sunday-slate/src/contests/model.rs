@@ -23,12 +23,16 @@ impl Contest {
     }
 
     /// The games on this contest's slate, from the published snapshot. Empty
-    /// when the name resolves no slate or the snapshot carries none.
+    /// unless the slate is published with salaried players: an unpublished
+    /// slate resolves no games for list, detail, or scoring purposes alike.
     pub fn games<'a>(&self, snapshot: &'a nfl_data::Snapshot) -> &'a [nfl_data::Game] {
-        match self.slate_id() {
-            Some(id) => snapshot.games_for_slate(&id),
-            None => &[],
+        let Some(id) = self.slate_id() else {
+            return &[];
+        };
+        if snapshot.slate(&id).is_none() {
+            return &[];
         }
+        snapshot.games_for_slate(&id)
     }
 }
 
