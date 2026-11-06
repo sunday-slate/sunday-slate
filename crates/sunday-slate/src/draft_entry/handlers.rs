@@ -14,7 +14,7 @@ use serde::Deserialize;
 use crate::chrome::Chrome;
 use crate::contests::ContestId;
 use crate::draft_entry::service::{self, EditorPage, SlotChoice};
-use crate::entries::{NflPlayerId, RosterSlot, SlotValue};
+use crate::entries::RosterSlot;
 use crate::fantasy_teams::{CurrentTeam, FantasyTeamId};
 use crate::web::redirect;
 use crate::{AppError, AppState};
@@ -51,7 +51,8 @@ pub async fn editor(
     CurrentTeam(team): CurrentTeam,
     Path(id): Path<i64>,
 ) -> Result<Html<String>, AppError> {
-    let page = service::page(&state, FantasyTeamId(team.id), team.name, ContestId(id)).await?;
+    let page =
+        service::editor_page(&state, FantasyTeamId(team.id), team.name, ContestId(id)).await?;
     let chrome = Chrome::focused("Edit Lineup", format!("/contests/{id}"));
     Ok(Html(
         EditorView {
@@ -70,29 +71,6 @@ struct PickView {
     contest_id: i64,
     slot: RosterSlot,
     choices: Vec<SlotChoice>,
-}
-
-impl PickView {
-    /// True for the DEF slot: choices POST back `team_abbr` instead of
-    /// `gsis_id`.
-    fn is_def(&self) -> bool {
-        self.slot == RosterSlot::Def
-    }
-
-    /// What the search field invites you to type. FLEX and DEF get words
-    /// because "Search FLEXs" and "Search DEFs" don't read as English.
-    fn search_placeholder(&self) -> String {
-        match self.slot {
-            RosterSlot::Flex => "Search players".into(),
-            RosterSlot::Def => "Search defenses".into(),
-            slot => format!("Search {}s", slot.position_label()),
-        }
-    }
-
-    /// The empty state's noun: "No defenses match ..." for DEF.
-    fn search_noun(&self) -> &'static str {
-        if self.is_def() { "defenses" } else { "players" }
-    }
 }
 
 /// The candidate list for one slot, its own page: "Select QB" in the bar and
@@ -119,10 +97,9 @@ pub async fn pick(
     ))
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Deserialize)]
 pub struct SetSlotForm {
-    gsis_id: Option<String>,
-    team_abbr: Option<String>,
+    value: String,
 }
 
 /// Place a pick in a slot (`gsis_id` for players, `team_abbr` for DEF), then
@@ -136,17 +113,7 @@ pub async fn set_slot(
 ) -> Result<Response, AppError> {
     let slot = parse_slot(&slot)?;
     let contest_id = ContestId(id);
-    let value = if slot == RosterSlot::Def {
-        let abbr = form
-            .team_abbr
-            .ok_or_else(|| AppError::BadRequest("DEF takes a team_abbr.".into()))?;
-        SlotValue::Defense(abbr.parse().unwrap())
-    } else {
-        let gsis = form
-            .gsis_id
-            .ok_or_else(|| AppError::BadRequest("Player slots take a gsis_id.".into()))?;
-        SlotValue::Player(NflPlayerId(gsis))
-    };
+    let value = slot.parse_value(form.value).map_err(AppError::BadRequest)?;
     service::set_slot(&state, FantasyTeamId(team.id), contest_id, slot, value).await?;
     Ok(redirect(is_htmx, format!("/contests/{id}/draft-entry")))
 }
@@ -190,41 +157,57 @@ mod tests {
     use super::*;
     use crate::draft_entry::service::EditorSlotRow;
     use crate::entries::service::PickInfo;
-    use crate::entries::{RosterSlot, SlotValue};
+    use crate::entries::{NflPlayerId, RosterSlot};
     use crate::injuries::InjuryDesignation;
-    use crate::scoring::PointsPerGame;
-    use nfl_data::TeamAbbr;
+    use crate::tests::factories;
+    use nfl_data::salaried_players::SalariedPlayer;
+    use nfl_data::{DfsPosition, TeamAbbr};
+    use std::sync::Arc;
     use strum::IntoEnumIterator;
+    use time::macros::datetime;
 
-    /// A named pick priced at `salary`, kicking off at 1:00pm.
-    fn player_info(name: &str, salary: i64, pace: Option<PointsPerGame>) -> PickInfo {
-        let mut info = PickInfo::player(
-            name.into(),
+    /// A KC pick priced at `salary`, kicking off at 1:00pm Eastern.
+    fn salaried(
+        name: &str,
+        position: DfsPosition,
+        salary: u32,
+        pace: Option<(f64, u32)>,
+    ) -> SalariedPlayer {
+        SalariedPlayer {
+            id: (!position.is_defense()).then(|| NflPlayerId(format!("00-{name}"))),
+            game: Arc::new(factories::game_at(
+                "2025_01_BUF_KC",
+                1,
+                datetime!(2025-09-07 13:00 -4),
+            )),
+            name: name.into(),
+            position,
+            team: TeamAbbr::KC,
+            salary,
+            games_played: pace.map_or(0, |(_, games)| u8::try_from(games).unwrap_or(0)),
+            fppg: pace.map_or(0.0, |(avg, _)| avg),
+        }
+    }
+
+    fn player_info(name: &str, salary: i64, pace: Option<(f64, u32)>) -> PickInfo {
+        PickInfo::new(
+            salaried(name, DfsPosition::Qb, salary as u32, pace),
             None,
-            Some("KC".into()),
-            &[],
-            Some(salary),
-            pace,
-        );
-        info.kickoff = Some("1:00pm".into());
-        info
+            None,
+        )
     }
 
     fn empty_page() -> EditorPage {
         EditorPage {
             contest_name: "Week 1".into(),
             team_name: "Sunday Funday".into(),
-            remaining: 60_000,
-            per_open: 6_666,
-            filled: 0,
+            cap: crate::draft_entry::service::CapState {
+                filled: 0,
+                remaining: 60_000,
+                per_open: 6_666,
+            },
             slots: RosterSlot::iter()
-                .map(|slot| EditorSlotRow {
-                    slot,
-                    label: slot.position_label(),
-                    value: None,
-                    info: PickInfo::empty(),
-                    injury: None,
-                })
+                .map(|slot| EditorSlotRow { slot, info: None })
                 .collect(),
             locked: false,
             entry_id: None,
@@ -234,8 +217,8 @@ mod tests {
     #[test]
     fn editor_header_offers_save_and_footer_is_in_flow() {
         let mut page = empty_page();
-        page.filled = 9;
-        page.remaining = 0;
+        page.cap.filled = 9;
+        page.cap.remaining = 0;
         let html = EditorView {
             page,
             chrome: Chrome::focused("Edit Lineup", "/contests/1"),
@@ -294,30 +277,18 @@ mod tests {
     #[test]
     fn editor_renders_filled_over_cap_locked() {
         let mut page = empty_page();
-        page.remaining = -1_200;
-        page.per_open = 0;
-        page.filled = 9;
+        page.cap.remaining = -1_200;
+        page.cap.per_open = 0;
+        page.cap.filled = 9;
         page.locked = true;
         page.slots = RosterSlot::iter()
-            .map(|slot| {
-                let value = match slot {
-                    RosterSlot::Def => Some(SlotValue::Defense(TeamAbbr::KC)),
-                    _ => Some(SlotValue::Player(NflPlayerId("00-P".into()))),
-                };
-                EditorSlotRow {
-                    slot,
-                    label: slot.position_label(),
-                    value,
-                    info: player_info(
-                        &format!("Player {slot}"),
-                        6_800,
-                        Some(PointsPerGame {
-                            avg_points: 15.5,
-                            games_played: 3,
-                        }),
-                    ),
-                    injury: None,
-                }
+            .map(|slot| EditorSlotRow {
+                slot,
+                info: Some(player_info(
+                    &format!("Player {slot}"),
+                    6_800,
+                    Some((15.5, 3)),
+                )),
             })
             .collect();
         EditorView {
@@ -337,26 +308,13 @@ mod tests {
             slot: RosterSlot::Qb,
             choices: vec![
                 SlotChoice {
-                    key: SlotValue::Player(NflPlayerId("00-Q".into())),
-                    position: "QB".into(),
                     is_picked: true,
                     over_cap: false,
-                    injury: None,
-                    info: player_info(
-                        "Quinn Back",
-                        8_000,
-                        Some(PointsPerGame {
-                            avg_points: 20.5,
-                            games_played: 2,
-                        }),
-                    ),
+                    info: player_info("Quinn Back", 8_000, Some((20.5, 2))),
                 },
                 SlotChoice {
-                    key: SlotValue::Player(NflPlayerId("00-Q2".into())),
-                    position: "QB".into(),
                     is_picked: false,
                     over_cap: false,
-                    injury: None,
                     info: player_info("Ryan Arm", 7_500, None),
                 },
             ],
@@ -372,19 +330,9 @@ mod tests {
             contest_id: 1,
             slot: RosterSlot::Qb,
             choices: vec![SlotChoice {
-                key: SlotValue::Player(NflPlayerId("00-Q".into())),
-                position: "QB".into(),
                 is_picked: false,
                 over_cap: true,
-                injury: None,
-                info: player_info(
-                    "Quinn Back",
-                    8_000,
-                    Some(PointsPerGame {
-                        avg_points: 20.5,
-                        games_played: 2,
-                    }),
-                ),
+                info: player_info("Quinn Back", 8_000, Some((20.5, 2))),
             }],
         }
         .render()
@@ -397,18 +345,18 @@ mod tests {
 
     #[test]
     fn picks_renders_the_def_slot() {
-        let mut info = PickInfo::defense(&TeamAbbr::KC, None, &[], Some(4_000), None);
-        info.kickoff = Some("1:00pm".into());
+        let info = PickInfo::new(
+            salaried("KC DST", DfsPosition::Dst, 4_000, None),
+            None,
+            None,
+        );
         PickView {
             chrome: Chrome::focused("Select DEF", "/contests/1/draft-entry"),
             contest_id: 1,
             slot: RosterSlot::Def,
             choices: vec![SlotChoice {
-                key: SlotValue::Defense(TeamAbbr::KC),
-                position: "D/ST".into(),
                 is_picked: true,
                 over_cap: false,
-                injury: None,
                 info,
             }],
         }
@@ -423,11 +371,19 @@ mod tests {
             vec![
                 qb_choice("Adjusted"),
                 SlotChoice {
-                    injury: Some(InjuryDesignation::Questionable),
+                    info: PickInfo::new(
+                        salaried("Questionable", DfsPosition::Qb, 7_500, None),
+                        None,
+                        Some(InjuryDesignation::Questionable),
+                    ),
                     ..qb_choice("Questionable")
                 },
                 SlotChoice {
-                    injury: Some(InjuryDesignation::InjuredReserve),
+                    info: PickInfo::new(
+                        salaried("Benched", DfsPosition::Qb, 7_500, None),
+                        None,
+                        Some(InjuryDesignation::InjuredReserve),
+                    ),
                     ..qb_choice("Benched")
                 },
             ],
@@ -452,18 +408,10 @@ mod tests {
     #[test]
     fn editor_renders_swap_control_only_on_filled_slots() {
         let mut page = empty_page();
-        page.filled = 1;
+        page.cap.filled = 1;
         for row in &mut page.slots {
             if row.slot == RosterSlot::Qb {
-                row.value = Some(SlotValue::Player(NflPlayerId("00-Q".into())));
-                row.info = player_info(
-                    "Quinn Back",
-                    8_000,
-                    Some(PointsPerGame {
-                        avg_points: 20.5,
-                        games_played: 2,
-                    }),
-                );
+                row.info = Some(player_info("Quinn Back", 8_000, Some((20.5, 2))));
             }
         }
         let html = EditorView {
@@ -496,26 +444,13 @@ mod tests {
             slot: RosterSlot::Qb,
             choices: vec![
                 SlotChoice {
-                    key: SlotValue::Player(NflPlayerId("00-Q".into())),
-                    position: "QB".into(),
                     is_picked: true,
                     over_cap: false,
-                    injury: None,
-                    info: player_info(
-                        "Quinn Back",
-                        8_000,
-                        Some(PointsPerGame {
-                            avg_points: 20.5,
-                            games_played: 2,
-                        }),
-                    ),
+                    info: player_info("Quinn Back", 8_000, Some((20.5, 2))),
                 },
                 SlotChoice {
-                    key: SlotValue::Player(NflPlayerId("00-Q2".into())),
-                    position: "QB".into(),
                     is_picked: false,
                     over_cap: false,
-                    injury: None,
                     info: player_info("Ryan Arm", 7_500, None),
                 },
             ],
@@ -547,11 +482,8 @@ mod tests {
 
     fn qb_choice(name: &str) -> SlotChoice {
         SlotChoice {
-            key: SlotValue::Player(NflPlayerId(format!("00-{name}"))),
-            position: "QB".into(),
             is_picked: false,
             over_cap: false,
-            injury: None,
             info: player_info(name, 7_500, None),
         }
     }
@@ -599,7 +531,7 @@ mod tests {
     #[test]
     fn search_placeholder_reads_as_english_for_every_slot() {
         let phrasing: Vec<String> = RosterSlot::iter()
-            .map(|slot| pick_view(slot, Vec::new()).search_placeholder())
+            .map(|slot| slot.search_placeholder())
             .collect();
         assert_eq!(
             phrasing,

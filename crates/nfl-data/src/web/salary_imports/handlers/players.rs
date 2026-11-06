@@ -73,7 +73,7 @@ pub(super) async fn unmatched_salary(
     state: &AdminState,
     season_week: &crate::SeasonWeek,
     fd_player_id: u32,
-) -> Result<crate::SalariedPlayer, SalaryAdminError> {
+) -> Result<fanduel_data::SalariedPlayer, SalaryAdminError> {
     let overview = salary_imports::salary_week_overview(state, *season_week).await?;
     overview
         .unmatched

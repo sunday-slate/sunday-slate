@@ -55,7 +55,7 @@ mod tests {
     #[tokio::test]
     async fn fanduel_error_maps_to_500() {
         let response = SalaryAdminError::from(crate::NflDataError::Fanduel(
-            crate::FanduelDataError::InvalidRow("bad row".into()),
+            fanduel_data::FanduelDataError::InvalidRow("bad row".into()),
         ))
         .into_response();
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);

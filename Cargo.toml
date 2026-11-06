@@ -9,6 +9,7 @@ license = "AGPL-3.0-or-later"
 
 [workspace.dependencies]
 anyhow = "1.0.104"
+arc-swap = "1.7"
 askama = "0.16"
 axum = "0.8.9"
 axum-htmx = "0.8.1"

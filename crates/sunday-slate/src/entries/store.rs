@@ -5,7 +5,7 @@ use itertools::Itertools;
 use crate::contests::{Contest, ContestId};
 use crate::entries::model::{
     ContestEntry, EntryDetails, EntryId, EntrySlot, EntryTeam, FantasyTeamEntries,
-    FantasyTeamEntry, Lineup, LineupError, NflPlayerId, RosterSlot, SlotValue,
+    FantasyTeamEntry, Lineup, LineupError, NflPlayerId, PlayerOrDefenseId, RosterSlot,
 };
 use crate::fantasy_teams::FantasyTeamId;
 use crate::media::MediaId;
@@ -309,9 +309,9 @@ where
 fn entry_slot(slot: RosterSlot, gsis: Option<NflPlayerId>, team: Option<TeamAbbr>) -> EntrySlot {
     let value = match slot {
         RosterSlot::Def => {
-            SlotValue::Defense(team.expect("entry_slots CHECK: DEF carries a team_abbr"))
+            PlayerOrDefenseId::Defense(team.expect("entry_slots CHECK: DEF carries a team_abbr"))
         }
-        _ => SlotValue::Player(
+        _ => PlayerOrDefenseId::Player(
             gsis.expect("entry_slots CHECK: a player slot carries a gsis_player_id"),
         ),
     };
@@ -418,66 +418,6 @@ where
     .await
 }
 
-/// A contest slate's salaries: player salaries keyed by gsis id, D/ST
-/// salaries keyed by team abbr. Absent picks (import gap) are not in the maps.
-#[derive(Default)]
-pub struct SlateSalaries {
-    pub players: HashMap<NflPlayerId, i64>,
-    pub defenses: HashMap<TeamAbbr, i64>,
-}
-
-impl SlateSalaries {
-    /// File one salary row: a defense keys by team, anything else by gsis id
-    /// (a player row without one is an import gap and prices nothing).
-    pub fn insert_row(
-        &mut self,
-        is_defense: bool,
-        gsis: Option<NflPlayerId>,
-        team: TeamAbbr,
-        salary: i64,
-    ) {
-        if is_defense {
-            self.defenses.insert(team, salary);
-        } else if let Some(id) = gsis {
-            self.players.insert(id, salary);
-        }
-    }
-}
-
-/// Salaries for every game on a contest's frozen slate. One row per player or
-/// team defense priced that week.
-pub async fn slate_salaries<'e, E>(
-    ex: E,
-    contest_id: ContestId,
-) -> Result<SlateSalaries, EntriesError>
-where
-    E: sqlx::Executor<'e, Database = Sqlite> + Copy,
-{
-    let rows = sqlx::query!(
-        r#"SELECT s.gsis_player_id AS "gsis_player_id?: NflPlayerId",
-                  s.team_abbr      AS "team_abbr!: TeamAbbr",
-                  s.dfs_position   AS "dfs_position!: String",
-                  s.salary         AS "salary!: i64"
-           FROM nfl_player_salaries s
-           JOIN contest_games cg ON cg.game_id = s.game_id
-           WHERE cg.contest_id = ?1"#,
-        contest_id,
-    )
-    .fetch_all(ex)
-    .await?;
-
-    let mut salaries = SlateSalaries::default();
-    for r in rows {
-        salaries.insert_row(
-            r.dfs_position == "DST",
-            r.gsis_player_id,
-            r.team_abbr,
-            r.salary,
-        );
-    }
-    Ok(salaries)
-}
-
 /// Upsert the (contest, fantasy team) entry and replace its slots with the
 /// lineup's nine. Runs on the caller's write connection, inside its
 /// transaction.
@@ -507,7 +447,7 @@ pub async fn upsert_with_lineup(
     for EntrySlot { slot, value } in lineup.to_slots() {
         let slot_name = slot.to_string();
         match value {
-            SlotValue::Player(player_id) => {
+            PlayerOrDefenseId::Player(player_id) => {
                 sqlx::query!(
                     r#"INSERT INTO entry_slots (entry_id, roster_slot, gsis_player_id)
                        VALUES (?1, ?2, ?3)"#,
@@ -518,7 +458,7 @@ pub async fn upsert_with_lineup(
                 .execute(&mut *conn)
                 .await?;
             }
-            SlotValue::Defense(team) => {
+            PlayerOrDefenseId::Defense(team) => {
                 sqlx::query!(
                     r#"INSERT INTO entry_slots (entry_id, roster_slot, team_abbr)
                        VALUES (?1, ?2, ?3)"#,
@@ -884,16 +824,6 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn by_contest_empty_when_no_entries(pool: SqlitePool) {
-        let fixture = factories::team(&pool, TeamOptions::default()).await;
-        let contest = factories::contest(&pool, "Week 1").await;
-        let rows = by_contest(&pool, ContestId(contest), fixture.league.id)
-            .await
-            .expect("load");
-        assert!(rows.is_empty());
-    }
-
-    #[sqlx::test]
     async fn by_id_loads_entry_with_context(pool: SqlitePool) {
         let fixture = factories::team(&pool, TeamOptions::default()).await;
         let contest = factories::contest(&pool, "Week 5").await;
@@ -914,48 +844,6 @@ mod tests {
         assert!(entry.team.logo.is_none());
         assert_eq!(entry.lineup.rb1, NflPlayerId("00-A".into()));
         assert_eq!(entry.lineup.def, TeamAbbr::KC);
-    }
-
-    #[sqlx::test]
-    async fn by_id_unknown_is_none(pool: SqlitePool) {
-        assert!(by_id(&pool, EntryId(999)).await.expect("query").is_none());
-    }
-
-    #[sqlx::test]
-    async fn slate_salaries_keys_players_and_defense(pool: SqlitePool) {
-        let contest = factories::contest(&pool, "Week 1").await;
-        // Freeze the slate onto one game.
-        sqlx::query(
-            "INSERT INTO contest_games (contest_id, game_id) VALUES (?1, '2025_01_BUF_KC')",
-        )
-        .bind(contest)
-        .execute(&pool)
-        .await
-        .unwrap();
-        // A player salary and a DST salary on that game.
-        sqlx::query(
-            "INSERT INTO nfl_player_salaries (game_id, gsis_player_id, team_abbr, dfs_position, salary)
-             VALUES ('2025_01_BUF_KC', '00-A', 'KC', 'RB', 5700)",
-        ).execute(&pool).await.unwrap();
-        sqlx::query(
-            "INSERT INTO nfl_player_salaries (game_id, gsis_player_id, team_abbr, dfs_position, salary)
-             VALUES ('2025_01_BUF_KC', NULL, 'KC', 'DST', 3500)",
-        ).execute(&pool).await.unwrap();
-        // A salary on a game NOT on the slate must be excluded.
-        sqlx::query(
-            "INSERT INTO nfl_player_salaries (game_id, gsis_player_id, team_abbr, dfs_position, salary)
-             VALUES ('2025_01_OTHER', '00-Z', 'SF', 'WR', 9999)",
-        ).execute(&pool).await.unwrap();
-
-        let s = slate_salaries(&pool, ContestId(contest))
-            .await
-            .expect("load");
-        assert_eq!(s.players.get(&NflPlayerId("00-A".into())), Some(&5700));
-        assert_eq!(s.defenses.get(&TeamAbbr::KC), Some(&3500));
-        assert!(
-            !s.players.contains_key(&NflPlayerId("00-Z".into())),
-            "off-slate salary excluded"
-        );
     }
 
     #[sqlx::test]

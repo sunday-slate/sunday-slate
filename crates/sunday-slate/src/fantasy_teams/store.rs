@@ -270,16 +270,6 @@ mod tests {
         (league.id, user_id)
     }
 
-    #[sqlx::test]
-    async fn has_any_false_then_true(pool: SqlitePool) {
-        let (league_id, user_id) = seed_league_and_user(&pool).await;
-        assert!(!has_any(&pool, league_id).await.expect("has_any"));
-        create(&pool, league_id, user_id, "Champs", "Mike", true)
-            .await
-            .expect("create team");
-        assert!(has_any(&pool, league_id).await.expect("has_any"));
-    }
-
     /// A second user in an existing league, so one league can hold two teams.
     async fn seed_user(pool: &SqlitePool, email: &str) -> i64 {
         sqlx::query_scalar(

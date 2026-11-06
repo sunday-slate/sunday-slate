@@ -2,7 +2,7 @@ use nfl_data::TeamAbbr;
 use strum::IntoEnumIterator;
 
 use crate::contests::ContestId;
-use crate::entries::{NflPlayerId, RosterSlot, SlotValue};
+use crate::entries::{NflPlayerId, PlayerOrDefenseId, RosterSlot};
 use crate::fantasy_teams::FantasyTeamId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type)]
@@ -28,8 +28,8 @@ pub struct DraftEntry {
 
 impl DraftEntry {
     /// The value in a slot, `None` for an empty one.
-    pub fn get(&self, slot: RosterSlot) -> Option<SlotValue> {
-        let p = |id: &Option<NflPlayerId>| id.clone().map(SlotValue::Player);
+    pub fn get(&self, slot: RosterSlot) -> Option<PlayerOrDefenseId> {
+        let p = |id: &Option<NflPlayerId>| id.clone().map(PlayerOrDefenseId::Player);
         match slot {
             RosterSlot::Qb => p(&self.qb),
             RosterSlot::Rb1 => p(&self.rb1),
@@ -39,15 +39,15 @@ impl DraftEntry {
             RosterSlot::Wr3 => p(&self.wr3),
             RosterSlot::Te => p(&self.te),
             RosterSlot::Flex => p(&self.flex),
-            RosterSlot::Def => self.def.map(SlotValue::Defense),
+            RosterSlot::Def => self.def.map(PlayerOrDefenseId::Defense),
         }
     }
 
     /// Put a value in a slot, overwriting whatever was there.
-    pub fn set(&mut self, slot: RosterSlot, value: SlotValue) {
+    pub fn set(&mut self, slot: RosterSlot, value: PlayerOrDefenseId) {
         let (player, defense) = match value {
-            SlotValue::Player(id) => (Some(id), None),
-            SlotValue::Defense(t) => (None, Some(t)),
+            PlayerOrDefenseId::Player(id) => (Some(id), None),
+            PlayerOrDefenseId::Defense(t) => (None, Some(t)),
         };
         match slot {
             RosterSlot::Qb => self.qb = player,
@@ -80,16 +80,5 @@ impl DraftEntry {
     /// Whether any slot holds a pick — a draft worth resuming.
     pub fn has_picks(&self) -> bool {
         RosterSlot::iter().any(|s| self.get(s).is_some())
-    }
-
-    /// The gsis ids currently occupying the eight player slots.
-    pub fn filled_player_ids(&self) -> Vec<NflPlayerId> {
-        [
-            &self.qb, &self.rb1, &self.rb2, &self.wr1, &self.wr2, &self.wr3, &self.te, &self.flex,
-        ]
-        .into_iter()
-        .flatten()
-        .cloned()
-        .collect()
     }
 }

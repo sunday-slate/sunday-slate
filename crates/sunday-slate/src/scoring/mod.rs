@@ -46,13 +46,6 @@ impl Score {
     }
 }
 
-/// Season-to-date FPPG
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct PointsPerGame {
-    pub avg_points: f64,
-    pub games_played: u32,
-}
-
 fn line(stat: &'static str, quantity: f64, points: f64) -> ScoreLine {
     ScoreLine {
         stat,
@@ -118,7 +111,7 @@ fn points_allowed_points(pa: i32) -> f64 {
 }
 
 /// FanDuel points for one team defense's week. All inputs are pbp-derived, so
-/// every FanDuel D/ST category is covered.
+/// every FanDuel DST category is covered.
 pub fn score_defense(t: &NflTeamWeekStats) -> Score {
     let mut lines = Vec::new();
     let mut push = |stat, qty: f64, per: f64| {

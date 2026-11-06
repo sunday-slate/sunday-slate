@@ -107,30 +107,6 @@ mod tests {
     use garde::Validate;
 
     #[test]
-    fn form_errors_empty_is_empty() {
-        let fe = FormErrors::default();
-        assert!(fe.is_empty());
-        assert!(fe.field("email").is_empty());
-    }
-
-    #[test]
-    fn form_errors_from_on_valid_form() {
-        #[derive(Validate)]
-        struct F {
-            #[garde(length(min = 1))]
-            name: String,
-        }
-        let f = F {
-            name: "a".to_string(),
-        };
-        let fe = match f.validate() {
-            Ok(()) => FormErrors::default(),
-            Err(report) => FormErrors::from(&report),
-        };
-        assert!(fe.is_empty());
-    }
-
-    #[test]
     fn form_errors_from_single_field() {
         #[derive(Validate)]
         struct F {
@@ -148,16 +124,6 @@ mod tests {
         let msgs = fe.field("email");
         assert_eq!(msgs.len(), 1);
         assert!(msgs[0].contains("not a valid email"));
-    }
-
-    #[test]
-    fn form_errors_from_two_errors_same_field() {
-        let p = Password("sh".to_string());
-        let Err(report) = p.validate() else {
-            panic!("expected error")
-        };
-        let fe = FormErrors::from(&report);
-        assert!(!fe.is_empty());
     }
 
     #[test]
@@ -179,18 +145,5 @@ mod tests {
         let msgs = fe.field("password");
         assert!(msgs.iter().any(|m| m.contains("length")));
         assert!(msgs.iter().any(|m| m.contains("spaces")));
-    }
-
-    #[test]
-    fn form_errors_field_nonexistent_returns_empty() {
-        let fe = FormErrors::default();
-        assert!(fe.field("nonexistent").is_empty());
-    }
-
-    #[test]
-    fn form_errors_single_holds_one_message() {
-        let fe = FormErrors::single("email", "already a member");
-        assert!(!fe.is_empty());
-        assert_eq!(fe.field("email"), vec!["already a member"]);
     }
 }

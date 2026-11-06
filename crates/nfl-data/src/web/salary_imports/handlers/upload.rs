@@ -107,26 +107,43 @@ async fn read_upload(mut mp: Multipart) -> Result<SalaryUpload, SalaryAdminError
     Ok(SalaryUpload { season_week, csv })
 }
 
-/// Validate the slate, persist the CSV, and apply persisted links.
+/// Validate the slate, persist the CSV, apply persisted links, and republish
+/// the snapshot once.
+///
+/// Persistence happens before the rebuild, so a later failure still republishes
+/// what was committed; the original failure is what the caller sees.
 async fn import_salary_csv(
     state: &AdminState,
     season_week: SeasonWeek,
     csv_data: &[u8],
 ) -> Result<SalaryWeekOverview, NflDataError> {
-    let source = state.nfl.parse_fanduel_csv(season_week, csv_data)?;
-    let games = state.nfl.games(season_week.season).await?;
+    let source = salaries::parse_fanduel_csv(&state.nfl.fanduel, season_week, csv_data)?;
+    let games = crate::provider::games(&state.nfl.provider, season_week.season).await?;
     salaries::resolve_slate_games(&games, &season_week, &salaries::salary_matchups(&source))
         .map_err(|_| NflDataError::Schedule)?;
-    state.nfl.save_fanduel_salaries(&source).await?;
-    state.nfl.reconcile_salary_week(season_week).await?;
+    salaries::save_fanduel_salaries(&state.nfl.fanduel, &source).await?;
+    let linked = salaries::reconcile_salary_week(
+        &state.nfl.fanduel,
+        &state.nfl.provider,
+        &state.nfl.store,
+        season_week,
+    )
+    .await;
+    let rebuilt = state.nfl.reconcile_slates_and_rebuild().await;
+    linked?;
+    rebuilt?;
     salary_imports::salary_week_overview(state, season_week).await
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::web::tests::salary_fixture::admin_state;
+    use crate::web::tests::salary_fixture::{
+        admin_slate_id, admin_state, admin_state_in_season, upload_form,
+    };
+    use crate::{DfsPosition, Season};
     use axum::http::StatusCode;
     use axum_test::multipart::{MultipartForm, Part};
+    use nfl_model::{DfsPositionSlotType, NflPlayerId};
 
     #[tokio::test]
     async fn upload_uses_the_explicit_season_week() {
@@ -280,12 +297,47 @@ mod tests {
                 .assert_status(StatusCode::BAD_REQUEST);
         }
         assert!(
-            state
-                .nfl
-                .fanduel_weekly_summaries(&[])
+            crate::salaries::fanduel_weekly_summaries(&state.nfl.fanduel, &[])
                 .await
                 .unwrap()
                 .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn uploaded_salaries_publish_matched_players_before_the_response() {
+        let state = admin_state_in_season(Season(2025)).await;
+
+        // Josh Allen auto-matches; the two receivers stay unmatched. The
+        // handler rebuilds before responding, so no polling is involved.
+        state
+            .server
+            .post("/nfl-data-admin/salary-imports")
+            .multipart(upload_form())
+            .await
+            .assert_status(StatusCode::SEE_OTHER);
+
+        let snapshot = state.nfl.snapshot();
+        assert!(
+            snapshot
+                .player(&admin_slate_id(), &NflPlayerId("00-1".into()))
+                .is_some_and(|player| player.name == "Josh Allen"),
+            "the completed upload is visible immediately"
+        );
+
+        // The unmatched receivers published nothing.
+        assert!(
+            snapshot
+                .salaried_players_for_position(
+                    &admin_slate_id(),
+                    &DfsPositionSlotType::Position(DfsPosition::Wr),
+                )
+                .is_empty()
+        );
+        assert!(
+            snapshot
+                .player(&admin_slate_id(), &NflPlayerId("00-roster-only".into()))
+                .is_none()
         );
     }
 }

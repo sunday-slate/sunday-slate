@@ -31,14 +31,16 @@
 
   <div class="pick-list">
     {% for row in page.rows %}
+    {% if let Some(n) = row.info.as_ref() %}
     <div class="pick pick-row">
-      {% call info::pick_media(row.info) %}{% endcall %}
+      {% call info::pick_media(n) %}{% endcall %}
       <div class="pick-body">
-        {% call info::pick_header("bg-base-300 text-base-content/70", row.slot, row.info, false) %}{% endcall %}
-        {% call info::info_columns(row.info) %}{% endcall %}
+        {% call info::pick_header("bg-base-300 text-base-content/70", row.slot, n, false) %}{% endcall %}
+        {% call info::info_columns(n) %}{% endcall %}
       </div>
       <div class="w-1"></div>
     </div>
+    {% endif %}
     {% endfor %}
   </div>
 </div>

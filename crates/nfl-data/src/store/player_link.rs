@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 /// A confirmed link between a FanDuel player and its GSIS identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PlayerLink {
+pub(crate) struct PlayerLink {
     pub fd_player_id: u32,
     pub gsis_player_id: String,
 }
@@ -25,6 +25,38 @@ where
     Ok(rows
         .into_iter()
         .map(|row| (row.fd_player_id, row.gsis_player_id))
+        .collect())
+}
+
+/// Every persisted link whose FanDuel id is in `fd_player_ids`, as a
+/// FanDuel-id → GSIS-id map; an empty set reads nothing.
+pub(crate) async fn links_for_fd_ids<'e, E>(
+    ex: E,
+    fd_player_ids: &[u32],
+) -> Result<HashMap<u32, String>, NflDataError>
+where
+    E: sqlx::Executor<'e, Database = Sqlite>,
+{
+    if fd_player_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let mut builder = sqlx::QueryBuilder::<Sqlite>::new(
+        r#"SELECT fd_player_id, gsis_player_id
+               FROM player_links
+               WHERE fd_player_id IN ("#,
+    );
+    let mut ids = builder.separated(", ");
+    for fd_player_id in fd_player_ids {
+        ids.push_bind(i64::from(*fd_player_id));
+    }
+    ids.push_unseparated(")");
+    let rows = builder
+        .build_query_as::<(i64, String)>()
+        .fetch_all(ex)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(fd_player_id, gsis_player_id)| (fd_player_id as u32, gsis_player_id))
         .collect())
 }
 
@@ -72,6 +104,20 @@ async fn save_links_tx(
     Ok(())
 }
 
+/// Persist FanDuel→GSIS player links, skipping an empty batch. Callers
+/// republish the snapshot at their workflow boundary, once the whole import is
+/// persisted.
+pub(crate) async fn save_player_links(
+    store: &Store,
+    links: &[PlayerLink],
+) -> Result<(), NflDataError> {
+    if links.is_empty() {
+        return Ok(());
+    }
+    save_links(store, links).await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -112,6 +158,46 @@ mod tests {
         assert_eq!(
             gsis_ids(store.reader()).await.unwrap(),
             vec!["00-0036355".to_owned(), "00-0045678".to_owned()]
+        );
+    }
+
+    #[tokio::test]
+    async fn links_for_fd_ids_only_returns_the_requested_links() {
+        let store = store().await;
+        save_links(
+            &store,
+            &[
+                PlayerLink {
+                    fd_player_id: 166092,
+                    gsis_player_id: "00-0036355".into(),
+                },
+                PlayerLink {
+                    fd_player_id: 12543,
+                    gsis_player_id: "00-0045678".into(),
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            links_for_fd_ids(store.reader(), &[166092, 404])
+                .await
+                .unwrap(),
+            HashMap::from([(166092, "00-0036355".to_owned())])
+        );
+        assert_eq!(
+            links_for_fd_ids(store.reader(), &[166092, 12543])
+                .await
+                .unwrap()
+                .len(),
+            2
+        );
+        assert!(
+            links_for_fd_ids(store.reader(), &[])
+                .await
+                .unwrap()
+                .is_empty()
         );
     }
 

@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use axum::http::StatusCode;
 use axum_test::{TestResponse, TestServer};
+use nfl_model::NflPlayerId;
 use sqlx::SqlitePool;
 
 use crate::mail::Mailer;
@@ -10,7 +11,6 @@ use crate::{AppState, Config, Db, User};
 
 pub struct TestApp {
     pub server: TestServer,
-    pub router: axum::Router,
     pub pool: SqlitePool,
     pub mailer: Mailer,
     pub nfl: Arc<nfl_data::NflData>,
@@ -39,22 +39,6 @@ impl TestApp {
             Mailer::capture("Sunday Slate <no-reply@example.com>"),
             Some(now),
             false,
-            None,
-        )
-        .await
-    }
-
-    /// Like `from_pool_at` but with the dev live feed flag set.
-    pub async fn from_pool_at_with_live_dev_feed(
-        pool: SqlitePool,
-        now: time::OffsetDateTime,
-        live_dev_feed: bool,
-    ) -> Self {
-        Self::build(
-            pool,
-            Mailer::capture("Sunday Slate <no-reply@example.com>"),
-            Some(now),
-            live_dev_feed,
             None,
         )
         .await
@@ -116,15 +100,14 @@ impl TestApp {
             injuries: Arc::new(crate::injuries::InjuryReports::new()),
         };
 
-        let router = crate::router::build(state.clone(), session_layer);
-
         // Cookie jar on: each response's Set-Cookie is saved and replayed on the
         // next request from this server, so login/flash/logout carry automatically.
-        let server = TestServer::builder().save_cookies().build(router.clone());
+        let server = TestServer::builder()
+            .save_cookies()
+            .build(crate::router::build(state.clone(), session_layer));
 
         TestApp {
             server,
-            router,
             pool,
             mailer,
             nfl,
@@ -229,11 +212,6 @@ impl TestApp {
         self.server.get(uri).await
     }
 
-    /// GET carrying one extra request header — htmx requests, mainly.
-    pub async fn get_with_header(&self, uri: &str, name: &str, value: &str) -> TestResponse {
-        self.server.get(uri).add_header(name, value).await
-    }
-
     pub async fn post(&self, uri: &str, body: &str) -> TestResponse {
         self.server
             .post(uri)
@@ -250,4 +228,116 @@ impl TestApp {
             .add_header("HX-Request", "true")
             .await
     }
+}
+
+/// KC RB fixture with first/last/full names for FanDuel matching.
+pub fn headshot_player(
+    nfl_player_id: NflPlayerId,
+    first: &str,
+    last: &str,
+    headshot_url: Option<&str>,
+) -> nfl_data::Player {
+    nfl_data::Player {
+        gsis_id: nfl_player_id.0,
+        espn_id: None,
+        full_name: format!("{first} {last}"),
+        first_name: Some(first.into()),
+        last_name: Some(last.into()),
+        position: Some("RB".into()),
+        latest_team: Some(nfl_data::TeamAbbr::KC),
+        headshot_url: headshot_url.map(Into::into),
+    }
+}
+
+/// Weeks 1–2 2026 KC-vs-BUF games for headshot fixtures.
+pub fn headshot_salary_games() -> Vec<nfl_data::Game> {
+    [
+        (
+            "2026_01_BUF_KC",
+            1,
+            time::macros::datetime!(2026-09-13 17:00 UTC),
+        ),
+        (
+            "2026_02_BUF_KC",
+            2,
+            time::macros::datetime!(2026-09-20 17:00 UTC),
+        ),
+    ]
+    .into_iter()
+    .map(|(id, week, kickoff)| nfl_data::Game {
+        season_week: nfl_data::SeasonWeek {
+            season: nfl_data::Season(2026),
+            season_type: nfl_data::SeasonType::Reg,
+            week: nfl_data::Week(week),
+        },
+        kickoff: Some(kickoff),
+        ..factories::game_at(id, week, kickoff)
+    })
+    .collect()
+}
+
+/// Publish one week's salaries via the real admin upload.
+/// `players` must be seeded; adds a KC defense row for validity.
+pub async fn publish_headshot_slate(app: &TestApp, week: u8, players: &[nfl_data::Player]) {
+    let mut csv = String::from(
+        r#""Id","Position","First Name","Nickname","Last Name","FPPG","Played","Salary","Game","Team","Opponent","Injury Indicator","Injury Details"
+"#,
+    );
+    for (index, player) in players.iter().enumerate() {
+        csv.push_str(&format!(
+            r#""{week}-{}","RB","{}","","{}","0","0","5000","BUF@KC","KC","BUF","",""
+"#,
+            u32::from(week) * 100 + index as u32 + 1,
+            player.first_name.as_deref().unwrap_or_default(),
+            player.last_name.as_deref().unwrap_or_default(),
+        ));
+    }
+    csv.push_str(&format!(
+        r#""{week}-dst","D","Kansas City","","Chiefs","0","0","3000","BUF@KC","KC","BUF","",""
+"#
+    ));
+
+    let server = TestServer::new(axum::Router::new().nest(
+        "/nfl-data-admin",
+        nfl_data::admin_router::<()>(
+            Arc::clone(&app.nfl),
+            nfl_data::AdminConfig {
+                season: nfl_data::Season(2026),
+                now_override: Some(time::macros::datetime!(2026-09-01 00:00 UTC)),
+            },
+        ),
+    ));
+    let form = axum_test::multipart::MultipartForm::new()
+        .add_text("season", "2026")
+        .add_text("season_type", "REG")
+        .add_text("week", week.to_string())
+        .add_part(
+            "csv",
+            axum_test::multipart::Part::bytes(csv.into_bytes()).file_name("salary.csv"),
+        );
+    let response = server
+        .post("/nfl-data-admin/salary-imports")
+        .multipart(form)
+        .await;
+    response.assert_status(StatusCode::SEE_OTHER);
+    assert_eq!(
+        response.header("location").to_str().unwrap(),
+        format!("/nfl-data-admin/salary-imports/2026{week:03}")
+    );
+
+    let slate = app
+        .nfl
+        .snapshot()
+        .current_slate()
+        .expect("the upload publishes a slate")
+        .clone();
+    assert_eq!(
+        slate.season_week,
+        nfl_data::SeasonWeek {
+            season: nfl_data::Season(2026),
+            season_type: nfl_data::SeasonType::Reg,
+            week: nfl_data::Week(week),
+        },
+        "the published maximum slate is the uploaded week"
+    );
 }

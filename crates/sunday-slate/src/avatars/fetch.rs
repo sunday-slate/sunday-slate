@@ -1,10 +1,12 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use tracing::warn;
 
 use crate::media::{self, process::ProcessedImage, store as media_store};
-use crate::nfl_players::store as player_store;
+use crate::nfl_player_headshots::service as headshot_service;
+use crate::nfl_player_headshots::store as player_store;
 use crate::nfl_teams::store as team_store;
 use crate::{AppError, AppState};
 use utils::background::{Progress, Runner};
@@ -70,24 +72,20 @@ async fn fetch_missing_with<F>(
 where
     F: Fn(&str) -> String,
 {
-    let players = player_store::missing_headshots(state.db.reader()).await?;
+    let players = headshot_service::missing_headshots(state).await?;
     let teams = team_store::missing_logos(state.db.reader()).await?;
     let total = players.len() + teams.len();
     let mut report = FetchReport::default();
     publish(progress, total, &report);
-    let player_ids: Vec<&str> = players
-        .iter()
-        .map(|player| player.gsis_player_id.as_str())
-        .collect();
-    let identities = if player_ids.is_empty() {
-        std::collections::HashMap::new()
+    let identities = if players.is_empty() {
+        HashMap::new()
     } else {
-        state.nfl.identify(&player_ids).await?
+        state.nfl.identify(&players).await?
     };
     let client = reqwest::Client::new();
 
     for player in players {
-        let Some(identity) = identities.get(&player.gsis_player_id) else {
+        let Some(identity) = identities.get(&player) else {
             report.skipped += 1;
             publish(progress, total, &report);
             continue;
@@ -101,7 +99,7 @@ where
             Ok(image) => image,
             Err(error) => {
                 warn!(
-                    gsis_player_id = %player.gsis_player_id,
+                    nfl_player_id = %player.0,
                     url,
                     %error,
                     "failed to fetch player headshot"
@@ -111,18 +109,18 @@ where
                 continue;
             }
         };
-        let path = format!("headshots/{}.png", player.gsis_player_id);
+        let path = format!("headshots/{}.png", player.0);
         if let Err(error) = state
             .db
             .write_tx(async |conn| -> Result<(), AppError> {
                 let media_id = save_avatar(conn, state, &path, &processed).await?;
-                player_store::set_headshot_media_id(&mut *conn, player.id, media_id).await?;
+                player_store::set_headshot_media_id(&mut *conn, &player, media_id).await?;
                 Ok(())
             })
             .await
         {
             warn!(
-                gsis_player_id = %player.gsis_player_id,
+                nfl_player_id = %player.0,
                 %error,
                 "failed to save player headshot"
             );
@@ -253,6 +251,7 @@ mod tests {
     use std::io::Cursor;
 
     use image::{DynamicImage, ImageFormat, RgbImage};
+    use nfl_model::NflPlayerId;
     use sqlx::SqlitePool;
     use uuid::Uuid;
     use wiremock::matchers::{method, path};
@@ -260,8 +259,8 @@ mod tests {
 
     use super::*;
     use crate::media::{MediaId, store as media_store};
-    use crate::nfl_players::store as player_store;
     use crate::tests::TestApp;
+    use crate::tests::{headshot_player, headshot_salary_games, publish_headshot_slate};
     use utils::background::{Progress, RunnerState};
 
     /// A progress handle bound to a runner that is `Running`, so `update`
@@ -310,34 +309,11 @@ mod tests {
         query.execute(pool).await.expect("link teams");
     }
 
-    async fn add_player(
-        app: &TestApp,
-        gsis_id: &str,
-        fd_id: u32,
-        headshot_url: Option<&str>,
-        seed_identity: bool,
-    ) {
-        player_store::upsert(&app.pool, gsis_id, fd_id)
+    async fn team_logo_id(pool: &SqlitePool) -> Option<i64> {
+        sqlx::query_scalar("SELECT logo_media_id FROM nfl_teams WHERE abbr = 'KC'")
+            .fetch_one(pool)
             .await
-            .expect("crosswalk");
-        if seed_identity {
-            app.nfl
-                .seed_for_test(
-                    &[nfl_data::Player {
-                        gsis_id: gsis_id.into(),
-                        espn_id: None,
-                        full_name: "Test Player".into(),
-                        first_name: None,
-                        last_name: None,
-                        position: Some("QB".into()),
-                        latest_team: Some(nfl_data::TeamAbbr::KC),
-                        headshot_url: headshot_url.map(str::to_owned),
-                    }],
-                    &[],
-                )
-                .await
-                .expect("nfl identity");
-        }
+            .expect("team media id")
     }
 
     #[test]
@@ -353,31 +329,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fetch_missing_links_player_and_team_media() {
+    async fn fetch_missing_links_team_media() {
         let app = TestApp::new().await;
         let server = MockServer::start().await;
-        let player_body = image_bytes(400, 200, ImageFormat::Png);
         let team_body = image_bytes(200, 400, ImageFormat::Png);
-        Mock::given(method("GET"))
-            .and(path("/player.png"))
-            .respond_with(ResponseTemplate::new(200).set_body_bytes(player_body))
-            .expect(1)
-            .mount(&server)
-            .await;
         Mock::given(method("GET"))
             .and(path("/team.png"))
             .respond_with(ResponseTemplate::new(200).set_body_bytes(team_body))
             .expect(1)
             .mount(&server)
             .await;
-        add_player(
-            &app,
-            "00-FETCH",
-            700001,
-            Some(&format!("{}/player.png", server.uri())),
-            true,
-        )
-        .await;
         link_teams(&app.pool, Some("KC")).await;
 
         let state = app.state();
@@ -390,7 +351,7 @@ mod tests {
         assert_eq!(
             report,
             FetchReport {
-                players_fetched: 1,
+                players_fetched: 0,
                 teams_fetched: 1,
                 failed: 0,
                 skipped: 0,
@@ -400,34 +361,21 @@ mod tests {
             app.state.avatar_runner.snapshot(),
             RunnerState::Running {
                 progress: FetchProgress {
-                    total: 2,
-                    fetched: 2,
+                    total: 1,
+                    fetched: 1,
                     failed: 0,
                     skipped: 0
                 },
                 ..
             }
         ));
-        let player = player_store::by_fd_id(&app.pool, 700001)
-            .await
-            .expect("player")
-            .expect("crosswalk");
-        let player_media = media_store::get(&app.pool, player.headshot_media_id.expect("headshot"))
-            .await
-            .expect("media")
-            .expect("player media");
-        assert_eq!((player_media.width, player_media.height), (256, 128));
-        assert_eq!(player_media.path, "headshots/00-FETCH.png");
-        assert!(state.config.media_dir.join(&player_media.path).is_file());
-        let team_media_id: Option<i64> =
-            sqlx::query_scalar("SELECT logo_media_id FROM nfl_teams WHERE abbr = 'KC'")
-                .fetch_one(&app.pool)
-                .await
-                .expect("team media id");
-        let team_media = media_store::get(&app.pool, MediaId(team_media_id.expect("logo")))
-            .await
-            .expect("media")
-            .expect("team media");
+        let team_media = media_store::get(
+            &app.pool,
+            MediaId(team_logo_id(&app.pool).await.expect("logo")),
+        )
+        .await
+        .expect("media")
+        .expect("team media");
         assert_eq!((team_media.width, team_media.height), (128, 256));
         assert_eq!(team_media.path, "logos/KC.png");
         assert!(state.config.media_dir.join(&team_media.path).is_file());
@@ -438,7 +386,7 @@ mod tests {
         let app = TestApp::new().await;
         let server = MockServer::start().await;
         Mock::given(method("GET"))
-            .and(path("/player.png"))
+            .and(path("/team.png"))
             .respond_with(ResponseTemplate::new(200).set_body_bytes(image_bytes(
                 64,
                 64,
@@ -447,33 +395,21 @@ mod tests {
             .expect(1)
             .mount(&server)
             .await;
-        add_player(
-            &app,
-            "00-ORPHAN",
-            700002,
-            Some(&format!("{}/player.png", server.uri())),
-            true,
-        )
-        .await;
-        link_teams(&app.pool, None).await;
-        let orphan =
-            media_store::insert(&app.pool, "headshots/00-ORPHAN.png", "image/png", 1, 1, 1)
-                .await
-                .expect("orphan row");
+        link_teams(&app.pool, Some("KC")).await;
+        let orphan = media_store::insert(&app.pool, "logos/KC.png", "image/png", 1, 1, 1)
+            .await
+            .expect("orphan row");
 
         let state = app.state();
+        let team_url = format!("{}/team.png", server.uri());
         let (progress, _hold) = test_progress(&app);
-        let report = fetch_missing_with(&state, &progress, |_| String::new())
+        let report = fetch_missing_with(&state, &progress, |_| team_url.clone())
             .await
             .expect("fetch");
 
-        assert_eq!(report.players_fetched, 1);
+        assert_eq!(report.teams_fetched, 1);
         assert_eq!(report.failed, 0);
-        let player = player_store::by_fd_id(&app.pool, 700002)
-            .await
-            .expect("player")
-            .expect("crosswalk");
-        assert_eq!(player.headshot_media_id, Some(orphan));
+        assert_eq!(team_logo_id(&app.pool).await, Some(orphan.0));
         let media = media_store::get(&app.pool, orphan)
             .await
             .expect("media")
@@ -487,25 +423,11 @@ mod tests {
         let app = TestApp::new().await;
         let server = MockServer::start().await;
         Mock::given(method("GET"))
-            .and(path("/player.png"))
-            .respond_with(ResponseTemplate::new(404))
-            .expect(1)
-            .mount(&server)
-            .await;
-        Mock::given(method("GET"))
             .and(path("/team.png"))
             .respond_with(ResponseTemplate::new(200).set_body_bytes(b"bad".to_vec()))
             .expect(1)
             .mount(&server)
             .await;
-        add_player(
-            &app,
-            "00-FAIL",
-            700003,
-            Some(&format!("{}/player.png", server.uri())),
-            true,
-        )
-        .await;
         link_teams(&app.pool, Some("KC")).await;
 
         let team_url = format!("{}/team.png", server.uri());
@@ -514,46 +436,28 @@ mod tests {
             .await
             .expect("fetch");
 
-        assert_eq!(report.failed, 2);
+        assert_eq!(report.failed, 1);
         assert_eq!(report.players_fetched, 0);
         assert_eq!(report.teams_fetched, 0);
         assert!(matches!(
             app.state.avatar_runner.snapshot(),
             RunnerState::Running {
                 progress: FetchProgress {
-                    total: 2,
+                    total: 1,
                     fetched: 0,
-                    failed: 2,
+                    failed: 1,
                     skipped: 0
                 },
                 ..
             }
         ));
-        let player = player_store::by_fd_id(&app.pool, 700003)
-            .await
-            .expect("player")
-            .expect("crosswalk");
-        assert!(player.headshot_media_id.is_none());
-        let team_media_id: Option<i64> =
-            sqlx::query_scalar("SELECT logo_media_id FROM nfl_teams WHERE abbr = 'KC'")
-                .fetch_one(&app.pool)
-                .await
-                .expect("team media id");
-        assert!(team_media_id.is_none());
+        assert!(team_logo_id(&app.pool).await.is_none());
     }
 
     #[tokio::test]
-    async fn fetch_missing_rejects_oversized_player_and_team_bodies() {
+    async fn fetch_missing_rejects_oversized_team_body() {
         let app = TestApp::new().await;
         let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/player.png"))
-            .respond_with(
-                ResponseTemplate::new(200).set_body_bytes(vec![0; MAX_HEADSHOT_BYTES + 1]),
-            )
-            .expect(1)
-            .mount(&server)
-            .await;
         Mock::given(method("GET"))
             .and(path("/team.png"))
             .respond_with(
@@ -562,14 +466,6 @@ mod tests {
             .expect(1)
             .mount(&server)
             .await;
-        add_player(
-            &app,
-            "00-OVERSIZED",
-            700004,
-            Some(&format!("{}/player.png", server.uri())),
-            true,
-        )
-        .await;
         link_teams(&app.pool, Some("KC")).await;
 
         let state = app.state();
@@ -584,21 +480,11 @@ mod tests {
             FetchReport {
                 players_fetched: 0,
                 teams_fetched: 0,
-                failed: 2,
+                failed: 1,
                 skipped: 0,
             }
         );
-        let player = player_store::by_fd_id(&app.pool, 700004)
-            .await
-            .expect("player")
-            .expect("crosswalk");
-        assert!(player.headshot_media_id.is_none());
-        let team_media_id: Option<i64> =
-            sqlx::query_scalar("SELECT logo_media_id FROM nfl_teams WHERE abbr = 'KC'")
-                .fetch_one(&app.pool)
-                .await
-                .expect("team media id");
-        assert!(team_media_id.is_none());
+        assert!(team_logo_id(&app.pool).await.is_none());
         let media_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM media")
             .fetch_one(&app.pool)
             .await
@@ -613,56 +499,269 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fetch_missing_counts_absent_and_no_source_identities() {
+    async fn start_fetch_runs_in_the_background_and_records_the_report() {
         let app = TestApp::new().await;
-        add_player(&app, "00-NO-SOURCE", 700005, None, true).await;
-        add_player(&app, "00-ABSENT", 700006, None, false).await;
-        link_teams(&app.pool, None).await;
-
-        let (progress, _hold) = test_progress(&app);
-        let report = fetch_missing_with(&app.state(), &progress, |_| {
-            "http://127.0.0.1:1/team.png".into()
-        })
-        .await
-        .expect("fetch");
-
-        assert_eq!(report.skipped, 2);
-        assert_eq!(report.players_fetched, 0);
-        assert_eq!(report.teams_fetched, 0);
-        assert_eq!(report.failed, 0);
-    }
-
-    #[tokio::test]
-    async fn fetch_missing_counts_save_failures() {
-        let app = TestApp::new().await;
-        let server = MockServer::start().await;
-        let player_body = image_bytes(400, 200, ImageFormat::Png);
-        Mock::given(method("GET"))
-            .and(path("/player.png"))
-            .respond_with(ResponseTemplate::new(200).set_body_bytes(player_body))
-            .expect(1)
-            .mount(&server)
-            .await;
-        add_player(
-            &app,
-            "00-SAVEFAIL",
-            700007,
-            Some(&format!("{}/player.png", server.uri())),
-            true,
-        )
-        .await;
         link_teams(&app.pool, None).await;
 
         let state = app.state();
-        std::fs::create_dir_all(&state.config.media_dir).expect("media dir");
-        std::fs::write(state.config.media_dir.join("headshots"), b"not a directory")
-            .expect("block headshots dir");
+        assert!(start_fetch(&state));
+        let last = state.avatar_runner.wait_idle().await.expect("last run");
+        assert_eq!(last.outcome, Ok(FetchReport::default()));
+    }
 
+    async fn headshot_media_id(pool: &SqlitePool, nfl_player_id: &NflPlayerId) -> Option<MediaId> {
+        sqlx::query_scalar(
+            "SELECT headshot_media_id FROM nfl_player_headshots WHERE nfl_player_id = ?1",
+        )
+        .bind(nfl_player_id)
+        .fetch_optional(pool)
+        .await
+        .expect("headshot link")
+    }
+
+    async fn media_count(pool: &SqlitePool) -> i64 {
+        sqlx::query_scalar("SELECT COUNT(*) FROM media")
+            .fetch_one(pool)
+            .await
+            .expect("media count")
+    }
+
+    async fn discovered_ids(app: &TestApp) -> Vec<NflPlayerId> {
+        let mut ids = headshot_service::missing_headshots(&app.state())
+            .await
+            .expect("discovery");
+        ids.sort_unstable();
+        ids
+    }
+
+    /// Sorted typed ids for set assertions.
+    fn nfl_player_ids(values: &[NflPlayerId]) -> Vec<NflPlayerId> {
+        let mut ids = values.to_vec();
+        ids.sort_unstable();
+        ids
+    }
+
+    /// Week-1 old id, week-2 scenarios, and an unslated id.
+    fn headshot_players(uri: &str) -> Vec<nfl_data::Player> {
+        let url = |path: &str| format!("{uri}/{path}");
+        vec![
+            headshot_player(
+                NflPlayerId("00-OLD".into()),
+                "Old",
+                "Timer",
+                Some(&url("old.png")),
+            ),
+            headshot_player(
+                NflPlayerId("00-CACHED".into()),
+                "Cached",
+                "Runner",
+                Some(&url("cached.png")),
+            ),
+            headshot_player(
+                NflPlayerId("00-NEW".into()),
+                "New",
+                "Runner",
+                Some(&url("new.png")),
+            ),
+            headshot_player(
+                NflPlayerId("00-FAIL".into()),
+                "Fail",
+                "Runner",
+                Some(&url("fail.png")),
+            ),
+            headshot_player(NflPlayerId("00-NOSOURCE".into()), "No", "Source", None),
+            headshot_player(
+                NflPlayerId("00-UNSLATED".into()),
+                "Un",
+                "Slated",
+                Some(&url("unslated.png")),
+            ),
+        ]
+    }
+
+    /// Seed players/games, publish weeks 1–2, prelink cached players and teams.
+    async fn seed_headshot_scenario(app: &TestApp, uri: &str) -> Vec<nfl_data::Player> {
+        let players = headshot_players(uri);
+        app.nfl
+            .seed_for_test(&players, &headshot_salary_games())
+            .await
+            .expect("seed provider");
+        publish_headshot_slate(app, 1, &players[..1]).await;
+        publish_headshot_slate(app, 2, &players[1..5]).await;
+
+        let media = dummy_media(&app.pool).await;
+        player_store::set_headshot_media_id(&app.pool, &NflPlayerId("00-CACHED".into()), media)
+            .await
+            .expect("prelink cached");
+        player_store::set_headshot_media_id(
+            &app.pool,
+            &NflPlayerId("00-CACHEONLY".into()),
+            dummy_media(&app.pool).await,
+        )
+        .await
+        .expect("cache-only id");
+        link_teams(&app.pool, None).await;
+        players
+    }
+
+    fn shapless_team_url(_: &str) -> String {
+        panic!("every team already has a logo")
+    }
+
+    #[tokio::test]
+    async fn missing_headshots_follows_the_latest_published_slate() {
+        let app = TestApp::new().await;
+        // no snapshot yet
+        assert!(discovered_ids(&app).await.is_empty());
+
+        seed_headshot_scenario(&app, "http://assets.invalid").await;
+        assert_eq!(
+            discovered_ids(&app).await,
+            nfl_player_ids(&[
+                NflPlayerId("00-FAIL".into()),
+                NflPlayerId("00-NEW".into()),
+                NflPlayerId("00-NOSOURCE".into()),
+            ]),
+            "only uncached latest-slate players, without flex duplicates or the defense"
+        );
+    }
+
+    #[tokio::test]
+    async fn fetch_missing_downloads_only_uncached_latest_slate_players() {
+        let app = TestApp::new().await;
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/new.png"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(image_bytes(
+                200,
+                400,
+                ImageFormat::Png,
+            )))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/fail.png"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(1)
+            .mount(&server)
+            .await;
+        seed_headshot_scenario(&app, &server.uri()).await;
+        let cached_id = headshot_media_id(&app.pool, &NflPlayerId("00-CACHED".into()))
+            .await
+            .expect("cached");
+        // unlinked row at the stable path is reused
+        let orphan = media_store::insert(&app.pool, "headshots/00-NEW.png", "image/png", 1, 1, 1)
+            .await
+            .expect("orphan row");
+
+        let state = app.state();
         let (progress, _hold) = test_progress(&app);
-        let report =
-            fetch_missing_with(&state, &progress, |_| "http://127.0.0.1:1/team.png".into())
-                .await
-                .expect("fetch");
+        let report = fetch_missing_with(&state, &progress, shapless_team_url)
+            .await
+            .expect("fetch");
+
+        assert_eq!(
+            report,
+            FetchReport {
+                players_fetched: 1,
+                teams_fetched: 0,
+                failed: 1,
+                skipped: 1,
+            }
+        );
+        assert!(matches!(
+            app.state.avatar_runner.snapshot(),
+            RunnerState::Running {
+                progress: FetchProgress {
+                    total: 3,
+                    fetched: 1,
+                    failed: 1,
+                    skipped: 1
+                },
+                ..
+            }
+        ));
+
+        assert_eq!(
+            headshot_media_id(&app.pool, &NflPlayerId("00-CACHED".into())).await,
+            Some(cached_id),
+            "a cached player keeps its link"
+        );
+        assert_eq!(
+            headshot_media_id(&app.pool, &NflPlayerId("00-NEW".into())).await,
+            Some(orphan)
+        );
+        let media = media_store::get(&app.pool, orphan)
+            .await
+            .expect("media")
+            .expect("reused row");
+        assert_eq!((media.width, media.height), (128, 256));
+        assert_eq!(media.path, "headshots/00-NEW.png");
+        let bytes = std::fs::read(state.config.media_dir.join(&media.path)).expect("saved png");
+        let image = image::load_from_memory(&bytes).expect("a decodable png");
+        assert_eq!((image.width(), image.height()), (128, 256));
+        assert_eq!(
+            headshot_media_id(&app.pool, &NflPlayerId("00-FAIL".into())).await,
+            None
+        );
+        assert_eq!(
+            headshot_media_id(&app.pool, &NflPlayerId("00-NOSOURCE".into())).await,
+            None
+        );
+
+        let mut requested: Vec<String> = server
+            .received_requests()
+            .await
+            .expect("requests")
+            .into_iter()
+            .map(|request| request.url.path().to_string())
+            .collect();
+        requested.sort_unstable();
+        assert_eq!(
+            requested,
+            ["/fail.png", "/new.png"],
+            "cached, old-slate, and unslated players are never downloaded"
+        );
+
+        assert_eq!(
+            discovered_ids(&app).await,
+            nfl_player_ids(&[
+                NflPlayerId("00-FAIL".into()),
+                NflPlayerId("00-NOSOURCE".into()),
+            ]),
+            "the downloaded player is cached; failed and sourceless ones retry"
+        );
+    }
+
+    #[tokio::test]
+    async fn fetch_missing_counts_malformed_player_images_as_failures() {
+        let app = TestApp::new().await;
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/bad.png"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"bad".to_vec()))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let player = headshot_player(
+            NflPlayerId("00-BAD".into()),
+            "Bad",
+            "Image",
+            Some(&format!("{}/bad.png", server.uri())),
+        );
+        app.nfl
+            .seed_for_test(std::slice::from_ref(&player), &headshot_salary_games())
+            .await
+            .expect("seed provider");
+        publish_headshot_slate(&app, 1, std::slice::from_ref(&player)).await;
+        link_teams(&app.pool, None).await;
+
+        let state = app.state();
+        let (progress, _hold) = test_progress(&app);
+        let report = fetch_missing_with(&state, &progress, shapless_team_url)
+            .await
+            .expect("fetch");
 
         assert_eq!(
             report,
@@ -673,63 +772,68 @@ mod tests {
                 skipped: 0,
             }
         );
-        let player = player_store::by_fd_id(&app.pool, 700007)
-            .await
-            .expect("player")
-            .expect("crosswalk");
-        assert!(player.headshot_media_id.is_none());
+        assert_eq!(
+            headshot_media_id(&app.pool, &NflPlayerId("00-BAD".into())).await,
+            None
+        );
+        assert_eq!(media_count(&app.pool).await, 1, "only the team's dummy row");
     }
 
     #[tokio::test]
-    async fn fetch_missing_skips_already_linked_entities() {
+    async fn fetch_missing_rolls_back_when_the_media_file_cannot_be_written() {
         let app = TestApp::new().await;
-        let media_id = dummy_media(&app.pool).await;
-        add_player(
-            &app,
-            "00-LINKED",
-            700008,
-            Some("http://127.0.0.1:1/player.png"),
-            true,
-        )
-        .await;
-        player_store::set_headshot_media_id(&app.pool, 1, media_id)
-            .await
-            .expect("link player");
-        link_teams(&app.pool, None).await;
         let server = MockServer::start().await;
         Mock::given(method("GET"))
-            .respond_with(ResponseTemplate::new(500))
-            .expect(0)
+            .and(path("/save.png"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(image_bytes(
+                64,
+                64,
+                ImageFormat::Png,
+            )))
+            .expect(1)
             .mount(&server)
             .await;
-
-        let (progress, _hold) = test_progress(&app);
-        let report = fetch_missing_with(&app.state(), &progress, |_| {
-            format!("{}/unexpected.png", server.uri())
-        })
-        .await
-        .expect("fetch");
-
-        assert_eq!(report, FetchReport::default());
-    }
-
-    #[tokio::test]
-    async fn start_fetch_runs_in_the_background_and_records_the_report() {
-        let app = TestApp::new().await;
+        let player = headshot_player(
+            NflPlayerId("00-SAVE".into()),
+            "Save",
+            "Failure",
+            Some(&format!("{}/save.png", server.uri())),
+        );
+        app.nfl
+            .seed_for_test(std::slice::from_ref(&player), &headshot_salary_games())
+            .await
+            .expect("seed provider");
+        publish_headshot_slate(&app, 1, std::slice::from_ref(&player)).await;
         link_teams(&app.pool, None).await;
-        add_player(&app, "00-NOSRC", 700012, None, true).await;
+
+        // a file at the media dir fails every write
+        let media_dir = app.state.config.media_dir.clone();
+        std::fs::remove_dir_all(&media_dir).expect("remove media dir");
+        std::fs::write(&media_dir, b"not a directory").expect("replace media dir");
 
         let state = app.state();
-        assert!(start_fetch(&state));
-        let last = state.avatar_runner.wait_idle().await.expect("last run");
+        let (progress, _hold) = test_progress(&app);
+        let report = fetch_missing_with(&state, &progress, shapless_team_url)
+            .await
+            .expect("fetch");
+
         assert_eq!(
-            last.outcome,
-            Ok(FetchReport {
+            report,
+            FetchReport {
                 players_fetched: 0,
                 teams_fetched: 0,
-                failed: 0,
-                skipped: 1
-            })
+                failed: 1,
+                skipped: 0,
+            }
+        );
+        assert_eq!(
+            headshot_media_id(&app.pool, &NflPlayerId("00-SAVE".into())).await,
+            None
+        );
+        assert_eq!(
+            media_count(&app.pool).await,
+            1,
+            "the failed save committed no media row"
         );
     }
 }

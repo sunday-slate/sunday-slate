@@ -44,7 +44,6 @@ struct RequestCtx {
     league_name: Option<String>,
     team: Option<i64>,
     switcher: Vec<SwitcherLeague>,
-    admin_banner: Option<crate::admin::banner::AdminBanner>,
     /// Set when an entity link silently switched the active league this
     /// request — `flashes()` turns it into a "Now viewing …" toast.
     league_switched: Option<String>,
@@ -104,16 +103,6 @@ pub fn league_switcher() -> Vec<SwitcherLeague> {
         .unwrap_or_default()
 }
 
-/// The admin's pending-setup banner. `None` for members, ready contests,
-/// admin pages (the banner links into `/admin`, so it would be noise
-/// there), requests that render no shell, and outside a request scope.
-pub fn admin_banner() -> Option<crate::admin::banner::AdminBanner> {
-    REQUEST_CTX
-        .try_with(|c| c.admin_banner.clone())
-        .ok()
-        .flatten()
-}
-
 /// Build the request context and run the rest of the stack inside the
 /// task-local scope. Must be mounted inside `MessagesManagerLayer` and the
 /// auth layer so both extensions are populated.
@@ -153,20 +142,6 @@ pub async fn request_ctx(State(state): State<AppState>, req: Request, next: Next
             };
             let full_page_get =
                 parts.method == Method::GET && !parts.headers.contains_key("HX-Request");
-            // The banner is shell chrome, so only a full page render can
-            // show it: POSTs and their redirects render no shell, htmx
-            // requests swap a fragment inside one that already rendered,
-            // and admin pages are where the banner sends the admin. Every
-            // other request skips the load.
-            let admin_banner = if u.is_admin
-                && full_page_get
-                && parts.uri.path() != "/"
-                && !crate::admin::is_admin_path(parts.uri.path())
-            {
-                pending_banner(&state).await
-            } else {
-                None
-            };
             // The tab bar renders only on full-page GETs; `/` redirects and
             // resolves its contest in the handler. Best-effort: an error
             // hides the tab.
@@ -191,7 +166,6 @@ pub async fn request_ctx(State(state): State<AppState>, req: Request, next: Next
                 league_name,
                 team,
                 switcher,
-                admin_banner,
                 league_switched,
             }
         }
@@ -202,22 +176,6 @@ pub async fn request_ctx(State(state): State<AppState>, req: Request, next: Next
     };
     let req = Request::from_parts(parts, body);
     REQUEST_CTX.scope(ctx, next.run(req)).await
-}
-
-/// The admin's pending-setup banner for a shell-rendering request outside
-/// `/admin`. Best-effort — a failed load reads as `None`, which only hides
-/// the reminder.
-async fn pending_banner(state: &AppState) -> Option<crate::admin::banner::AdminBanner> {
-    let season = nfl_data::Season(state.config.season);
-    let slates =
-        crate::contests::service::SeasonSlates::load(state.db.reader(), &state.nfl, season)
-            .await
-            .ok()?;
-    let contests = crate::contests::store::all(state.db.reader()).await.ok()?;
-    crate::admin::banner::pending(state, &slates, &contests, state.now_eastern())
-        .await
-        .ok()
-        .flatten()
 }
 
 #[cfg(test)]
@@ -234,6 +192,5 @@ mod tests {
         assert!(league_name().is_none());
         assert!(current_team().is_none());
         assert!(league_switcher().is_empty());
-        assert!(admin_banner().is_none());
     }
 }

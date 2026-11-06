@@ -4,12 +4,12 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::contests::ContestId;
-use crate::contests::service::SeasonSlates;
+use crate::contests::{service, store};
 use crate::entries::store as entries;
 use crate::scoring::WeekStats;
 use crate::standings::standings::{self, ScoredFantasyTeam, StandingRow};
 use crate::{AppError, AppState};
-use nfl_data::{Season, Week};
+use nfl_data::Week;
 
 /// Every fantasy team in a league, scored against the supplied contest weeks
 /// with their already-loaded stats. A contest absent from the map is skipped.
@@ -50,10 +50,13 @@ pub async fn standings_for_league(
     state: &AppState,
     league_id: i64,
 ) -> Result<Vec<StandingRow>, AppError> {
-    let season = Season(state.config.season);
-    let slates = SeasonSlates::load(state.db.reader(), &state.nfl, season).await?;
-    let wanted: HashSet<ContestId> = slates.slates.keys().copied().collect();
-    let results = slates.official_contest_weeks(state, &wanted).await?;
+    let snapshot = state.nfl.snapshot();
+    let contests = store::all(state.db.reader()).await?;
+    let wanted: HashSet<ContestId> = service::contest_weeks(&contests, &snapshot)
+        .keys()
+        .copied()
+        .collect();
+    let results = service::official_contest_weeks(state, &contests, &snapshot, &wanted).await?;
     Ok(standings::rank(
         scored_teams(state, league_id, &results.contest_week, &results.stats).await?,
     ))

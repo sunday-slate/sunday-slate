@@ -23,10 +23,3 @@ impl fmt::Debug for User {
             .finish()
     }
 }
-
-#[derive(Debug, sqlx::FromRow)]
-pub struct UserListItem {
-    pub id: i64,
-    pub email: String,
-    pub created_at: PrimitiveDateTime,
-}

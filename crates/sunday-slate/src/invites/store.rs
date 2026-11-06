@@ -582,15 +582,6 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn league_id_of_returns_the_invites_league(pool: SqlitePool) {
-        let league = seed_league(&pool, "L").await;
-        let id = upsert(&pool, league, "a@b.com", "hash")
-            .await
-            .expect("invite");
-        assert_eq!(league_id_of(&pool, id).await.expect("lookup"), Some(league));
-    }
-
-    #[sqlx::test]
     async fn find_active_any_prefers_the_most_recent_and_skips_accepted(pool: SqlitePool) {
         let league_a = seed_league(&pool, "A").await;
         let league_b = seed_league(&pool, "B").await;

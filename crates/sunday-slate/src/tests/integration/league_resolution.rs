@@ -278,7 +278,7 @@ async fn entry_page_sticky_switches_the_active_league(pool: SqlitePool) {
         },
     )
     .await;
-    let contest = factories::contest_with_games(&pool, "Week 1", &[SLATE_GAME]).await;
+    let contest = factories::contest(&pool, "Week 1").await;
     let entry_id = factories::full_entry(&pool, contest, owner.team.id, "00-A").await;
     let fillers: Vec<_> = (1..=7)
         .map(|i| factories::player(&format!("00-F{i}"), &format!("Filler Player{i}")))

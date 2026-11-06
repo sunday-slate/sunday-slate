@@ -13,12 +13,13 @@ use crate::auth::CurrentUser;
 use crate::chrome::{Chrome, Tab};
 use crate::contests::ContestId;
 use crate::contests::service::{
-    self, ContestRow, EntryRow, GameRow, SeasonSlates, Upcoming, WaitingRow, WinnerRow,
+    self, ContestRow, EntryRow, GameRow, Upcoming, WaitingRow, WinnerRow,
 };
 use crate::contests::store;
 use crate::draft_entry::store as draft_entry_store;
 use crate::entries::store as entries_store;
 use crate::fantasy_teams::{self, FantasyTeamId, MaybeTeam};
+use crate::home::dispatch;
 use crate::leagues::CurrentLeague;
 use crate::live::ContestScores;
 use crate::scoring::service as scoring_service;
@@ -29,8 +30,8 @@ use crate::{AppError, AppState};
 #[template(path = "contests/index.html")]
 struct ContestListPage {
     chrome: Chrome,
-    /// Upcoming and live contests, rendered as their own list above the
-    /// finished ones (they sort first, newest date first).
+    /// The Current Contest while it is live or upcoming, rendered above the
+    /// finished ones.
     current: Vec<ContestRow>,
     finished: Vec<ContestRow>,
 }
@@ -40,16 +41,19 @@ pub async fn index(
     CurrentLeague(league): CurrentLeague,
 ) -> Result<Html<String>, AppError> {
     let season = Season(state.config.season);
-    let schedule = SeasonSlates::load(state.db.reader(), &state.nfl, season).await?;
+    let snapshot = state.nfl.snapshot();
     let now = state.now_eastern();
 
-    let contests = schedule.slate_contests(&store::all(state.db.reader()).await?);
-    let contest_weeks = schedule.contest_weeks();
+    let contests = store::all(state.db.reader()).await?;
+    let slate_contests = service::slate_contests(&contests, &snapshot);
+    let current = dispatch::current_contest(&slate_contests, now);
+    let slate_contests = service::listed_contests(slate_contests, current, now);
+    let contest_weeks = service::contest_weeks(&contests, &snapshot);
     let stats =
         scoring_service::week_stats(&state.nfl, season, contest_weeks.values().copied()).await?;
     let teams = standings_service::scored_teams(&state, league.id, &contest_weeks, &stats).await?;
 
-    let mut rows = service::contest_list(&contests, &teams, now);
+    let mut rows = service::contest_list(&slate_contests, &teams, now);
 
     for row in &mut rows {
         match crate::live::load_contest_scores(&state, row.id).await? {

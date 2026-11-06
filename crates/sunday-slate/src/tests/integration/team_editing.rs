@@ -282,29 +282,6 @@ async fn admin_without_a_team_in_the_league_gets_not_found(pool: SqlitePool) {
 }
 
 #[tokio::test]
-async fn legacy_team_paths_have_no_compatibility_routes() {
-    let app = TestApp::new().await;
-    let gen_team = factories::team(&app.pool, TeamOptions::default()).await;
-    app.login_as(&gen_team.owner).await;
-
-    for path in ["/teams/me", "/teams/me/logo"] {
-        let response = app.get(path).await;
-        assert!(response.status_code().is_client_error(), "{path}");
-        assert!(response.maybe_header("location").is_none(), "{path}");
-    }
-    for response in [
-        app.server
-            .post("/teams/me/logo")
-            .multipart(logo_form(png_bytes(2, 2)))
-            .await,
-        app.post("/teams/me/logo/delete", "").await,
-    ] {
-        assert!(response.status_code().is_client_error());
-        assert!(response.maybe_header("location").is_none());
-    }
-}
-
-#[tokio::test]
 async fn bad_uploads_leave_the_logo_alone_and_remove_wins() {
     let app = TestApp::new().await;
     let gen_team = factories::team(&app.pool, TeamOptions::default()).await;

@@ -3,17 +3,7 @@ use crate::fantasy_teams::FantasyTeamId;
 use crate::media::Media;
 use nfl_data::TeamAbbr;
 
-/// A typed NFL-player reference. Wraps nfl-data's `String` gsis ids at the
-/// boundary; its eventual home is nfl-data next to `TeamAbbr`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, sqlx::Type)]
-#[sqlx(transparent)]
-pub struct NflPlayerId(pub String);
-
-impl AsRef<str> for NflPlayerId {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
+pub use nfl_model::NflPlayerId;
 
 /// A lineup's nine roster slots. Stored as TEXT (`"QB"`, `"RB1"`, ...) in
 /// `entry_slots.roster_slot`; the sqlx derive decodes that column directly.
@@ -59,6 +49,42 @@ impl RosterSlot {
         }
     }
 
+    /// Whether this slot takes a team defense rather than a player.
+    pub fn is_defense(self) -> bool {
+        matches!(self, RosterSlot::Def)
+    }
+
+    /// What the picker's search field invites you to type. FLEX and DEF get
+    /// words because "Search FLEXs" and "Search DEFs" don't read as English.
+    pub fn search_placeholder(self) -> String {
+        match self {
+            RosterSlot::Flex => "Search players".into(),
+            slot if slot.is_defense() => "Search defenses".into(),
+            slot => format!("Search {}s", slot.position_label()),
+        }
+    }
+
+    /// Parse the picker's submitted value into what this slot holds. The slot
+    /// decides whether the string is a player id or a team abbr.
+    pub fn parse_value(self, raw: String) -> Result<PlayerOrDefenseId, String> {
+        if self.is_defense() {
+            raw.parse()
+                .map(PlayerOrDefenseId::Defense)
+                .map_err(|_| format!("{raw} is not a team abbr."))
+        } else {
+            Ok(PlayerOrDefenseId::Player(NflPlayerId(raw)))
+        }
+    }
+
+    /// The picker's empty-state noun: "No defenses match ..." for DEF.
+    pub fn search_noun(self) -> &'static str {
+        if self.is_defense() {
+            "defenses"
+        } else {
+            "players"
+        }
+    }
+
     pub fn dom_id(self) -> &'static str {
         match self {
             Self::Qb => "qb",
@@ -74,19 +100,13 @@ impl RosterSlot {
     }
 }
 
-/// What a roster slot holds: a player for the eight player slots, a team
-/// defense for DEF.
-#[derive(Debug, Clone, PartialEq)]
-pub enum SlotValue {
-    Player(NflPlayerId),
-    Defense(TeamAbbr),
-}
+pub use nfl_model::PlayerOrDefenseId;
 
 /// One `entry_slots` row, typed: which slot and what it holds.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EntrySlot {
     pub slot: RosterSlot,
-    pub value: SlotValue,
+    pub value: PlayerOrDefenseId,
 }
 
 /// The one lineup invariant the schema can't enforce: all nine slots present.
@@ -143,12 +163,12 @@ impl Lineup {
             .into_iter()
             .map(|(slot, id)| EntrySlot {
                 slot,
-                value: SlotValue::Player(id.clone()),
+                value: PlayerOrDefenseId::Player(id.clone()),
             })
             .collect();
         slots.push(EntrySlot {
             slot: RosterSlot::Def,
-            value: SlotValue::Defense(self.def),
+            value: PlayerOrDefenseId::Defense(self.def),
         });
         slots
     }
@@ -177,15 +197,15 @@ impl Lineup {
         let mut b = Builder::default();
         for EntrySlot { slot, value } in slots {
             match (slot, value) {
-                (Qb, SlotValue::Player(p)) => b.qb = Some(p),
-                (Rb1, SlotValue::Player(p)) => b.rb1 = Some(p),
-                (Rb2, SlotValue::Player(p)) => b.rb2 = Some(p),
-                (Wr1, SlotValue::Player(p)) => b.wr1 = Some(p),
-                (Wr2, SlotValue::Player(p)) => b.wr2 = Some(p),
-                (Wr3, SlotValue::Player(p)) => b.wr3 = Some(p),
-                (Te, SlotValue::Player(p)) => b.te = Some(p),
-                (Flex, SlotValue::Player(p)) => b.flex = Some(p),
-                (Def, SlotValue::Defense(t)) => b.def = Some(t),
+                (Qb, PlayerOrDefenseId::Player(p)) => b.qb = Some(p),
+                (Rb1, PlayerOrDefenseId::Player(p)) => b.rb1 = Some(p),
+                (Rb2, PlayerOrDefenseId::Player(p)) => b.rb2 = Some(p),
+                (Wr1, PlayerOrDefenseId::Player(p)) => b.wr1 = Some(p),
+                (Wr2, PlayerOrDefenseId::Player(p)) => b.wr2 = Some(p),
+                (Wr3, PlayerOrDefenseId::Player(p)) => b.wr3 = Some(p),
+                (Te, PlayerOrDefenseId::Player(p)) => b.te = Some(p),
+                (Flex, PlayerOrDefenseId::Player(p)) => b.flex = Some(p),
+                (Def, PlayerOrDefenseId::Defense(t)) => b.def = Some(t),
                 _ => {}
             }
         }
@@ -274,7 +294,7 @@ mod tests {
     fn player(slot: RosterSlot, gsis: &str) -> EntrySlot {
         EntrySlot {
             slot,
-            value: SlotValue::Player(NflPlayerId(gsis.to_string())),
+            value: PlayerOrDefenseId::Player(NflPlayerId(gsis.to_string())),
         }
     }
 
@@ -291,7 +311,7 @@ mod tests {
             player(Flex, "00-8"),
             EntrySlot {
                 slot: Def,
-                value: SlotValue::Defense(TeamAbbr::KC),
+                value: PlayerOrDefenseId::Defense(TeamAbbr::KC),
             },
         ]
     }

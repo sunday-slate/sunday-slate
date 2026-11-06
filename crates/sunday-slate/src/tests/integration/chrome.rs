@@ -133,38 +133,6 @@ async fn title_suffix_does_not_double_when_the_page_title_names_the_league() {
 
 /// `/` dispatches to the Current Contest, where the Current tab lights and
 /// links back to `/`.
-#[tokio::test]
-async fn current_tab_lights_when_home_dispatches_to_a_contest() {
-    let app = TestApp::from_pool_at(
-        crate::tests::utils::in_memory_pool().await,
-        time::macros::datetime!(2025 - 09 - 06 12:00 UTC),
-    )
-    .await;
-    let gen_league = factories::league(&app.pool, LeagueOptions::default()).await;
-    factories::contest_with_games(&app.pool, "Week 1", &["2025_01_BUF_KC"]).await;
-    let g = factories::game_at(
-        "2025_01_BUF_KC",
-        1,
-        time::macros::datetime!(2025 - 09 - 07 17:00 UTC),
-    );
-    app.nfl.seed_for_test(&[], &[g]).await.unwrap();
-    app.login_as(&gen_league.commish).await;
-
-    let resp = app.home().await;
-    resp.assert_status_ok();
-    let body = resp.text();
-    assert_eq!(
-        body.matches(ACTIVE).count(),
-        1,
-        "exactly one tab should be active: {body}"
-    );
-    assert_eq!(
-        href_before(&body, ACTIVE),
-        "/",
-        "the Current tab should link to /: {body}"
-    );
-}
-
 /// A contest with no games attached is never the Current Contest, so its
 /// detail page lights Contests, not Current.
 #[tokio::test]
@@ -383,12 +351,7 @@ async fn admin_subtree_closes_to_canonical_parent() {
     .await;
     app.login_as(&admin.user).await;
 
-    for (path, parent) in [
-        ("/admin/contests", "/admin"),
-        ("/admin/contests/setup", "/admin/contests"),
-        ("/admin/salary-imports", "/admin"),
-        ("/admin/avatars", "/admin"),
-    ] {
+    for (path, parent) in [("/admin/avatars", "/admin")] {
         let resp = app.get(path).await;
         resp.assert_status_ok();
         let body = resp.text();

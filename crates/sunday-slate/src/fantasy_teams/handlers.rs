@@ -1,5 +1,6 @@
 use crate::chrome::{Chrome, Tab};
-use crate::contests::service::{ContestState, SeasonSlates, contest_state};
+use crate::contests::service as contests_service;
+use crate::contests::service::{ContestState, contest_state};
 use crate::contests::{Contest, ContestId, store as contests_store};
 use crate::draft_entry::store as draft_entry_store;
 use crate::entries::store as entries_store;
@@ -21,7 +22,6 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use axum_htmx::HxRequest;
 use garde::Validate;
-use nfl_data::Season;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use tower_sessions::Session;
@@ -297,11 +297,11 @@ pub async fn show(
 
     // Officially-decided contests only, narrowed to this team's. A live
     // contest stays out: the open-contests section above owns the live row.
-    let season = Season(state.config.season);
-    let slates = SeasonSlates::load(state.db.reader(), &state.nfl, season).await?;
+    let snapshot = state.nfl.snapshot();
     let contests = contests_store::all(state.db.reader()).await?;
     let wanted: HashSet<ContestId> = team.entries.iter().map(|e| e.contest).collect();
-    let results = slates.official_contest_weeks(&state, &wanted).await?;
+    let results =
+        contests_service::official_contest_weeks(&state, &contests, &snapshot, &wanted).await?;
     let scores =
         scoring_service::score_entries(&team.entries, &results.contest_week, &results.stats);
 
@@ -323,8 +323,7 @@ pub async fn show(
     let open = match edit_team_id {
         Some(team_id) => {
             // A contest whose official stats have landed is no longer open.
-            let slate_contests = slates
-                .slate_contests(&contests)
+            let slate_contests = contests_service::slate_contests(&contests, &snapshot)
                 .into_iter()
                 .filter(|c| !results.contest_week.contains_key(&c.id))
                 .collect::<Vec<_>>();

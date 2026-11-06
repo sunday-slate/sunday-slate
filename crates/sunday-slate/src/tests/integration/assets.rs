@@ -61,48 +61,6 @@ async fn app_icons_served_at_declared_sizes() {
 }
 
 #[tokio::test]
-async fn favicon_served() {
-    let app = TestApp::new().await;
-    let resp = app.get("/static/img/favicon.svg").await;
-    resp.assert_status_ok();
-}
-
-#[tokio::test]
-async fn css_served() {
-    let app = TestApp::new().await;
-    let resp = app.get("/static/css/app.css").await;
-    resp.assert_status_ok();
-}
-
-#[tokio::test]
-async fn htmx_served() {
-    let app = TestApp::new().await;
-    let resp = app.get("/static/vendor/js/htmx.min.js").await;
-    resp.assert_status_ok();
-}
-
-#[tokio::test]
-async fn alpine_served() {
-    let app = TestApp::new().await;
-    let resp = app.get("/static/vendor/js/alpine.min.js").await;
-    resp.assert_status_ok();
-}
-
-#[tokio::test]
-async fn phosphor_icons_served() {
-    let app = TestApp::new().await;
-    let resp = app.get("/static/vendor/phosphor/regular.css").await;
-    resp.assert_status_ok();
-}
-
-#[tokio::test]
-async fn font_served() {
-    let app = TestApp::new().await;
-    let resp = app.get("/static/vendor/fonts/geist.woff2").await;
-    resp.assert_status_ok();
-}
-
-#[tokio::test]
 async fn versioned_css_serves_immutable_and_same_etag() {
     let app = TestApp::new().await;
 

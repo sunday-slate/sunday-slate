@@ -79,6 +79,23 @@ pub enum DatasetStatus {
     Failed(NflDataError),
 }
 
+/// One committed asset from a sync: the dataset and, for per-season datasets,
+/// the season whose rows were replaced. Shared datasets carry `None`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AssetUpdate {
+    pub dataset: Dataset,
+    pub season: Option<Season>, // None for shared schedules and players
+}
+
+/// One completed sync run: the overall verdict plus every asset that committed
+/// changes. Emitted for unchanged and fully failed runs too, but never for a
+/// run that fails at setup.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SyncEvent {
+    pub all_ok: bool,
+    pub updates: Vec<AssetUpdate>,
+}
+
 impl SyncReport {
     pub fn all_ok(&self) -> bool {
         self.datasets

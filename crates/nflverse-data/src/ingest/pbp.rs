@@ -76,7 +76,7 @@ struct GameAccum {
     teams: BTreeMap<String, Accum>,
 }
 
-/// Aggregate one season's play-by-play into per-team-week D/ST rows.
+/// Aggregate one season's play-by-play into per-team-week DST rows.
 pub(crate) fn parse(asset: &str, bytes: &[u8]) -> Result<Vec<TeamWeekStats>, NflDataError> {
     // Keyed by game_id; each game accumulates both teams. parse_csv gives strict
     // row errors (a malformed play fails the asset, as with every other feed).
@@ -143,7 +143,7 @@ pub(crate) fn parse(asset: &str, bytes: &[u8]) -> Result<Vec<TeamWeekStats>, Nfl
         // A takeaway on the first fumble: either the other team recovered it,
         // or the fumbling team lost it with no recoverer recorded (fumbled out
         // of bounds / into the end zone for a touchback) — FanDuel credits the
-        // D/ST a fumble recovery either way.
+        // DST a fumble recovery either way.
         if let Some(lost) = p.fumbled_1_team.as_deref() {
             let taker: Option<String> = match p.fumble_recovery_1_team.as_deref() {
                 Some(rec) if rec != lost => Some(rec.to_string()),
@@ -171,7 +171,7 @@ pub(crate) fn parse(asset: &str, bytes: &[u8]) -> Result<Vec<TeamWeekStats>, Nfl
         }
 
         // Touchdowns: offensive (into the scorer's offense, feeding the
-        // opponent's points_allowed) vs non-offensive (D/ST +6).
+        // opponent's points_allowed) vs non-offensive (DST +6).
         if flag(p.touchdown)
             && let Some(scorer) = p.td_team.as_deref()
             && let Some(a) = game.teams.get_mut(scorer)

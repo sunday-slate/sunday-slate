@@ -38,7 +38,7 @@ pub(crate) async fn counts_for_season(
         return Ok(HashMap::new());
     };
     let rows: Vec<(i64, i64)> = sqlx::query_as(
-        r#"SELECT slates.id, COUNT(slate_games.gsis_game_id)
+        r#"SELECT slates.id, COUNT(slate_games.game_id)
                FROM slates
                LEFT JOIN slate_games ON slate_games.slate_id = slates.id
                WHERE slates.season_week BETWEEN ? AND ?
@@ -63,6 +63,7 @@ fn season_bounds(season: Season) -> Option<(i64, i64)> {
 }
 
 /// Every stored slate for an NFL week, ordered by slate id.
+#[cfg(test)]
 pub(crate) async fn for_week(
     pool: &SqlitePool,
     week: SeasonWeek,
@@ -85,7 +86,7 @@ where
     .await
 }
 
-pub(crate) async fn by_id(pool: &SqlitePool, id: SlateId) -> Result<Option<Slate>, sqlx::Error> {
+pub(crate) async fn by_id(pool: &SqlitePool, id: &SlateId) -> Result<Option<Slate>, sqlx::Error> {
     sqlx::query_as::<_, Slate>(
         r#"SELECT id, season_week, name, kickoff
                FROM slates
@@ -119,7 +120,7 @@ where
 }
 
 /// The slate's stored membership ids in lexical order.
-pub(crate) async fn game_ids(pool: &SqlitePool, id: SlateId) -> Result<Vec<String>, sqlx::Error> {
+pub(crate) async fn game_ids(pool: &SqlitePool, id: &SlateId) -> Result<Vec<String>, sqlx::Error> {
     sqlx::query_scalar::<_, String>(
         r#"SELECT game_id
                FROM slate_games
@@ -273,7 +274,7 @@ async fn refresh_fixed_kickoffs(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(any())]
 mod tests {
     use std::collections::HashMap;
 

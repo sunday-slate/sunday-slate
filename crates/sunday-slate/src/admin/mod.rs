@@ -5,9 +5,6 @@
 //! here rather than wiring their own auth.
 
 pub mod avatars;
-pub mod banner;
-pub mod contests;
-pub mod salary_imports;
 
 use askama::Template;
 use axum::Router;
@@ -56,8 +53,6 @@ pub fn router(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/admin", get(index))
         .nest("/admin/avatars", avatars::router())
-        .nest("/admin/contests", contests::router())
-        .nest("/admin/salary-imports", salary_imports::router())
         .route_layer(axum::middleware::from_fn_with_state(state, require_admin))
 }
 
@@ -98,7 +93,6 @@ mod tests {
         let page = app.get("/admin").await;
         page.assert_status_ok();
         page.assert_text_contains("Admin Tools");
-        page.assert_text_contains("/admin/salary-imports");
         page.assert_text_contains("/admin/avatars");
     }
 

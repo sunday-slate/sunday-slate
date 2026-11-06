@@ -130,7 +130,7 @@ async fn stored_week(nfl: &NflData, week: SeasonWeek) -> Vec<Slate> {
 }
 
 async fn stored_games(nfl: &NflData, id: SlateId) -> Vec<Game> {
-    slates::games(nfl, id).await.expect("stored games")
+    slates::games(nfl, &id).await.expect("stored games")
 }
 
 async fn tentative_week_13() -> (Fixture, SlateId, SlateId) {
@@ -155,17 +155,35 @@ async fn assert_week_13_fixed(nfl: &NflData, main_id: SlateId, thanksgiving_id: 
         "the week's snapshot is fixed"
     );
     assert_eq!(
-        store::slates::game_ids(nfl.store.reader(), main_id)
+        store::slates::game_ids(nfl.store.reader(), &main_id)
             .await
             .unwrap(),
         ["sun_1", "sun_2"]
     );
     assert_eq!(
-        store::slates::game_ids(nfl.store.reader(), thanksgiving_id)
+        store::slates::game_ids(nfl.store.reader(), &thanksgiving_id)
             .await
             .unwrap(),
         ["tg_1", "tg_2", "tg_3"]
     );
+}
+
+#[tokio::test]
+async fn counts_for_season_reports_membership_per_slate() {
+    let fixture = Fixture::connect().await;
+    fixture
+        .nfl
+        .seed_for_test(&[], &week_13_games())
+        .await
+        .unwrap();
+    populate(&fixture.nfl, MONDAY).await;
+
+    let counts = store::slates::counts_for_season(fixture.nfl.store.reader(), Season(2025))
+        .await
+        .expect("counts");
+    let week = stored_week(&fixture.nfl, WEEK_13).await;
+    assert_eq!(counts[&slate_named(&week, "Week 13").id], 2);
+    assert_eq!(counts[&slate_named(&week, "Thanksgiving").id], 3);
 }
 
 fn ids(games: &[Game]) -> Vec<&str> {
@@ -290,7 +308,7 @@ async fn one_population_fixes_every_slate_in_the_week() {
     );
     assert_week_13_fixed(&fixture.nfl, main_id, thanksgiving_id).await;
 
-    let found = slates::by_id(&fixture.nfl, main_id)
+    let found = slates::by_id(&fixture.nfl, &main_id)
         .await
         .unwrap()
         .expect("stored slate");
@@ -324,7 +342,7 @@ async fn first_population_after_the_opening_monday_uses_current_schedule() {
         "the first population after the opening Monday fixes the week"
     );
     assert_eq!(
-        store::slates::game_ids(fixture.nfl.store.reader(), main.id)
+        store::slates::game_ids(fixture.nfl.store.reader(), &main.id)
             .await
             .unwrap(),
         ["mnf", "sun_2"]
@@ -370,7 +388,7 @@ async fn disappearing_holiday_keeps_identity_and_clears_stale_kickoff() {
         Some(datetime!(2025-12-28 17:00 UTC))
     );
 
-    let found = slates::by_id(&fixture.nfl, christmas_id)
+    let found = slates::by_id(&fixture.nfl, &christmas_id)
         .await
         .unwrap()
         .expect("stored slate");
@@ -391,7 +409,7 @@ async fn disappearing_holiday_keeps_identity_and_clears_stale_kickoff() {
             .unwrap()
     );
     assert!(
-        store::slates::game_ids(fixture.nfl.store.reader(), christmas_id)
+        store::slates::game_ids(fixture.nfl.store.reader(), &christmas_id)
             .await
             .unwrap()
             .is_empty(),
@@ -423,7 +441,7 @@ async fn rescheduling_after_fix_changes_details_not_membership() {
 
     fixture.replace_games(&rescheduled_after_fix_games()).await;
 
-    let fixed_ids = store::slates::game_ids(fixture.nfl.store.reader(), main_id)
+    let fixed_ids = store::slates::game_ids(fixture.nfl.store.reader(), &main_id)
         .await
         .unwrap();
     assert_eq!(
@@ -445,7 +463,7 @@ async fn rescheduling_after_fix_changes_details_not_membership() {
         "returned Game kickoffs follow the current schedule"
     );
     assert_eq!(
-        slates::by_id(&fixture.nfl, main_id)
+        slates::by_id(&fixture.nfl, &main_id)
             .await
             .unwrap()
             .unwrap()
@@ -454,7 +472,7 @@ async fn rescheduling_after_fix_changes_details_not_membership() {
         "the stored kickoff refreshed from the fixed members"
     );
     assert_eq!(
-        slates::by_id(&fixture.nfl, main_id)
+        slates::by_id(&fixture.nfl, &main_id)
             .await
             .unwrap()
             .unwrap()
@@ -505,15 +523,21 @@ async fn unknown_id_has_no_side_effects() {
         .unwrap();
     let unknown = SlateId(999_999);
 
+    // Construction populated the week's metadata; the unknown-id lookups must
+    // leave it exactly as it stands.
+    let before = store::slates::for_week(fixture.nfl.store.reader(), WEEK_13)
+        .await
+        .expect("for week");
+
     assert!(
-        slates::by_id(&fixture.nfl, unknown)
+        slates::by_id(&fixture.nfl, &unknown)
             .await
             .unwrap()
             .is_none(),
         "absent ids have no metadata"
     );
     assert!(
-        slates::games(&fixture.nfl, unknown)
+        slates::games(&fixture.nfl, &unknown)
             .await
             .unwrap()
             .is_empty(),
@@ -525,11 +549,11 @@ async fn unknown_id_has_no_side_effects() {
             .unwrap(),
         "no week snapshot was created"
     );
-    assert!(
+    assert_eq!(
         store::slates::for_week(fixture.nfl.store.reader(), WEEK_13)
             .await
-            .unwrap()
-            .is_empty(),
-        "no metadata rows were created"
+            .expect("for week"),
+        before,
+        "the lookups created no metadata rows"
     );
 }

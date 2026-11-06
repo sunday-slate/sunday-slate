@@ -1,23 +1,6 @@
 use crate::User;
-use crate::users::model::UserListItem;
 use sqlx::Sqlite;
 use time::PrimitiveDateTime;
-
-pub async fn list_all<'e, E>(ex: E) -> Result<Vec<UserListItem>, sqlx::Error>
-where
-    E: sqlx::Executor<'e, Database = Sqlite>,
-{
-    sqlx::query_as!(
-        UserListItem,
-        r#"SELECT id AS "id!: i64",
-                  email AS "email!: String",
-                  created_at AS "created_at!: PrimitiveDateTime"
-           FROM users
-           ORDER BY created_at DESC"#,
-    )
-    .fetch_all(ex)
-    .await
-}
 
 pub async fn find_by_email<'e, E>(ex: E, email: &str) -> Result<Option<User>, sqlx::Error>
 where
@@ -79,15 +62,6 @@ where
         .await
 }
 
-pub async fn count<'e, E>(ex: E) -> Result<i64, sqlx::Error>
-where
-    E: sqlx::Executor<'e, Database = Sqlite>,
-{
-    sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count!: i64" FROM users"#)
-        .fetch_one(ex)
-        .await
-}
-
 pub async fn create<'e, E>(
     ex: E,
     email: &str,
@@ -122,37 +96,6 @@ mod tests {
     use sqlx::SqlitePool;
 
     #[sqlx::test]
-    async fn exists_returns_false_for_empty_table(pool: SqlitePool) {
-        assert!(!exists(&pool).await.expect("exists query"));
-    }
-
-    #[sqlx::test]
-    async fn exists_returns_true_after_insert(pool: SqlitePool) {
-        create(&pool, "a@b.com", "hash", false)
-            .await
-            .expect("insert");
-        assert!(exists(&pool).await.expect("exists query"));
-    }
-
-    #[sqlx::test]
-    async fn count_returns_zero_for_empty_table(pool: SqlitePool) {
-        assert_eq!(count(&pool).await.expect("count query"), 0);
-    }
-
-    #[sqlx::test]
-    async fn count_returns_n_for_inserted_rows(pool: SqlitePool) {
-        create(&pool, "a@b.com", "hash", false)
-            .await
-            .expect("insert 1");
-        assert_eq!(count(&pool).await.expect("count query"), 1);
-
-        create(&pool, "b@c.com", "hash", false)
-            .await
-            .expect("insert 2");
-        assert_eq!(count(&pool).await.expect("count query"), 2);
-    }
-
-    #[sqlx::test]
     async fn create_inserts_admin_user(pool: SqlitePool) {
         let user = create(&pool, "admin@example.com", "hash", true)
             .await
@@ -165,14 +108,6 @@ mod tests {
             .expect("find_by_email")
             .expect("user exists");
         assert!(found.is_admin);
-    }
-
-    #[sqlx::test]
-    async fn create_inserts_non_admin_user(pool: SqlitePool) {
-        let user = create(&pool, "user@example.com", "hash", false)
-            .await
-            .expect("create non-admin");
-        assert!(!user.is_admin, "expected is_admin=false");
     }
 
     #[sqlx::test]

@@ -1,13 +1,13 @@
-//! Contest lookups composing the store with NFL schedule data, plus pure contest-list assembly.
+//! Contest lookups composing the store with the published NFL snapshot, plus
+//! pure contest-list assembly.
 
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 
-use nfl_data::{Game, NflData, Season, Week};
-use sqlx::Sqlite;
+use nfl_data::{Game, Season, Week};
 use time::OffsetDateTime;
 
-use crate::contests::{Contest, ContestId, NflGameId, published_slate, store};
+use crate::contests::{Contest, ContestId, store};
 use crate::entries::store as entries_store;
 use crate::entries::{ContestEntry, EntryId};
 use crate::fantasy_teams::store as fantasy_teams_store;
@@ -17,47 +17,6 @@ use crate::scoring::{self, WeekStats, score_lineup};
 use crate::standings::standings::{self, ScoredFantasyTeam};
 use crate::{AppError, AppState};
 
-/// The season schedule and every contest's frozen slate, fetched together.
-///
-/// Contests resolve against the schedule in four places: the home
-/// dispatcher, the contest list, the standings, and the team detail page.
-/// Each one loads this pair once per request and folds it with the pure
-/// methods below.
-pub struct SeasonSlates {
-    pub games: Vec<Game>,
-    pub slates: HashMap<ContestId, Vec<NflGameId>>,
-}
-
-impl SeasonSlates {
-    pub async fn load<'e, E>(ex: E, nfl: &NflData, season: Season) -> Result<Self, AppError>
-    where
-        E: sqlx::Executor<'e, Database = Sqlite>,
-    {
-        let games = nfl.games(season).await?;
-        let slates = store::materialized_games(ex).await?;
-        Ok(Self { games, slates })
-    }
-
-    /// Each materialized contest's NFL week. A contest whose games are absent
-    /// from the schedule resolves to no week.
-    pub fn contest_weeks(&self) -> HashMap<ContestId, Week> {
-        let game_week: HashMap<&str, Week> = self
-            .games
-            .iter()
-            .map(|g| (g.game_id.as_str(), g.season_week.week))
-            .collect();
-        self.slates
-            .iter()
-            .filter_map(|(contest, ids)| {
-                let week = ids
-                    .iter()
-                    .find_map(|id| game_week.get(id.0.as_str()).copied())?;
-                Some((*contest, week))
-            })
-            .collect()
-    }
-}
-
 /// Contests whose slates' official stats have fully arrived, plus those stats.
 #[derive(Default)]
 pub struct OfficialResults {
@@ -65,105 +24,119 @@ pub struct OfficialResults {
     pub stats: HashMap<Week, WeekStats>,
 }
 
-impl SeasonSlates {
-    /// The `wanted` contests whose slates' official stats have fully arrived
-    /// — the same gate the contest page applies. Skips non-locked slates and
-    /// ones whose stats have not arrived rather than reporting false zeros;
-    /// while the dev live feed owns a registered snapshot, the result stays
-    /// provisional.
-    pub async fn official_contest_weeks(
-        &self,
-        state: &AppState,
-        wanted: &HashSet<ContestId>,
-    ) -> Result<OfficialResults, AppError> {
-        let now = state.now();
-        let mut candidates: Vec<(ContestId, Week, Vec<Game>)> = Vec::new();
-        for (contest, ids) in self.slates.iter().filter(|(c, _)| wanted.contains(c)) {
-            let games = ids
-                .iter()
-                .filter_map(|id| self.games.iter().find(|g| g.game_id == id.0))
-                .cloned()
-                .collect::<Vec<_>>();
-            if games.len() != ids.len() {
-                continue;
-            }
-            if !slate_locked(&games, now) {
-                continue;
-            }
-            if state.config.live_dev_feed && state.live.snapshot(*contest).is_some() {
-                continue;
-            }
-            let Some(week) = live::slate_tuple(&games).map(|(_, week, _)| week) else {
-                continue;
-            };
-            candidates.push((*contest, week, games));
-        }
-        if candidates.is_empty() {
-            return Ok(OfficialResults::default());
-        }
+/// Each contest's NFL week, derived from the games its slate resolves.
+/// Contests that resolve no games are absent.
+pub fn contest_weeks(
+    contests: &[Contest],
+    snapshot: &nfl_data::Snapshot,
+) -> HashMap<ContestId, Week> {
+    contests
+        .iter()
+        .filter_map(|contest| Some((contest.id, slate_week(contest.games(snapshot))?)))
+        .collect()
+}
 
-        let weeks = candidates
-            .iter()
-            .map(|(_, week, _)| *week)
-            .collect::<HashSet<_>>();
-        let mut stats =
-            crate::scoring::service::week_stats(&state.nfl, Season(state.config.season), weeks)
-                .await?;
-
-        let mut contest_week = HashMap::new();
-        for (contest, week, games) in candidates {
-            let Some(week_stats) = stats.get(&week) else {
-                continue;
-            };
-            if live::official_complete_for_slate(&games, week_stats) {
-                contest_week.insert(contest, week);
-            }
+/// The `wanted` contests whose slates' official stats have fully arrived
+/// — the same gate the contest page applies. Skips non-locked slates and
+/// ones whose stats have not arrived rather than reporting false zeros;
+/// while the dev live feed owns a registered snapshot, the result stays
+/// provisional.
+pub async fn official_contest_weeks(
+    state: &AppState,
+    contests: &[Contest],
+    snapshot: &nfl_data::Snapshot,
+    wanted: &HashSet<ContestId>,
+) -> Result<OfficialResults, AppError> {
+    let now = state.now();
+    let mut candidates: Vec<(ContestId, Week, &[Game])> = Vec::new();
+    for contest in contests
+        .iter()
+        .filter(|contest| wanted.contains(&contest.id))
+    {
+        let games = contest.games(snapshot);
+        if games.is_empty() {
+            continue;
         }
-        stats.retain(|week, _| contest_week.values().any(|w| w == week));
-        Ok(OfficialResults {
-            contest_week,
-            stats,
-        })
+        if !slate_locked(games, now) {
+            continue;
+        }
+        if state.config.live_dev_feed && state.live.snapshot(contest.id).is_some() {
+            continue;
+        }
+        let Some(week) = live::slate_tuple(games).map(|(_, week, _)| week) else {
+            continue;
+        };
+        candidates.push((contest.id, week, games));
+    }
+    if candidates.is_empty() {
+        return Ok(OfficialResults::default());
     }
 
-    /// Each scheduled game's Eastern kickoff, keyed by gsis id.
-    pub(crate) fn kickoffs(&self) -> HashMap<&str, OffsetDateTime> {
-        self.games
-            .iter()
-            .filter_map(|g| Some((g.game_id.as_str(), g.kickoff_eastern()?)))
-            .collect()
-    }
+    let weeks = candidates
+        .iter()
+        .map(|(_, week, _)| *week)
+        .collect::<HashSet<_>>();
+    let mut stats =
+        crate::scoring::service::week_stats(&state.nfl, Season(state.config.season), weeks).await?;
 
-    /// Pair each contest with its slate's earliest and latest kickoff.
-    /// Contests with no frozen slate, or no game in the current schedule, are dropped.
-    pub fn slate_contests(&self, contests: &[Contest]) -> Vec<SlateContest> {
-        // Present as a key means the game is on the schedule; the value is
-        // its kickoff, which a scheduled game may still be missing.
-        let scheduled: HashMap<&str, Option<OffsetDateTime>> = self
-            .games
-            .iter()
-            .map(|g| (g.game_id.as_str(), g.kickoff_eastern()))
-            .collect();
-        contests
-            .iter()
-            .filter_map(|c| {
-                let ids = self.slates.get(&c.id)?;
-                if !ids.iter().any(|id| scheduled.contains_key(id.0.as_str())) {
-                    return None;
-                }
-                let kicks: Vec<OffsetDateTime> = ids
-                    .iter()
-                    .filter_map(|id| scheduled.get(id.0.as_str()).copied().flatten())
-                    .collect();
-                Some(SlateContest {
-                    id: c.id,
-                    name: c.name.clone(),
-                    first: kicks.iter().min().copied(),
-                    last: kicks.iter().max().copied(),
-                })
+    let mut contest_week = HashMap::new();
+    for (contest, week, games) in candidates {
+        let Some(week_stats) = stats.get(&week) else {
+            continue;
+        };
+        if live::official_complete_for_slate(games, week_stats) {
+            contest_week.insert(contest, week);
+        }
+    }
+    stats.retain(|week, _| contest_week.values().any(|w| w == week));
+    Ok(OfficialResults {
+        contest_week,
+        stats,
+    })
+}
+
+/// Pair each contest with its slate's earliest and latest kickoff.
+/// Contests that resolve no games — including slates without salaried
+/// players — are dropped.
+pub fn slate_contests(contests: &[Contest], snapshot: &nfl_data::Snapshot) -> Vec<SlateContest> {
+    contests
+        .iter()
+        .filter_map(|contest| {
+            let games = contest.games(snapshot);
+            if games.is_empty() {
+                return None;
+            }
+            let mut first: Option<OffsetDateTime> = None;
+            let mut last: Option<OffsetDateTime> = None;
+            for kickoff in games.iter().filter_map(Game::kickoff_eastern) {
+                first = Some(first.map_or(kickoff, |first| first.min(kickoff)));
+                last = Some(last.map_or(kickoff, |last| last.max(kickoff)));
+            }
+            Some(SlateContest {
+                id: contest.id,
+                name: contest.name.clone(),
+                first,
+                last,
             })
-            .collect()
-    }
+        })
+        .collect()
+}
+
+/// The contests the Contests tab lists: every contest that has started (live
+/// or finished) plus the Current Contest while it is still upcoming. Later
+/// contests stay hidden until one of them becomes current.
+pub fn listed_contests(
+    contests: Vec<SlateContest>,
+    current: Option<ContestId>,
+    now: OffsetDateTime,
+) -> Vec<SlateContest> {
+    contests
+        .into_iter()
+        .filter(|contest| {
+            contest_state(contest.first, contest.last, now) != ContestState::Upcoming
+                || current == Some(contest.id)
+        })
+        .collect()
 }
 
 /// A slate-set contest heading into list assembly: name plus the slate's
@@ -246,11 +219,10 @@ impl ContestRow {
     }
 }
 
-/// A published slate is read-only once its earliest kickoff has passed. The
-/// gate protects lineups, and lineups exist only against a published slate, so
-/// an unpublished contest is never locked.
-pub fn slate_locked(published: &[Game], now: OffsetDateTime) -> bool {
-    published
+/// A slate is read-only once its earliest kickoff has passed. The gate
+/// protects lineups, so a contest that resolves no games is never locked.
+pub fn slate_locked(games: &[Game], now: OffsetDateTime) -> bool {
+    games
         .iter()
         .filter_map(Game::kickoff_eastern)
         .min()
@@ -549,6 +521,32 @@ mod contest_list_tests {
     }
 
     #[test]
+    fn lists_started_contests_plus_the_current_one() {
+        let at = datetime!(2025 - 09 - 10 12:00 UTC);
+        let past = one_day(1, "Week 1", date!(2025 - 09 - 07));
+        let current = one_day(2, "Week 2", date!(2025 - 09 - 14));
+        let later = one_day(3, "Week 3", date!(2025 - 09 - 21));
+        let current_id = current.id;
+
+        let listed = listed_contests(vec![past, current, later], Some(current_id), at);
+        assert_eq!(
+            listed.iter().map(|c| c.id).collect::<Vec<_>>(),
+            vec![ContestId(1), ContestId(2)],
+            "finished and current contests show; later ones wait"
+        );
+
+        let live = one_day(4, "Week 3", date!(2025 - 09 - 10));
+        let upcoming = one_day(5, "Week 4", date!(2025 - 09 - 21));
+        let live_id = live.id;
+        let listed = listed_contests(vec![live, upcoming], Some(live_id), at);
+        assert_eq!(
+            listed.iter().map(|c| c.id).collect::<Vec<_>>(),
+            vec![ContestId(4)],
+            "a live contest stays listed"
+        );
+    }
+
+    #[test]
     fn date_display_single_day_and_ranges() {
         let rows = contest_list(
             &[
@@ -809,8 +807,8 @@ fn rows_in_entry_order(entrants: Vec<ContestEntrant>, mine: Option<EntryId>) -> 
     rows
 }
 
-/// The slate's NFL week. `None` for an unpublished (empty) slate. Every contest
-/// rule keeps a slate inside one week, so the first game names it.
+/// The slate's NFL week. `None` for a slate with no games. Every slate holds
+/// one week, so the first game names it.
 pub fn slate_week(games: &[Game]) -> Option<Week> {
     games.first().map(|g| g.season_week.week)
 }
@@ -960,8 +958,8 @@ pub struct ContestDetails {
     pub upcoming: Option<Upcoming>,
     /// The viewer's committed entry, when their team entered this contest.
     pub my_entry: Option<EntryId>,
-    /// Whether lineups may still be entered: the slate is published and has
-    /// not kicked off.
+    /// Whether lineups may still be entered: the slate has games and has not
+    /// kicked off.
     pub entries_open: bool,
     pub score: ContestScoreMeta,
 }
@@ -1039,10 +1037,9 @@ pub async fn details_for_league(
     let Some(contest) = store::by_id(state.db.reader(), id).await? else {
         return Ok(None);
     };
-    let season = Season(state.config.season);
-    let season_games = state.nfl.games(season).await?;
+    let snapshot = state.nfl.snapshot();
     let now = state.now_eastern();
-    let games = published_slate(state.db.reader(), id, &season_games).await?;
+    let games = contest.games(&snapshot);
 
     let entries = entries_store::by_contest(state.db.reader(), id, league_id).await?;
 
@@ -1099,7 +1096,7 @@ pub async fn details_for_league(
         name: contest.name,
         entries_open: upcoming && !games.is_empty(),
         games: if upcoming {
-            game_rows(&games)
+            game_rows(games)
         } else {
             Vec::new()
         },
@@ -1113,17 +1110,15 @@ pub async fn details_for_league(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
     use std::sync::Arc;
 
     use super::*;
-    use crate::entries::{Lineup, NflPlayerId};
+    use crate::entries::Lineup;
     use crate::live::{LiveContestSnapshot, LiveGameState};
     use crate::tests::TestApp;
     use crate::tests::factories::{self, TeamOptions};
-    use nfl_data::{
-        Game, LiveGamePhase, PlayerWeekStats, Season, SeasonType, TeamAbbr, TeamWeekStats, Week,
-    };
+    use nfl_data::{Game, LiveGamePhase, Season, SeasonType, TeamAbbr, Week};
     use sqlx::SqlitePool;
     use time::OffsetDateTime;
     use time::macros::datetime;
@@ -1158,265 +1153,6 @@ mod tests {
             away_score: None,
         }
     }
-    /// Seed official-complete stats for every supplied week-1 matchup.
-    async fn seed_official_gate_stats(app: &TestApp, games: &[Game]) {
-        let mut players: Vec<PlayerWeekStats> = Vec::new();
-        let mut defenses: Vec<TeamWeekStats> = Vec::new();
-        for game in games {
-            for (team, opponent, yards, sacks) in [
-                (game.home_team, game.away_team, 100, 2),
-                (game.away_team, game.home_team, 50, 3),
-            ] {
-                let id = format!("{}-{}", game.game_id, team.as_str());
-                players.push(PlayerWeekStats {
-                    season: game.season_week.season,
-                    week: game.season_week.week,
-                    season_type: game.season_week.season_type,
-                    team,
-                    opponent: Some(opponent),
-                    ..factories::rb_stats(&id, game.season_week.week.0, yards)
-                });
-                defenses.push(TeamWeekStats {
-                    season: game.season_week.season,
-                    week: game.season_week.week,
-                    season_type: game.season_week.season_type,
-                    game_id: game.game_id.clone(),
-                    sacks,
-                    ..factories::scoreless_defense_stats(
-                        team.as_str(),
-                        opponent.as_str(),
-                        game.season_week.week.0,
-                    )
-                });
-            }
-        }
-        app.nfl
-            .seed_week_stats_for_test(Season(2025), &players, &defenses)
-            .await
-            .unwrap();
-    }
-
-    #[sqlx::test]
-    async fn official_gate_admits_only_ready_contests_in_a_shared_week(pool: SqlitePool) {
-        let now = datetime!(2025-09-07 22:00 UTC);
-        let kickoff = datetime!(2025-09-07 17:00 UTC);
-        let app = TestApp::from_pool_at(pool, now).await;
-        let ready = factories::game_at("2025_01_BUF_KC", 1, kickoff);
-        let other = Game {
-            home_team: TeamAbbr::NYG,
-            away_team: TeamAbbr::DAL,
-            ..factories::game_at("2025_01_DAL_NYG", 1, kickoff)
-        };
-
-        seed_official_gate_stats(&app, std::slice::from_ref(&ready)).await;
-
-        let slates = SeasonSlates {
-            games: vec![ready, other],
-            slates: HashMap::from([
-                (
-                    ContestId(1),
-                    vec![crate::contests::NflGameId("2025_01_BUF_KC".into())],
-                ),
-                (
-                    ContestId(2),
-                    vec![crate::contests::NflGameId("2025_01_DAL_NYG".into())],
-                ),
-            ]),
-        };
-        let results = slates
-            .official_contest_weeks(&app.state, &HashSet::from([ContestId(1), ContestId(2)]))
-            .await
-            .unwrap();
-
-        assert_eq!(
-            results.contest_week,
-            HashMap::from([(ContestId(1), Week(1))])
-        );
-        assert_eq!(
-            results.stats.keys().copied().collect::<HashSet<_>>(),
-            HashSet::from([Week(1)])
-        );
-        let week_stats = &results.stats[&Week(1)];
-        assert_eq!(
-            week_stats
-                .players
-                .get(&NflPlayerId("2025_01_BUF_KC-KC".into()))
-                .map(|p| p.rushing_yards),
-            Some(100)
-        );
-        assert_eq!(
-            week_stats
-                .players
-                .get(&NflPlayerId("2025_01_BUF_KC-BUF".into()))
-                .map(|p| p.rushing_yards),
-            Some(50)
-        );
-        assert_eq!(
-            week_stats
-                .defenses
-                .get(&TeamAbbr::KC)
-                .map(|d| (d.sacks, d.game_id.clone())),
-            Some((2, "2025_01_BUF_KC".to_string()))
-        );
-        assert_eq!(
-            week_stats
-                .defenses
-                .get(&TeamAbbr::BUF)
-                .map(|d| (d.sacks, d.game_id.clone())),
-            Some((3, "2025_01_BUF_KC".to_string()))
-        );
-
-        let results = slates
-            .official_contest_weeks(&app.state, &HashSet::from([ContestId(2)]))
-            .await
-            .unwrap();
-        assert!(results.contest_week.is_empty());
-        assert!(results.stats.is_empty());
-    }
-
-    #[sqlx::test]
-    async fn official_gate_scores_only_wanted_contests(pool: SqlitePool) {
-        let now = datetime!(2025-09-07 22:00 UTC);
-        let kickoff = datetime!(2025-09-07 17:00 UTC);
-        let app = TestApp::from_pool_at(pool, now).await;
-        let ready = factories::game_at("2025_01_BUF_KC", 1, kickoff);
-        let other = Game {
-            home_team: TeamAbbr::NYG,
-            away_team: TeamAbbr::DAL,
-            ..factories::game_at("2025_01_DAL_NYG", 1, kickoff)
-        };
-
-        let games: Vec<Game> = vec![ready, other];
-        seed_official_gate_stats(&app, &games).await;
-
-        let slates = SeasonSlates {
-            games,
-            slates: HashMap::from([
-                (
-                    ContestId(1),
-                    vec![crate::contests::NflGameId("2025_01_BUF_KC".into())],
-                ),
-                (
-                    ContestId(2),
-                    vec![crate::contests::NflGameId("2025_01_DAL_NYG".into())],
-                ),
-            ]),
-        };
-        let results = slates
-            .official_contest_weeks(&app.state, &HashSet::from([ContestId(2)]))
-            .await
-            .unwrap();
-
-        assert_eq!(
-            results.contest_week,
-            HashMap::from([(ContestId(2), Week(1))])
-        );
-        assert_eq!(
-            results.stats.keys().copied().collect::<HashSet<_>>(),
-            HashSet::from([Week(1)])
-        );
-
-        let results = slates
-            .official_contest_weeks(&app.state, &HashSet::from([ContestId(99)]))
-            .await
-            .unwrap();
-        assert!(results.contest_week.is_empty());
-        assert!(results.stats.is_empty());
-    }
-
-    #[sqlx::test]
-    async fn official_gate_accepts_dev_feed_contests_without_a_snapshot(pool: SqlitePool) {
-        let now = datetime!(2025-09-07 22:00 UTC);
-        let kickoff = datetime!(2025-09-07 17:00 UTC);
-        let app = TestApp::from_pool_at_with_live_dev_feed(pool, now, true).await;
-        let ready = factories::game_at("2025_01_BUF_KC", 1, kickoff);
-
-        seed_official_gate_stats(&app, std::slice::from_ref(&ready)).await;
-
-        let slates = SeasonSlates {
-            games: vec![ready],
-            slates: HashMap::from([(
-                ContestId(1),
-                vec![crate::contests::NflGameId("2025_01_BUF_KC".into())],
-            )]),
-        };
-        assert!(app.state.live.snapshot(ContestId(1)).is_none());
-        let results = slates
-            .official_contest_weeks(&app.state, &HashSet::from([ContestId(1)]))
-            .await
-            .unwrap();
-
-        assert_eq!(
-            results.contest_week,
-            HashMap::from([(ContestId(1), Week(1))])
-        );
-    }
-
-    #[sqlx::test]
-    async fn official_gate_rejects_partially_resolved_slates(pool: SqlitePool) {
-        let now = datetime!(2025-09-07 22:00 UTC);
-        let kickoff = datetime!(2025-09-07 17:00 UTC);
-        let app = TestApp::from_pool_at(pool, now).await;
-        let ready = factories::game_at("2025_01_BUF_KC", 1, kickoff);
-        let other = Game {
-            home_team: TeamAbbr::NYG,
-            away_team: TeamAbbr::DAL,
-            ..factories::game_at("2025_01_DAL_NYG", 1, kickoff)
-        };
-
-        let matchups: Vec<Game> = vec![ready.clone(), other];
-        seed_official_gate_stats(&app, &matchups).await;
-
-        let slates = SeasonSlates {
-            games: vec![ready],
-            slates: HashMap::from([(
-                ContestId(1),
-                vec![
-                    crate::contests::NflGameId("2025_01_BUF_KC".into()),
-                    crate::contests::NflGameId("2025_01_DAL_NYG".into()),
-                ],
-            )]),
-        };
-        let results = slates
-            .official_contest_weeks(&app.state, &HashSet::from([ContestId(1)]))
-            .await
-            .unwrap();
-
-        assert!(results.contest_week.is_empty());
-        assert!(results.stats.is_empty());
-    }
-
-    #[test]
-    fn slate_contests_drop_unresolvable_games_but_keep_undated_known_games() {
-        let schedule = SeasonSlates {
-            games: vec![game("known", "BUF", "KC", None)],
-            slates: std::collections::HashMap::from([
-                (
-                    ContestId(1),
-                    vec![crate::contests::NflGameId("missing".into())],
-                ),
-                (
-                    ContestId(2),
-                    vec![crate::contests::NflGameId("known".into())],
-                ),
-            ]),
-        };
-        let rows = schedule.slate_contests(&[
-            Contest {
-                id: ContestId(1),
-                name: "Missing".into(),
-            },
-            Contest {
-                id: ContestId(2),
-                name: "Undated".into(),
-            },
-        ]);
-
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].id, ContestId(2));
-        assert!(rows[0].first.is_none());
-    }
-
     #[test]
     fn time_until_picks_the_coarsest_sensible_unit() {
         let at = datetime!(2025 - 11 - 23 12:00 -5);
@@ -1692,338 +1428,6 @@ mod tests {
         assert_eq!(rows[2].kickoff, None);
     }
 
-    /// A contest whose one slate game kicks off 2025-09-07 17:00 UTC (1pm ET),
-    /// seeded with one entry. Returns the contest id and the league id.
-    async fn contest_with_kickoff(app: &TestApp, pool: &SqlitePool) -> (i64, i64) {
-        let team = factories::team(pool, TeamOptions::default()).await;
-        let wk1 = factories::contest(pool, "Week 1").await;
-        sqlx::query(
-            "INSERT INTO contest_games (contest_id, game_id) VALUES (?1, '2025_01_BUF_KC')",
-        )
-        .bind(wk1)
-        .execute(pool)
-        .await
-        .unwrap();
-        factories::full_entry(pool, wk1, team.team.id, "00-A").await;
-        let mut g = factories::game("2025_01_BUF_KC", 1);
-        g.kickoff = Some(datetime!(2025-09-07 17:00 UTC));
-        app.nfl.seed_for_test(&[], &[g]).await.unwrap();
-        (wk1, team.league.id)
-    }
-
-    #[sqlx::test]
-    async fn details_lists_the_slate_before_kickoff(pool: SqlitePool) {
-        let app = TestApp::from_pool_at(pool.clone(), datetime!(2025-09-06 12:00 UTC)).await;
-        let (wk1, league) = contest_with_kickoff(&app, &pool).await;
-        let details = details_for_league(&app.state(), league, None, ContestId(wk1))
-            .await
-            .expect("assemble")
-            .expect("contest exists");
-        assert_eq!(details.games.len(), 1, "slate shown before kickoff");
-        assert_eq!(details.games[0].matchup, "BUF @ KC");
-    }
-
-    #[sqlx::test]
-    async fn details_hides_the_slate_once_it_has_kicked_off(pool: SqlitePool) {
-        // One minute past the only game's kickoff.
-        let app = TestApp::from_pool_at(pool.clone(), datetime!(2025-09-07 17:01 UTC)).await;
-        let (wk1, league) = contest_with_kickoff(&app, &pool).await;
-        let details = details_for_league(&app.state(), league, None, ContestId(wk1))
-            .await
-            .expect("assemble")
-            .expect("contest exists");
-        assert!(details.games.is_empty(), "slate hidden once under way");
-        assert_eq!(details.rows.len(), 1, "entries still listed");
-    }
-
-    #[sqlx::test]
-    async fn details_ranks_a_resolved_contest(pool: SqlitePool) {
-        // Two days past the slate's only kickoff: the contest has resolved.
-        let app = TestApp::from_pool_at(pool.clone(), datetime!(2025-09-09 17:00 UTC)).await;
-        let a = factories::team(
-            &pool,
-            TeamOptions {
-                name: Some("Gridiron Giants".into()),
-                ..Default::default()
-            },
-        )
-        .await;
-        let b = factories::team(
-            &pool,
-            TeamOptions {
-                league: Some(a.league.clone()),
-                name: Some("Turf Titans".into()),
-                ..Default::default()
-            },
-        )
-        .await;
-        let wk1 = factories::contest(&pool, "Week 1").await;
-        sqlx::query(
-            "INSERT INTO contest_games (contest_id, game_id) VALUES (?1, '2025_01_BUF_KC')",
-        )
-        .bind(wk1)
-        .execute(&pool)
-        .await
-        .unwrap();
-        factories::full_entry(&pool, wk1, a.team.id, "00-A").await; // 100yd = 13.0
-        factories::full_entry(&pool, wk1, b.team.id, "00-B").await; // 200yd = 23.0
-        let mut g = factories::game("2025_01_BUF_KC", 1);
-        g.kickoff = Some(datetime!(2025-09-07 17:00 UTC));
-        app.nfl
-            .seed_for_test(&[], std::slice::from_ref(&g))
-            .await
-            .unwrap();
-        let buf_player = PlayerWeekStats {
-            gsis_id: "00-BUF".into(),
-            team: TeamAbbr::BUF,
-            opponent: Some(TeamAbbr::KC),
-            ..factories::player_stats("00-BUF", 1)
-        };
-        let buf_defense = TeamWeekStats {
-            game_id: "2025_01_BUF_KC".into(),
-            ..factories::scoreless_defense_stats("BUF", "KC", 1)
-        };
-        app.nfl
-            .seed_week_stats_for_test(
-                Season(2025),
-                &[
-                    PlayerWeekStats {
-                        opponent: Some(TeamAbbr::BUF),
-                        ..factories::rb_stats("00-A", 1, 100)
-                    },
-                    PlayerWeekStats {
-                        opponent: Some(TeamAbbr::BUF),
-                        ..factories::rb_stats("00-B", 1, 200)
-                    },
-                    buf_player,
-                ],
-                &[
-                    factories::scoreless_defense_stats("KC", "BUF", 1),
-                    buf_defense,
-                ],
-            )
-            .await
-            .unwrap();
-
-        let details = details_for_league(&app.state(), a.league.id, None, ContestId(wk1))
-            .await
-            .expect("assemble")
-            .expect("contest exists");
-        assert_eq!(details.name, "Week 1");
-        assert_eq!(details.rows.len(), 2);
-        assert_eq!(details.rows[0].name, "Turf Titans");
-        assert_eq!(details.rows[0].rank, Some(1));
-        assert!(details.rows[0].winner);
-        assert_eq!(details.rows[0].points_str().as_deref(), Some("23.00"));
-        assert_eq!(details.rows[1].rank, Some(2));
-        assert!(!details.rows[1].winner);
-        assert!(details.games.is_empty(), "resolved slate hides its games");
-        assert!(details.upcoming.is_none(), "no pre-kickoff header");
-    }
-
-    #[sqlx::test]
-    async fn details_never_scores_an_upcoming_contest(pool: SqlitePool) {
-        // Stats for the slate's week exist (e.g. replayed historical data),
-        // but kickoff is still a day away: the page lists entrants without
-        // points and leads with the pre-kickoff header instead.
-        let app = TestApp::from_pool_at(pool.clone(), datetime!(2025-09-06 17:00 UTC)).await;
-        let (wk1, league) = contest_with_kickoff(&app, &pool).await;
-        app.nfl
-            .seed_week_stats_for_test(
-                Season(2025),
-                &[factories::rb_stats("00-A", 1, 100)],
-                &[factories::scoreless_defense_stats("KC", "BUF", 1)],
-            )
-            .await
-            .unwrap();
-
-        let details = details_for_league(&app.state(), league, None, ContestId(wk1))
-            .await
-            .expect("assemble")
-            .expect("contest exists");
-        assert_eq!(details.rows.len(), 1);
-        assert_eq!(details.rows[0].points, None, "nothing played, no points");
-        assert_eq!(details.rows[0].rank, None);
-        assert_eq!(details.games.len(), 1, "slate still shown");
-        let up = details.upcoming.expect("pre-kickoff header");
-        assert_eq!(up.kickoff, "Sun, Sep 7 · 1:00 PM ET");
-        assert_eq!(up.countdown, "in 24 hours");
-        assert_eq!(
-            details.waiting.len(),
-            1,
-            "the factory league's commissioner team has not entered"
-        );
-    }
-
-    /// A league with an upcoming Week 1 slate and three teams; only `Zebra
-    /// Herd` has entered. Returns (contest, league, non-entered team ids).
-    async fn upcoming_with_one_entrant(
-        app: &TestApp,
-        pool: &SqlitePool,
-    ) -> (i64, i64, FantasyTeamId, FantasyTeamId) {
-        // A bare league, so the only teams are the three named here.
-        let league = factories::bare_league(pool, Some("Sunday Funday".into())).await;
-        let named = async |name: &str| {
-            factories::team(
-                pool,
-                TeamOptions {
-                    league: Some(league.clone()),
-                    name: Some(name.to_string()),
-                    ..Default::default()
-                },
-            )
-            .await
-        };
-        let zebras = named("Zebra Herd").await;
-        let aardvarks = named("aardvark alliance").await;
-        let mustangs = named("Mustangs").await;
-        let wk1 = factories::contest(pool, "Week 1").await;
-        sqlx::query(
-            "INSERT INTO contest_games (contest_id, game_id) VALUES (?1, '2025_01_BUF_KC')",
-        )
-        .bind(wk1)
-        .execute(pool)
-        .await
-        .unwrap();
-        factories::full_entry(pool, wk1, zebras.team.id, "00-A").await;
-        let mut g = factories::game("2025_01_BUF_KC", 1);
-        g.kickoff = Some(datetime!(2025-09-07 17:00 UTC));
-        app.nfl.seed_for_test(&[], &[g]).await.unwrap();
-        (
-            wk1,
-            league.id,
-            FantasyTeamId(aardvarks.team.id),
-            FantasyTeamId(mustangs.team.id),
-        )
-    }
-
-    #[sqlx::test]
-    async fn details_lists_teams_that_have_not_entered(pool: SqlitePool) {
-        let app = TestApp::from_pool_at(pool.clone(), datetime!(2025-09-06 17:00 UTC)).await;
-        let (wk1, league, _, _) = upcoming_with_one_entrant(&app, &pool).await;
-
-        let details = details_for_league(&app.state(), league, None, ContestId(wk1))
-            .await
-            .expect("assemble")
-            .expect("contest exists");
-        let names: Vec<&str> = details.waiting.iter().map(|r| r.name.as_str()).collect();
-        assert_eq!(
-            names,
-            ["aardvark alliance", "Mustangs"],
-            "entrants are excluded; the rest sort by name, case-insensitively"
-        );
-        assert!(details.waiting.iter().all(|r| !r.mine));
-    }
-
-    #[sqlx::test]
-    async fn details_pins_and_marks_the_viewers_own_waiting_row(pool: SqlitePool) {
-        let app = TestApp::from_pool_at(pool.clone(), datetime!(2025-09-06 17:00 UTC)).await;
-        let (wk1, league, _, mustangs) = upcoming_with_one_entrant(&app, &pool).await;
-
-        let details = details_for_league(&app.state(), league, Some(mustangs), ContestId(wk1))
-            .await
-            .expect("assemble")
-            .expect("contest exists");
-        let names: Vec<&str> = details.waiting.iter().map(|r| r.name.as_str()).collect();
-        assert_eq!(
-            names,
-            ["Mustangs", "aardvark alliance"],
-            "the viewer's own team leads the list"
-        );
-        assert!(details.waiting[0].mine);
-        assert!(!details.waiting[1].mine);
-    }
-
-    #[sqlx::test]
-    async fn details_waiting_list_empties_once_every_team_enters(pool: SqlitePool) {
-        let app = TestApp::from_pool_at(pool.clone(), datetime!(2025-09-06 17:00 UTC)).await;
-        let (wk1, league, aardvarks, mustangs) = upcoming_with_one_entrant(&app, &pool).await;
-        factories::full_entry(&pool, wk1, aardvarks.0, "00-B").await;
-        factories::full_entry(&pool, wk1, mustangs.0, "00-C").await;
-
-        let details = details_for_league(&app.state(), league, None, ContestId(wk1))
-            .await
-            .expect("assemble")
-            .expect("contest exists");
-        assert!(details.waiting.is_empty());
-    }
-
-    #[sqlx::test]
-    async fn details_has_no_waiting_list_after_kickoff(pool: SqlitePool) {
-        // Two days past kickoff: the roll call gives way to the scoreboard.
-        let app = TestApp::from_pool_at(pool.clone(), datetime!(2025-09-09 17:00 UTC)).await;
-        let (wk1, league, _, _) = upcoming_with_one_entrant(&app, &pool).await;
-
-        let details = details_for_league(&app.state(), league, None, ContestId(wk1))
-            .await
-            .expect("assemble")
-            .expect("contest exists");
-        assert!(details.upcoming.is_none(), "not upcoming any more");
-        assert!(details.waiting.is_empty());
-    }
-
-    #[sqlx::test]
-    async fn details_lists_upcoming_entries_in_entry_order(pool: SqlitePool) {
-        let app = TestApp::from_pool_at(pool.clone(), datetime!(2025-09-06 17:00 UTC)).await;
-        let zebras = factories::team(
-            &pool,
-            TeamOptions {
-                name: Some("Zebra Herd".into()),
-                ..Default::default()
-            },
-        )
-        .await;
-        let aardvarks = factories::team(
-            &pool,
-            TeamOptions {
-                league: Some(zebras.league.clone()),
-                name: Some("Aardvark Alliance".into()),
-                ..Default::default()
-            },
-        )
-        .await;
-        let wk1 = factories::contest(&pool, "Week 1").await;
-        sqlx::query(
-            "INSERT INTO contest_games (contest_id, game_id) VALUES (?1, '2025_01_BUF_KC')",
-        )
-        .bind(wk1)
-        .execute(&pool)
-        .await
-        .unwrap();
-        // Zebras enter first, Aardvarks second: the roll call keeps that
-        // order rather than sorting by name.
-        factories::full_entry(&pool, wk1, zebras.team.id, "00-A").await;
-        factories::full_entry(&pool, wk1, aardvarks.team.id, "00-B").await;
-        let mut g = factories::game("2025_01_BUF_KC", 1);
-        g.kickoff = Some(datetime!(2025-09-07 17:00 UTC));
-        app.nfl.seed_for_test(&[], &[g]).await.unwrap();
-
-        let details = details_for_league(&app.state(), zebras.league.id, None, ContestId(wk1))
-            .await
-            .expect("assemble")
-            .expect("contest exists");
-        assert!(details.upcoming.is_some());
-        assert!(details.entries_open, "published, pre-kickoff slate is open");
-        assert!(details.my_entry.is_none(), "no viewer, no own entry");
-        let names: Vec<&str> = details.rows.iter().map(|r| r.name.as_str()).collect();
-        assert_eq!(names, ["Zebra Herd", "Aardvark Alliance"]);
-
-        // A viewer who entered gets their row pinned first and marked.
-        let details = details_for_league(
-            &app.state(),
-            zebras.league.id,
-            Some(FantasyTeamId(aardvarks.team.id)),
-            ContestId(wk1),
-        )
-        .await
-        .expect("assemble")
-        .expect("contest exists");
-        assert!(details.my_entry.is_some());
-        assert_eq!(details.rows[0].name, "Aardvark Alliance");
-        assert!(details.rows[0].mine);
-        assert!(!details.rows[1].mine);
-    }
-
     #[sqlx::test]
     async fn details_none_for_unknown_contest(pool: SqlitePool) {
         let app = TestApp::from_pool(pool.clone()).await;
@@ -2047,64 +1451,5 @@ mod tests {
             .expect("assemble")
             .expect("contest exists");
         assert!(details.rows.is_empty(), "other league's entries invisible");
-    }
-
-    #[sqlx::test]
-    async fn details_hides_points_for_an_unfrozen_slate(pool: SqlitePool) {
-        // No contest_games rows: the slate is still live, so no result is
-        // final and the page must stay in its pre-results state even though
-        // the week's stats exist.
-        let app = TestApp::from_pool(pool.clone()).await;
-        let fixture = factories::team(&pool, TeamOptions::default()).await;
-        let wk = factories::contest(&pool, "Week 1").await;
-        factories::full_entry(&pool, wk, fixture.team.id, "00-A").await;
-        app.nfl
-            .seed_for_test(&[], &[factories::game("2025_01_BUF_KC", 1)])
-            .await
-            .unwrap();
-        app.nfl
-            .seed_week_stats_for_test(
-                Season(2025),
-                &[factories::rb_stats("00-A", 1, 100)],
-                &[factories::scoreless_defense_stats("KC", "BUF", 1)],
-            )
-            .await
-            .unwrap();
-
-        let details = details_for_league(&app.state(), fixture.league.id, None, ContestId(wk))
-            .await
-            .expect("assemble")
-            .expect("contest exists");
-        assert_eq!(details.rows.len(), 1);
-        assert_eq!(details.rows[0].points, None, "live slate scores nothing");
-        assert_eq!(details.rows[0].rank, None);
-    }
-
-    #[sqlx::test]
-    async fn details_without_resolvable_week_hides_points(pool: SqlitePool) {
-        let app = TestApp::from_pool(pool.clone()).await;
-        let fixture = factories::team(&pool, TeamOptions::default()).await;
-        let wk = factories::contest(&pool, "Week 1").await;
-        // Materialized game absent from the seeded schedule -> week unresolvable.
-        sqlx::query(
-            "INSERT INTO contest_games (contest_id, game_id) VALUES (?1, '2025_99_BUF_KC')",
-        )
-        .bind(wk)
-        .execute(&pool)
-        .await
-        .unwrap();
-        factories::full_entry(&pool, wk, fixture.team.id, "00-A").await;
-
-        let details = details_for_league(&app.state(), fixture.league.id, None, ContestId(wk))
-            .await
-            .expect("assemble")
-            .expect("contest exists");
-        assert_eq!(details.rows.len(), 1);
-        assert_eq!(details.rows[0].points, None);
-        assert_eq!(details.rows[0].rank, None);
-        assert!(
-            details.games.is_empty(),
-            "schedule-less frozen games render no game rows"
-        );
     }
 }

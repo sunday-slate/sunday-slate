@@ -88,7 +88,7 @@ mod tests {
             body.contains("RB / WR / TE"),
             "should say what FLEX accepts: {body}"
         );
-        for slot in ["QB", "FLEX", "D/ST"] {
+        for slot in ["QB", "FLEX", "DST"] {
             assert!(body.contains(slot), "should list the {slot} slot: {body}");
         }
     }

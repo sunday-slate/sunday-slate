@@ -4,7 +4,7 @@ use time::OffsetDateTime;
 use crate::avatars::{FetchProgress, FetchReport};
 use crate::background::{LastRunExt, LastRunView};
 use crate::chrome::Chrome;
-use crate::nfl_players::store as player_store;
+use crate::nfl_player_headshots::service as headshot_service;
 use crate::nfl_teams::store as team_store;
 use crate::web::FormView;
 use crate::{AppError, AppState};
@@ -37,8 +37,7 @@ impl AvatarsTemplate {
         {
             return Ok(Self::running(started_at, progress));
         }
-        let missing_headshots =
-            player_store::count_missing_headshots(state.db.reader()).await? as usize;
+        let missing_headshots = headshot_service::missing_headshots(state).await?.len();
         let missing_logos = team_store::count_missing_logos(state.db.reader()).await? as usize;
         match state.avatar_runner.snapshot() {
             RunnerState::Idle { last } => Ok(Self::idle(missing_headshots, missing_logos, last)),

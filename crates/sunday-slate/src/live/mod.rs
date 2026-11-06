@@ -169,17 +169,6 @@ impl LiveContestHub {
         self.inner.shutdown.send_replace(true);
     }
 
-    #[cfg(test)]
-    pub(crate) fn register_contest(
-        &self,
-        id: ContestId,
-        games: Vec<Game>,
-        identity: Arc<LiveIdentityIndex>,
-        now: time::OffsetDateTime,
-    ) {
-        self.rebase_contest(id, games, identity, &[], now);
-    }
-
     pub(crate) fn rebase_contest(
         &self,
         id: ContestId,
@@ -251,16 +240,6 @@ impl LiveContestHub {
             .entry(id)
             .or_insert_with(|| watch::channel(revision).0)
             .send_replace(revision);
-    }
-
-    pub(crate) fn registered_and_locked(&self, id: ContestId) -> bool {
-        self.inner
-            .state
-            .lock()
-            .expect("live hub mutex poisoned")
-            .registrations
-            .get(&id)
-            .is_some_and(|registration| registration.locked_at.is_some())
     }
 
     pub(crate) fn publish_event(
@@ -374,20 +353,15 @@ pub async fn load_contest_scores(
     state: &crate::AppState,
     contest: ContestId,
 ) -> Result<ContestScores, crate::AppError> {
-    let ids = crate::contests::store::game_ids(state.db.reader(), contest).await?;
-    if ids.is_empty() {
+    let Some(row) = crate::contests::store::by_id(state.db.reader(), contest).await? else {
+        return Ok(ContestScores::Unavailable);
+    };
+    let snapshot = state.nfl.snapshot();
+    let games = row.games(&snapshot);
+    if games.is_empty() {
         return Ok(ContestScores::Unavailable);
     }
-    let schedule = state.nfl.games(Season(state.config.season)).await?;
-    let games = ids
-        .iter()
-        .filter_map(|id| schedule.iter().find(|game| game.game_id == *id))
-        .cloned()
-        .collect::<Vec<_>>();
-    if games.len() != ids.len() {
-        return Ok(ContestScores::Unavailable);
-    }
-    if !slate_locked(&games, state.now()) {
+    if !slate_locked(games, state.now()) {
         if games.iter().any(|game| game.kickoff.is_none()) {
             return Ok(ContestScores::Unavailable);
         }
@@ -400,7 +374,7 @@ pub async fn load_contest_scores(
         return Ok(ContestScores::Provisional(snapshot));
     }
 
-    let Some((season, week, season_type)) = slate_tuple(&games) else {
+    let Some((season, week, season_type)) = slate_tuple(games) else {
         return Ok(ContestScores::Unavailable);
     };
     let players = state.nfl.player_week_stats(season, week).await?;
@@ -463,7 +437,7 @@ pub async fn load_contest_scores(
         players: player_map,
         defenses: defense_map,
     };
-    if official_complete_for_slate(&games, &stats) {
+    if official_complete_for_slate(games, &stats) {
         return Ok(ContestScores::Official(Arc::new(stats)));
     }
     Ok(state
@@ -481,21 +455,15 @@ pub(crate) async fn stream_eligible(
     if !state.live.enabled() || matches!(source, ContestScores::Official(_)) {
         return Ok(false);
     }
-    let reader = state.db.reader();
-    let ids = crate::contests::store::game_ids(reader, contest).await?;
-    if ids.is_empty() {
+    let Some(row) = crate::contests::store::by_id(state.db.reader(), contest).await? else {
+        return Ok(false);
+    };
+    let snapshot = state.nfl.snapshot();
+    let games = row.games(&snapshot);
+    if games.is_empty() {
         return Ok(false);
     }
-    let schedule = state.nfl.games(Season(state.config.season)).await?;
-    let games = ids
-        .iter()
-        .filter_map(|id| schedule.iter().find(|game| game.game_id == id.as_str()))
-        .cloned()
-        .collect::<Vec<_>>();
-    if games.len() == ids.len() {
-        return Ok(slate_locked(&games, state.now()));
-    }
-    Ok(state.live.registered_and_locked(contest))
+    Ok(slate_locked(games, state.now()))
 }
 
 pub(crate) fn slate_tuple(games: &[Game]) -> Option<(Season, Week, SeasonType)> {

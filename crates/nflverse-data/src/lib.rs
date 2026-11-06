@@ -28,8 +28,9 @@ pub use live::{
     ProviderResponse, RawBody,
 };
 pub use model::{
-    Dataset, DatasetFreshness, DatasetReport, DatasetStatus, Game, Player, PlayerWeekStats, Season,
-    SeasonType, SyncReport, TeamAbbr, TeamWeekStats, Week, WeeklyRosterEntry,
+    AssetUpdate, Dataset, DatasetFreshness, DatasetReport, DatasetStatus, Game, Player,
+    PlayerWeekStats, Season, SeasonType, SyncEvent, SyncReport, TeamAbbr, TeamWeekStats, Week,
+    WeeklyRosterEntry,
 };
 
 #[derive(Clone)]
@@ -43,6 +44,32 @@ struct Inner {
     refresh: refresh::Refresh,
     /// Notified after each successful sync
     sync_notify: Option<mpsc::UnboundedSender<()>>,
+    /// Sent one [`SyncEvent`] per completed sync — unchanged and fully failed
+    /// runs included. Setup failures emit nothing; closed receivers are
+    /// ignored.
+    sync_events: Option<mpsc::UnboundedSender<SyncEvent>>,
+}
+
+/// Publishes one [`SyncEvent`] per completed run — unchanged and fully failed
+/// runs included — and, for fully successful runs only, one `()` on the legacy
+/// channel. An `Err` outcome returns before either channel is touched.
+fn complete_sync(
+    outcome: Result<sync::SyncOutcome, NflverseDataError>,
+    sync_notify: Option<&mpsc::UnboundedSender<()>>,
+    sync_events: Option<&mpsc::UnboundedSender<SyncEvent>>,
+) -> Result<SyncReport, NflverseDataError> {
+    let outcome = outcome?;
+    let all_ok = outcome.report.all_ok();
+    if let Some(sync_events) = sync_events {
+        let _ = sync_events.send(SyncEvent {
+            all_ok,
+            updates: outcome.updates,
+        });
+    }
+    if all_ok && let Some(sync_notify) = sync_notify {
+        let _ = sync_notify.send(());
+    }
+    Ok(outcome.report)
 }
 
 impl NflverseData {
@@ -57,6 +84,23 @@ impl NflverseData {
         config: NflverseDataConfig,
         sync_notify: Option<mpsc::UnboundedSender<()>>,
     ) -> Result<Self, NflverseDataError> {
+        Self::connect_with_channels(config, sync_notify, None).await
+    }
+
+    /// [`Self::connect`], also sending one [`SyncEvent`] per completed sync on
+    /// `sync_events`.
+    pub async fn connect_with_sync_events(
+        config: NflverseDataConfig,
+        sync_events: Option<mpsc::UnboundedSender<SyncEvent>>,
+    ) -> Result<Self, NflverseDataError> {
+        Self::connect_with_channels(config, None, sync_events).await
+    }
+
+    async fn connect_with_channels(
+        config: NflverseDataConfig,
+        sync_notify: Option<mpsc::UnboundedSender<()>>,
+        sync_events: Option<mpsc::UnboundedSender<SyncEvent>>,
+    ) -> Result<Self, NflverseDataError> {
         let store = Store::open(&config.database_url).await?;
         Ok(Self {
             inner: Arc::new(Inner {
@@ -64,6 +108,7 @@ impl NflverseData {
                 config,
                 refresh: refresh::Refresh::default(),
                 sync_notify,
+                sync_events,
             }),
         })
     }
@@ -78,6 +123,7 @@ impl NflverseData {
                 config: NflDataConfig::default(),
                 refresh: refresh::Refresh::default(),
                 sync_notify: None,
+                sync_events: None,
             }),
         })
     }
@@ -193,7 +239,7 @@ impl NflverseData {
         store::player_stats::for_week(self.inner.store.reader(), season, week).await
     }
 
-    /// All teams' pbp-derived D/ST lines for one week (sacks, takeaways, TDs,
+    /// All teams' pbp-derived DST lines for one week (sacks, takeaways, TDs,
     /// blocks, conversion returns, and points_allowed = the opponent's
     /// offensive points). Ordered by team.
     pub async fn team_week_stats(
@@ -228,20 +274,11 @@ impl NflverseData {
     /// asset doesn't block the other seasons in the same dataset from
     /// updating.
     pub async fn sync(&self) -> Result<SyncReport, NflverseDataError> {
-        let report = sync::run(&self.inner.store, &self.inner.config).await?;
-        if report.all_ok() {
-            self.notify_sync_success();
-        }
-        Ok(report)
-    }
-
-    /// Sends one `()` per fully successful sync. The notification happens
-    /// inside the sync, so receivers do their work on their own task.
-    fn notify_sync_success(&self) {
-        if let Some(sync_notify) = &self.inner.sync_notify {
-            // A closed receiver is not an error: nobody is listening.
-            let _ = sync_notify.send(());
-        }
+        complete_sync(
+            sync::run(&self.inner.store, &self.inner.config).await,
+            self.inner.sync_notify.as_ref(),
+            self.inner.sync_events.as_ref(),
+        )
     }
 
     /// Seed player and team week stats directly, for tests and tooling. Reuses the
@@ -298,5 +335,38 @@ mod freshness_tests {
         assert!(rows[0].last_synced_at.is_some());
         assert_eq!(rows[1].assets, 0);
         assert!(rows[1].last_synced_at.is_none());
+    }
+}
+
+#[cfg(test)]
+mod sync_completion_tests {
+    use super::*;
+
+    #[test]
+    fn setup_failure_emits_no_completion_event_and_no_legacy_notification() {
+        let (notify_tx, mut notify_rx) = mpsc::unbounded_channel();
+        let (events_tx, mut events_rx) = mpsc::unbounded_channel();
+
+        let result = complete_sync(
+            Err(NflverseDataError::GitHubApi {
+                status: 404,
+                url: "https://example.invalid/releases/tags/schedules".into(),
+            }),
+            Some(&notify_tx),
+            Some(&events_tx),
+        );
+
+        assert!(matches!(
+            result.unwrap_err(),
+            NflverseDataError::GitHubApi { status: 404, .. }
+        ));
+        assert!(
+            events_rx.try_recv().is_err(),
+            "setup failures emit no completion event"
+        );
+        assert!(
+            notify_rx.try_recv().is_err(),
+            "setup failures do not notify the legacy channel"
+        );
     }
 }

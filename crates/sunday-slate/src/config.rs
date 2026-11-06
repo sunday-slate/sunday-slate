@@ -250,32 +250,6 @@ mod tests {
     }
 
     #[test]
-    fn legacy_nfl_settings_have_no_aliases() {
-        let cfg: super::Config = config::Config::builder()
-            .add_source(environment_source().source(Some(HashMap::from([
-                (
-                    "SUNDAY_SLATE__NFL_DATABASE_URL".into(),
-                    "sqlite://legacy.db".into(),
-                ),
-                (
-                    "SUNDAY_SLATE__NFL_GITHUB_TOKEN".into(),
-                    "legacy-token".into(),
-                ),
-                ("SUNDAY_SLATE__NFL_SYNC_INTERVAL_SECS".into(), "3600".into()),
-            ]))))
-            .build()
-            .unwrap()
-            .try_deserialize()
-            .unwrap();
-        assert_eq!(
-            cfg.nflverse_database_url,
-            "sqlite://./storage/nflverse-cache.db"
-        );
-        assert!(cfg.nflverse_github_token.is_none());
-        assert_eq!(cfg.nflverse_sync_interval(), None);
-    }
-
-    #[test]
     fn normalize_base_url_strips_trailing_slashes() {
         assert_eq!(
             normalize_base_url("http://localhost:3000/"),

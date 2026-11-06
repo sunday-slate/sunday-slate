@@ -1,7 +1,9 @@
 use nflverse_data::{
-    DatasetStatus, NflverseData, NflverseDataConfig, Season, SeasonType, TeamAbbr, Week,
+    AssetUpdate, Dataset, DatasetReport, DatasetStatus, NflverseData, NflverseDataConfig, Season,
+    SeasonType, SyncEvent, TeamAbbr, Week,
 };
 use time::macros::datetime;
+use tokio::sync::mpsc;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -114,6 +116,48 @@ fn assert_all_updated(report: &nflverse_data::SyncReport) {
     }
 }
 
+/// The report row for one dataset. Datasets appear in `Dataset::ALL` order,
+/// but lookup by value keeps the assertions independent of that order.
+fn dataset_report(report: &nflverse_data::SyncReport, dataset: Dataset) -> &DatasetReport {
+    report
+        .datasets
+        .iter()
+        .find(|d| d.dataset == dataset)
+        .unwrap()
+}
+
+/// Connects with the typed completion-event channel, returning the receiver.
+async fn connect_with_events(
+    config: NflverseDataConfig,
+) -> (NflverseData, mpsc::UnboundedReceiver<SyncEvent>) {
+    let (tx, rx) = mpsc::unbounded_channel();
+    let nfl = NflverseData::connect_with_sync_events(config, Some(tx))
+        .await
+        .unwrap();
+    (nfl, rx)
+}
+
+fn assert_updates(event: &SyncEvent, expected: &[AssetUpdate]) {
+    assert_eq!(
+        event.updates.len(),
+        expected.len(),
+        "one update per committed asset: {:?}",
+        event.updates
+    );
+    for update in expected {
+        assert!(
+            event.updates.contains(update),
+            "missing {update:?} in {:?}",
+            event.updates
+        );
+    }
+}
+
+/// The malformed body every failing-asset test serves.
+fn malformed_body() -> Vec<u8> {
+    b"this,is,not,the,schema\n1,2,3,4,5\n".to_vec()
+}
+
 #[tokio::test]
 async fn fresh_sync_populates_every_dataset() {
     let server = mock_nflverse(&fixtures()).await;
@@ -172,7 +216,7 @@ async fn fresh_sync_populates_every_dataset() {
     assert_eq!(prater.team, TeamAbbr::BUF);
     assert_eq!(prater.rushing_yards, 0);
 
-    // Team week stats are pbp-derived: the one game yields both teams' D/ST
+    // Team week stats are pbp-derived: the one game yields both teams' DST
     // rows (ordered by team). points_allowed is the OPPONENT's offensive points
     // computed at ingest -- ARI allowed NO's 6, NO allowed ARI's 7+3=10.
     let team = nfl.team_week_stats(Season(2025), Week(1)).await.unwrap();
@@ -262,7 +306,7 @@ async fn failing_dataset_is_isolated_and_keeps_previous_data() {
     let mut assets = fixtures();
     let team = assets.iter_mut().find(|a| a.tag == "pbp").unwrap();
     team.updated_at = "2026-01-16T00:00:00Z";
-    team.body = b"this,is,not,the,schema\n1,2,3,4,5\n".to_vec();
+    team.body = malformed_body();
     let server = mock_nflverse(&assets).await;
     let nfl = NflverseData::connect(NflverseDataConfig {
         github_api_base: server.uri(),
@@ -305,7 +349,7 @@ async fn one_bad_season_does_not_block_other_seasons_in_the_same_dataset() {
         tag: "weekly_rosters",
         name: "roster_weekly_2024.csv",
         updated_at: "2026-06-19T00:00:00Z",
-        body: b"this,is,not,the,schema\n1,2,3,4,5\n".to_vec(),
+        body: malformed_body(),
     });
     let server = mock_nflverse(&assets).await;
     let dir = tempfile::tempdir().unwrap();
@@ -341,4 +385,310 @@ async fn one_bad_season_does_not_block_other_seasons_in_the_same_dataset() {
         .unwrap();
     assert_eq!(min_13.len(), 1);
     assert_eq!(min_13[0].full_name, "Adam Thielen");
+}
+
+#[tokio::test]
+async fn sync_event_reports_commits_despite_failed_dataset() {
+    // The 2025 stats asset is malformed and fails while the 2026 one commits:
+    // the dataset is Failed, yet the 2026 commit still reaches the event.
+    let mut assets = fixtures();
+    assets.push(FakeAsset {
+        tag: "stats_player",
+        name: "stats_player_week_2026.csv",
+        updated_at: "2026-01-20T00:00:00Z",
+        body: include_bytes!("fixtures/stats_player_week_2026.csv").to_vec(),
+    });
+    let stats_2025 = assets
+        .iter_mut()
+        .find(|a| a.name == "stats_player_week_2025.csv")
+        .unwrap();
+    stats_2025.body = malformed_body();
+    let server = mock_nflverse(&assets).await;
+    let dir = tempfile::tempdir().unwrap();
+    let (nfl, mut events) = connect_with_events(config(&server, &dir)).await;
+
+    let report = nfl.sync().await.unwrap();
+    let event = events.try_recv().expect("one completion event per sync");
+
+    assert!(!event.all_ok);
+    assert!(
+        event.updates.contains(&AssetUpdate {
+            dataset: Dataset::PlayerWeekStats,
+            season: Some(Season(2026)),
+        }),
+        "the committing 2026 asset must be reported despite the failed dataset: {:?}",
+        event.updates
+    );
+    assert!(
+        !event.updates.contains(&AssetUpdate {
+            dataset: Dataset::PlayerWeekStats,
+            season: Some(Season(2025)),
+        }),
+        "the failed 2025 asset must not be reported: {:?}",
+        event.updates
+    );
+    // The failed dataset did not erase its siblings' updates.
+    assert_updates(
+        &event,
+        &[
+            AssetUpdate {
+                dataset: Dataset::Schedules,
+                season: None,
+            },
+            AssetUpdate {
+                dataset: Dataset::Players,
+                season: None,
+            },
+            AssetUpdate {
+                dataset: Dataset::WeeklyRosters,
+                season: Some(Season(2025)),
+            },
+            AssetUpdate {
+                dataset: Dataset::Pbp,
+                season: Some(Season(2025)),
+            },
+            AssetUpdate {
+                dataset: Dataset::PlayerWeekStats,
+                season: Some(Season(2026)),
+            },
+        ],
+    );
+
+    let stats_report = dataset_report(&report, Dataset::PlayerWeekStats);
+    assert!(
+        matches!(stats_report.status, DatasetStatus::Failed(_)),
+        "expected player_week_stats failed, got {:?}",
+        stats_report.status
+    );
+
+    // The committed 2026 rows are stored.
+    let stored_2026_stats = nfl.player_week_stats(Season(2026), Week(1)).await.unwrap();
+    assert!(!stored_2026_stats.is_empty());
+    assert!(events.try_recv().is_err(), "exactly one event per sync");
+}
+
+#[tokio::test]
+async fn sync_event_reports_unchanged_completion() {
+    // A 2024 roster asset joins the 2025 fixtures: each historical import
+    // reports its own year, shared datasets report none.
+    let mut assets = fixtures();
+    assets.push(FakeAsset {
+        tag: "weekly_rosters",
+        name: "roster_weekly_2024.csv",
+        updated_at: "2026-06-19T00:00:00Z",
+        body: include_bytes!("fixtures/roster_weekly_2024.csv").to_vec(),
+    });
+    let server = mock_nflverse(&assets).await;
+    let dir = tempfile::tempdir().unwrap();
+    let (nfl, mut events) = connect_with_events(NflverseDataConfig {
+        earliest_season: 2024,
+        ..config(&server, &dir)
+    })
+    .await;
+
+    let report = nfl.sync().await.unwrap();
+    assert_all_updated(&report);
+    let event = events.try_recv().expect("one completion event per sync");
+    assert!(event.all_ok);
+    assert_updates(
+        &event,
+        &[
+            AssetUpdate {
+                dataset: Dataset::Schedules,
+                season: None,
+            },
+            AssetUpdate {
+                dataset: Dataset::Players,
+                season: None,
+            },
+            AssetUpdate {
+                dataset: Dataset::WeeklyRosters,
+                season: Some(Season(2024)),
+            },
+            AssetUpdate {
+                dataset: Dataset::WeeklyRosters,
+                season: Some(Season(2025)),
+            },
+            AssetUpdate {
+                dataset: Dataset::PlayerWeekStats,
+                season: Some(Season(2025)),
+            },
+            AssetUpdate {
+                dataset: Dataset::Pbp,
+                season: Some(Season(2025)),
+            },
+        ],
+    );
+
+    // The second sync changes nothing, yet still completes with an empty
+    // event.
+    let report = nfl.sync().await.unwrap();
+    for d in &report.datasets {
+        assert!(
+            matches!(d.status, DatasetStatus::Unchanged),
+            "expected {} unchanged, got {:?}",
+            d.dataset.name(),
+            d.status
+        );
+    }
+    let unchanged_event = events.try_recv().expect("one completion event per sync");
+    assert!(unchanged_event.all_ok);
+    assert!(unchanged_event.updates.is_empty());
+    assert!(events.try_recv().is_err(), "exactly one event per sync");
+}
+
+#[tokio::test]
+async fn sync_event_excludes_failed_assets() {
+    // Every asset is malformed: all datasets fail, and the completion event
+    // still fires with no updates.
+    let assets: Vec<FakeAsset> = fixtures()
+        .into_iter()
+        .map(|mut asset| {
+            asset.body = malformed_body();
+            asset
+        })
+        .collect();
+    let server = mock_nflverse(&assets).await;
+    let dir = tempfile::tempdir().unwrap();
+    let (nfl, mut events) = connect_with_events(config(&server, &dir)).await;
+
+    let report = nfl.sync().await.unwrap();
+    assert!(!report.all_ok());
+    for d in &report.datasets {
+        assert!(
+            matches!(d.status, DatasetStatus::Failed(_)),
+            "expected {} failed, got {:?}",
+            d.dataset.name(),
+            d.status
+        );
+    }
+    let event = events
+        .try_recv()
+        .expect("fully failed syncs still complete with an event");
+    assert!(!event.all_ok);
+    assert!(
+        event.updates.is_empty(),
+        "no commits, so no updates: {:?}",
+        event.updates
+    );
+    assert!(events.try_recv().is_err(), "exactly one event per sync");
+}
+
+#[tokio::test]
+async fn sync_event_reports_zero_row_replacements() {
+    let server = mock_nflverse(&fixtures()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let nfl = NflverseData::connect(config(&server, &dir)).await.unwrap();
+    nfl.sync().await.unwrap();
+    drop(nfl);
+    drop(server);
+
+    // Bump the stats asset but serve only its header: the replacement commits
+    // zero rows, and is still a commit.
+    let mut assets = fixtures();
+    let stats = assets.iter_mut().find(|a| a.tag == "stats_player").unwrap();
+    stats.updated_at = "2026-01-16T00:00:00Z";
+    let header = String::from_utf8(stats.body.clone())
+        .unwrap()
+        .lines()
+        .next()
+        .unwrap()
+        .to_string();
+    stats.body = header.into_bytes();
+    let server = mock_nflverse(&assets).await;
+    let (nfl, mut events) = connect_with_events(NflverseDataConfig {
+        github_api_base: server.uri(),
+        ..config(&server, &dir)
+    })
+    .await;
+
+    let report = nfl.sync().await.unwrap();
+    let stats_report = dataset_report(&report, Dataset::PlayerWeekStats);
+    assert!(
+        matches!(
+            stats_report.status,
+            DatasetStatus::Updated { assets: 1, rows: 0 }
+        ),
+        "expected a zero-row update, got {:?}",
+        stats_report.status
+    );
+    let event = events.try_recv().expect("one completion event per sync");
+    assert!(event.all_ok);
+    assert!(
+        event.updates.contains(&AssetUpdate {
+            dataset: Dataset::PlayerWeekStats,
+            season: Some(Season(2025)),
+        }),
+        "a zero-row replacement is still a committed asset: {:?}",
+        event.updates
+    );
+    assert_eq!(event.updates.len(), 1);
+    assert!(
+        nfl.player_week_stats(Season(2025), Week(1))
+            .await
+            .unwrap()
+            .is_empty(),
+        "the zero-row replacement wiped the season"
+    );
+    assert!(events.try_recv().is_err(), "exactly one event per sync");
+}
+
+#[tokio::test]
+async fn sync_event_closed_receiver_is_ignored() {
+    let server = mock_nflverse(&fixtures()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let (tx, rx) = mpsc::unbounded_channel();
+    drop(rx);
+    let nfl = NflverseData::connect_with_sync_events(config(&server, &dir), Some(tx))
+        .await
+        .unwrap();
+
+    // A closed receiver is not an error.
+    let report = nfl.sync().await.unwrap();
+    assert_all_updated(&report);
+}
+
+#[tokio::test]
+async fn sync_notify_channel_keeps_success_only_semantics() {
+    let server = mock_nflverse(&fixtures()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let (tx, mut notify) = mpsc::unbounded_channel::<()>();
+    let nfl = NflverseData::connect_with_sync_notify(config(&server, &dir), Some(tx.clone()))
+        .await
+        .unwrap();
+
+    nfl.sync().await.unwrap();
+    notify
+        .try_recv()
+        .expect("notified after the fresh successful sync");
+    nfl.sync().await.unwrap(); // unchanged
+    notify
+        .try_recv()
+        .expect("unchanged syncs still notify the legacy channel");
+    assert!(notify.try_recv().is_err(), "one notification per sync");
+    drop(nfl);
+    drop(server);
+
+    // A partially failed sync completes without notifying the legacy channel.
+    let mut assets = fixtures();
+    let pbp = assets.iter_mut().find(|a| a.tag == "pbp").unwrap();
+    pbp.updated_at = "2026-01-16T00:00:00Z";
+    pbp.body = malformed_body();
+    let server = mock_nflverse(&assets).await;
+    let nfl = NflverseData::connect_with_sync_notify(
+        NflverseDataConfig {
+            github_api_base: server.uri(),
+            ..config(&server, &dir)
+        },
+        Some(tx),
+    )
+    .await
+    .unwrap();
+
+    let report = nfl.sync().await.unwrap();
+    assert!(!report.all_ok());
+    assert!(
+        notify.try_recv().is_err(),
+        "partial failures must not notify the legacy channel"
+    );
 }

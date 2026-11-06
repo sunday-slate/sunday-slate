@@ -103,26 +103,3 @@ fn nfl_admin_prefix_matching_is_boundary_aware() {
         assert!(!is_admin_path(path), "{path}");
     }
 }
-
-#[tokio::test]
-async fn old_sync_route_is_removed_and_other_tools_remain() {
-    let app = TestApp::new().await;
-    app.login_admin().await;
-    for method in ["GET", "POST"] {
-        let response = if method == "GET" {
-            app.get("/admin/nfl-sync").await
-        } else {
-            app.post("/admin/nfl-sync", "").await
-        };
-        response.assert_status(StatusCode::NOT_FOUND);
-    }
-    let tools = app.get("/admin").await.text();
-    for href in [
-        "/admin/contests",
-        "/admin/salary-imports",
-        "/admin/avatars",
-        "/leagues/new",
-    ] {
-        assert!(tools.contains(href), "{href}");
-    }
-}

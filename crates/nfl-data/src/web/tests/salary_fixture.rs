@@ -7,7 +7,7 @@ use time::macros::datetime;
 
 use crate::store::player_link;
 use crate::web::AdminConfig;
-use crate::{Game, NflData, Player, Season, SeasonType, SeasonWeek, Week};
+use crate::{Game, NflData, NflDataConfig, Player, Season, SeasonType, SeasonWeek, Week};
 
 pub(crate) struct AdminFixture {
     pub(crate) server: TestServer,
@@ -16,6 +16,32 @@ pub(crate) struct AdminFixture {
 
 pub(crate) async fn admin_state() -> AdminFixture {
     let nfl = Arc::new(NflData::in_memory().await.unwrap());
+    seed_admin_slate(&nfl).await;
+    admin_fixture(nfl, Season(2025))
+}
+
+/// An admin fixture whose handle is configured for `handle_season`: a build
+/// only publishes the configured season.
+pub(crate) async fn admin_state_in_season(handle_season: Season) -> AdminFixture {
+    let nfl = Arc::new(
+        NflData::connect(NflDataConfig {
+            nflverse_database_url: "sqlite::memory:".into(),
+            fanduel_database_url: "sqlite::memory:".into(),
+            database_url: "sqlite::memory:".into(),
+            season: handle_season,
+            ..NflDataConfig::default()
+        })
+        .await
+        .expect("in-memory handle in the requested season"),
+    );
+    seed_admin_slate(&nfl).await;
+    admin_fixture(nfl, handle_season)
+}
+
+/// Both admin fixtures' provider seeding: two players, the BUF@NYJ week-1
+/// game, and the roster-only receiver, all in 2025. The seeded rows land after
+/// construction, so the slates are reconciled explicitly.
+async fn seed_admin_slate(nfl: &NflData) {
     nfl.seed_for_test(
         &[
             crate::Player {
@@ -46,7 +72,9 @@ pub(crate) async fn admin_state() -> AdminFixture {
                 season_type: crate::SeasonType::Reg,
                 week: crate::Week(1),
             },
-            kickoff: None,
+            // Sunday 1pm Eastern: slate proposals cover only the Sunday
+            // noon–6pm Eastern window.
+            kickoff: Some(datetime!(2025-09-07 17:00 UTC)),
             home_team: "NYJ".parse().unwrap(),
             away_team: "BUF".parse().unwrap(),
             home_score: None,
@@ -67,8 +95,12 @@ pub(crate) async fn admin_state() -> AdminFixture {
     }])
     .await
     .unwrap();
+    crate::slates::refresh(nfl).await.unwrap();
+}
+
+fn admin_fixture(nfl: Arc<NflData>, admin_season: Season) -> AdminFixture {
     let config = AdminConfig {
-        season: Season(2025),
+        season: admin_season,
         now_override: Some(datetime!(2025-10-06 18:00 UTC)),
     };
     let server = TestServer::new(Router::new().nest(
@@ -76,6 +108,21 @@ pub(crate) async fn admin_state() -> AdminFixture {
         crate::admin_router::<()>(std::sync::Arc::clone(&nfl), config),
     ));
     AdminFixture { server, nfl }
+}
+
+/// The main slate id for the fixture's 2025 REG week 1.
+pub(crate) fn admin_slate_id() -> crate::slates::SlateId {
+    crate::slates::SlateId(
+        i64::from(
+            crate::SeasonWeek {
+                season: Season(2025),
+                season_type: SeasonType::Reg,
+                week: Week(1),
+            }
+            .encode(),
+        ) * 10
+            + 1,
+    )
 }
 
 pub(crate) const DASHBOARD_CSV: &str = r#""Id","Position","First Name","Nickname","Last Name","FPPG","Played","Salary","Game","Team","Opponent","Injury Indicator","Injury Details"
@@ -87,16 +134,13 @@ pub(crate) const DASHBOARD_CSV: &str = r#""Id","Position","First Name","Nickname
 
 pub(crate) const POST_CSV: &str = DASHBOARD_CSV;
 
-/// FanDuel's representative export: Josh Allen (fd 135064-62239) on BUF@NYJ,
-/// a Giants DST, Travis Etienne Jr. (135064-80796) on JAC@HOU, and an
-/// unresolved Rookie Wideout (135064-99999) on LAR@SEA.
+/// FanDuel's representative export: Josh Allen on BUF@NYJ, a Giants DST,
+/// Travis Etienne Jr. on JAC@HOU, and an unresolved rookie wideout on LAR@SEA.
 pub(crate) const REPRESENTATIVE_CSV: &str =
     include_str!("../../../../fanduel-data/src/csv/fixtures/fanduel-export.csv");
 
-/// Seed the representative slate around `admin_state()`: the four week-1 and
-/// four week-2 games, plus players 00-2 and 00-3. `admin_state()` already
-/// seeded player 00-1 and the BUF@NYJ week-1 game; re-seeding either trips the
-/// `players.gsis_id` / `games.game_id` UNIQUE constraints.
+/// The representative slate around `admin_state()`: the remaining week-1 and
+/// week-2 games plus players 00-2 and 00-3.
 pub(crate) async fn seed_representative_slate(nfl: &NflData) {
     nfl.seed_for_test(
         &[
@@ -255,11 +299,15 @@ async fn dashboard_groups_sources_by_season_type_and_week() {
             week: crate::Week(1),
         },
     ] {
-        let salaries = state
-            .nfl
-            .parse_fanduel_csv(season_week, DASHBOARD_CSV.as_bytes())
+        let salaries = crate::salaries::parse_fanduel_csv(
+            &state.nfl.fanduel,
+            season_week,
+            DASHBOARD_CSV.as_bytes(),
+        )
+        .unwrap();
+        crate::salaries::save_fanduel_salaries(&state.nfl.fanduel, &salaries)
+            .await
             .unwrap();
-        state.nfl.save_fanduel_salaries(&salaries).await.unwrap();
     }
     let root = state.server.get("/nfl-data-admin/salary-imports").await;
     root.assert_status_ok();

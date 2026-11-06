@@ -15,6 +15,14 @@ pub struct Slate {
     pub kickoff: Option<OffsetDateTime>,
 }
 
+impl Slate {
+    /// Whether the slate has kicked off: a known kickoff at or before `now`.
+    pub fn locked(&self, now: OffsetDateTime) -> bool {
+        self.kickoff
+            .is_some_and(|kickoff| now >= crate::to_eastern(kickoff))
+    }
+}
+
 /// Opaque deterministic slate id: `SeasonWeek.encode() * 10 + kind` from the
 /// slate's week and kind, identical in every database. The kind is `1` for
 /// main slates — regular weeks and the postseason slates — and `0` for the

@@ -15,7 +15,7 @@
 /// # Ok::<(), strum::ParseError>(())
 /// ```
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, sqlx::Type, strum::IntoStaticStr, strum::EnumString,
+    Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type, strum::IntoStaticStr, strum::EnumString,
 )]
 #[sqlx(rename_all = "UPPERCASE")]
 #[strum(serialize_all = "UPPERCASE", ascii_case_insensitive)]
@@ -49,6 +49,31 @@ impl From<DfsPosition> for String {
     fn from(value: DfsPosition) -> Self {
         let s: &str = value.into();
         s.to_owned()
+    }
+}
+
+/// All DfsPositions + FLEX as an option
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DfsPositionSlotType {
+    Position(DfsPosition),
+    Flex,
+}
+
+impl DfsPositionSlotType {
+    pub fn allows(self, position: DfsPosition) -> bool {
+        match self {
+            Self::Position(slot) => slot == position,
+            Self::Flex => matches!(
+                position,
+                DfsPosition::Rb | DfsPosition::Wr | DfsPosition::Te
+            ),
+        }
+    }
+}
+
+impl From<DfsPosition> for DfsPositionSlotType {
+    fn from(position: DfsPosition) -> Self {
+        Self::Position(position)
     }
 }
 

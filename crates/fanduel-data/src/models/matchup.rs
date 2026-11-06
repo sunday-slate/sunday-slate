@@ -7,7 +7,7 @@ use std::str::FromStr;
 ///
 /// Parses from and displays as `AWAY@HOME` (for example, `BUF@NYJ`), using [`TeamAbbr`]
 /// for each team.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct Matchup {
     /// Away team abbreviation.
     pub away: TeamAbbr,
