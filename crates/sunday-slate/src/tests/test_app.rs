@@ -11,7 +11,6 @@ use crate::{AppState, Config, Db, User};
 
 pub struct TestApp {
     pub server: TestServer,
-    pub router: axum::Router,
     pub pool: SqlitePool,
     pub mailer: Mailer,
     pub nfl: Arc<nfl_data::NflData>,
@@ -40,22 +39,6 @@ impl TestApp {
             Mailer::capture("Sunday Slate <no-reply@example.com>"),
             Some(now),
             false,
-            None,
-        )
-        .await
-    }
-
-    /// Like `from_pool_at` but with the dev live feed flag set.
-    pub async fn from_pool_at_with_live_dev_feed(
-        pool: SqlitePool,
-        now: time::OffsetDateTime,
-        live_dev_feed: bool,
-    ) -> Self {
-        Self::build(
-            pool,
-            Mailer::capture("Sunday Slate <no-reply@example.com>"),
-            Some(now),
-            live_dev_feed,
             None,
         )
         .await
@@ -117,15 +100,14 @@ impl TestApp {
             injuries: Arc::new(crate::injuries::InjuryReports::new()),
         };
 
-        let router = crate::router::build(state.clone(), session_layer);
-
         // Cookie jar on: each response's Set-Cookie is saved and replayed on the
         // next request from this server, so login/flash/logout carry automatically.
-        let server = TestServer::builder().save_cookies().build(router.clone());
+        let server = TestServer::builder()
+            .save_cookies()
+            .build(crate::router::build(state.clone(), session_layer));
 
         TestApp {
             server,
-            router,
             pool,
             mailer,
             nfl,

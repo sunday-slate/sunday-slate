@@ -5,12 +5,11 @@ use std::collections::HashMap;
 
 use nfl_data::salaried_players::SalariedPlayer;
 use nfl_data::{
-    Game, LiveGamePhase, PlayerIdentity, PlayerWeekStats as NflPlayerWeekStats, Season, TeamAbbr,
+    Game, LiveGamePhase, PlayerIdentity, PlayerWeekStats as NflPlayerWeekStats, TeamAbbr,
 };
 
 use crate::avatars::Avatars;
 use crate::contests::ContestId;
-use crate::contests::published_slate;
 use crate::contests::service as contests;
 use crate::entries::EntryId;
 use crate::entries::store;
@@ -944,13 +943,12 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
         .await?
         .ok_or(AppError::NotFound)?;
 
-    let season = Season(state.config.season);
-    let season_games = state.nfl.games(season).await?;
-    let slate = published_slate(reader, entry.contest.id, &season_games).await?;
+    let snapshot = state.nfl.snapshot();
+    let slate = entry.contest.games(&snapshot);
     let now = state.now();
 
     let is_owner = entry.team.user_id == viewer.id;
-    let kicked_off = contests::slate_locked(&slate, now);
+    let kicked_off = contests::slate_locked(slate, now);
 
     if is_owner && !kicked_off {
         let values: Vec<PlayerOrDefenseId> = entry
@@ -960,7 +958,6 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
             .map(|slot| slot.value)
             .collect();
         let avatars = crate::avatars::by_id(&state.db, &values).await?;
-        let snapshot = state.nfl.snapshot();
         let slate_id = entry.contest.slate_id().ok_or(AppError::NotFound)?;
         let (rows, spent) = build_preview(
             &entry.lineup,
@@ -985,9 +982,9 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
         let stream_eligible = live::stream_eligible(state, entry.contest.id, &source).await?;
         let unsynced = WeekStats::default();
         let (week_stats, display_slate) = match &source {
-            ContestScores::Official(stats) => (stats.as_ref(), slate.clone()),
+            ContestScores::Official(stats) => (stats.as_ref(), slate.to_vec()),
             ContestScores::Provisional(snapshot) => (&snapshot.stats, snapshot.scored_games()),
-            ContestScores::Upcoming | ContestScores::Unavailable => (&unsynced, slate.clone()),
+            ContestScores::Upcoming | ContestScores::Unavailable => (&unsynced, slate.to_vec()),
         };
         let names = state.nfl.identify(&ids).await?;
         let values: Vec<PlayerOrDefenseId> = entry
@@ -998,7 +995,6 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
             .collect();
         let avatars = crate::avatars::by_id(&state.db, &values).await?;
         let contest_entries = store::by_contest(reader, entry.contest.id, entry.league_id).await?;
-        let salary_snapshot = state.nfl.snapshot();
         let slate_id = entry.contest.slate_id();
 
         let ownership = compute_ownership(contest_entries.iter().map(|e| &e.lineup));
@@ -1027,12 +1023,12 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
             |value| {
                 slate_id
                     .as_ref()
-                    .and_then(|slate_id| salary_snapshot.salaried_player(slate_id, value))
+                    .and_then(|slate_id| snapshot.salaried_player(slate_id, value))
                     .map(|row| i64::from(row.salary))
             },
             &ownership,
             &avatars,
-            &live::slate_tuple(&slate)
+            &live::slate_tuple(slate)
                 .and_then(|key| state.injuries.report(&key))
                 .map(|report| report.by_gsis)
                 .unwrap_or_default(),

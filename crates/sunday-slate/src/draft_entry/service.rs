@@ -705,16 +705,16 @@ mod tests {
         );
     }
 
-    /// Resolving the slate gates the draft. A contest whose games are absent
-    /// from the nfl cache has no week, so the request is `NotFound` — and must
-    /// not leave a draft row behind for a slate that cannot be played.
+    /// Resolving the slate gates the draft. A contest whose slate carries no
+    /// salaried players in the published snapshot does not resolve, so the
+    /// request is `NotFound` — and must not leave a draft row behind for a
+    /// slate that cannot be played.
     #[sqlx::test]
     async fn choices_on_an_unresolvable_slate_creates_no_draft(pool: SqlitePool) {
         let app = TestApp::from_pool(pool.clone()).await;
         let fixture = factories::team(&pool, TeamOptions::default()).await;
-        // The contest's game is never seeded into the nfl cache, so the slate
-        // resolves to nothing and carries no week.
-        let contest = factories::contest_with_games(&pool, "Week 1", &["2025_01_BUF_KC"]).await;
+        // Nothing publishes this contest's slate into the snapshot.
+        let contest = factories::contest(&pool, "Week 1").await;
 
         let team_id = FantasyTeamId(fixture.team.id);
         let contest_id = ContestId(contest);

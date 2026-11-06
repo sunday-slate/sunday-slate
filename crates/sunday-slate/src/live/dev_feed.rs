@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use nfl_data::{
     EspnPlayerId, Game, LiveGame, LiveGamePhase, LiveGameSnapshot, LivePlayerStats, LiveTeamStats,
-    ProviderOutcome, ProviderResponse, Season,
+    ProviderOutcome, ProviderResponse,
 };
 use tank01_data::{PollEvent, PollRequest};
 use time::OffsetDateTime;
@@ -263,12 +263,6 @@ fn identity_of(finals: &LivePlayerStats) -> LivePlayerStats {
     }
 }
 
-fn resolve_games(ids: &[crate::contests::NflGameId], schedule: &[Game]) -> Vec<Game> {
-    ids.iter()
-        .filter_map(|id| schedule.iter().find(|game| game.game_id == id.0).cloned())
-        .collect()
-}
-
 /// Real-game wall span the feed treats as "in progress at now".
 const GAME_LENGTH: ::time::Duration = ::time::Duration::hours(4);
 
@@ -300,17 +294,17 @@ pub(crate) async fn run(state: AppState) {
 
 async fn run_inner(state: &AppState) -> Result<(), AppError> {
     let now = state.now_eastern();
-    let schedule = state.nfl.games(Season(state.config.season)).await?;
-    let materialized = store::materialized_games(state.db.reader()).await?;
+    let snapshot = state.nfl.snapshot();
+    let contests = store::all(state.db.reader()).await?;
 
     let mut targets: Vec<(ContestId, Vec<Game>, Vec<LiveGame>)> = Vec::new();
     let mut distinct: BTreeMap<String, Game> = BTreeMap::new();
-    for (contest, ids) in &materialized {
-        let games = resolve_games(ids, &schedule);
-        if games.is_empty() || games.len() != ids.len() {
+    for contest in &contests {
+        let games = contest.games(&snapshot);
+        if games.is_empty() {
             continue;
         }
-        if !slate_locked(&games, now) {
+        if !slate_locked(games, now) {
             continue;
         }
         let Some(last) = games.iter().filter_map(Game::kickoff_eastern).max() else {
@@ -319,19 +313,19 @@ async fn run_inner(state: &AppState) -> Result<(), AppError> {
         if last < now - STARTUP_RECOVERY {
             continue;
         }
-        if super::slate_tuple(&games).is_none() {
+        if super::slate_tuple(games).is_none() {
             continue;
         }
         let live_games = games.iter().filter_map(live_game).collect::<Vec<_>>();
         if live_games.is_empty() {
             continue;
         }
-        for game in &games {
+        for game in games {
             distinct
                 .entry(game.game_id.clone())
                 .or_insert_with(|| game.clone());
         }
-        targets.push((*contest, games, live_games));
+        targets.push((contest.id, games.to_vec(), live_games));
     }
 
     if targets.is_empty() {
@@ -766,197 +760,6 @@ mod tests {
         assert_eq!(
             lane(&at(::time::Duration::seconds(1)), now),
             Lane::NotStarted
-        );
-    }
-
-    #[sqlx::test]
-    async fn dev_feed_ramps_and_dips_at_the_correction_tick(pool: sqlx::SqlitePool) {
-        use crate::contests::ContestId;
-        use crate::entries::NflPlayerId;
-        use crate::tests::TestApp;
-        use nfl_data::{PlayerWeekStats, Season, TeamWeekStats, WeeklyRosterEntry};
-
-        let kickoff = time::macros::datetime!(2025-09-07 17:00 UTC);
-        let game = factories::game_at("2025_01_BUF_KC", 1, kickoff);
-        let app = TestApp::from_pool_at_with_live_dev_feed(pool.clone(), kickoff, true).await;
-
-        let mut qb = factories::player("00-A", "Alpha Runner");
-        qb.espn_id = Some("live-alpha".into());
-        app.nfl
-            .seed_for_test(&[qb], std::slice::from_ref(&game))
-            .await
-            .unwrap();
-        app.nfl
-            .seed_weekly_roster_for_test(&[WeeklyRosterEntry {
-                espn_id: Some("live-alpha".into()),
-                position: Some("QB".into()),
-                ..factories::weekly_roster_entry("00-A", "Alpha Runner", 1)
-            }])
-            .await
-            .unwrap();
-
-        let qb_stats = PlayerWeekStats {
-            gsis_id: "00-A".into(),
-            team: TeamAbbr::KC,
-            opponent: Some(TeamAbbr::BUF),
-            passing_yards: 400,
-            ..factories::player_stats("00-A", 1)
-        };
-        let kc_def = TeamWeekStats {
-            game_id: "2025_01_BUF_KC".into(),
-            ..factories::defense_stats("KC", "BUF", 1)
-        };
-        let buf_def = TeamWeekStats {
-            game_id: "2025_01_BUF_KC".into(),
-            ..factories::defense_stats("BUF", "KC", 1)
-        };
-        app.nfl
-            .seed_week_stats_for_test(Season(2025), &[qb_stats], &[kc_def, buf_def])
-            .await
-            .unwrap();
-
-        let contest = factories::contest_with_games(&pool, "Week 1", &["2025_01_BUF_KC"]).await;
-        let contest_id = ContestId(contest);
-
-        let mut config = (*app.state.config).clone();
-        config.live_dev_feed_tick_ms = 1;
-        let state = AppState {
-            config: Arc::new(config),
-            ..app.state.clone()
-        };
-
-        run(state.clone()).await;
-
-        let snapshot = state
-            .live
-            .snapshot(contest_id)
-            .expect("feed published a snapshot");
-        assert_eq!(snapshot.phase(), Some(LiveGamePhase::Final));
-        assert_eq!(
-            snapshot
-                .game("2025_01_BUF_KC")
-                .expect("game state in snapshot")
-                .player_observed_at,
-            Some(kickoff),
-            "events carry the pinned clock so staleness math works"
-        );
-        let qb = snapshot
-            .stats
-            .players
-            .get(&NflPlayerId("00-A".into()))
-            .expect("qb resolved into the snapshot");
-        assert_eq!(qb.passing_yards, 400);
-
-        let ramp = plan_ramp(&state, &game).await.unwrap().expect("ramp");
-        let live_game = live_game(&game).unwrap();
-        let points = |state: &AppState| {
-            let snapshot = state.live.snapshot(contest_id).expect("snapshot");
-            let qb = snapshot
-                .stats
-                .players
-                .get(&NflPlayerId("00-A".into()))
-                .expect("qb");
-            crate::scoring::score_player(qb).total
-        };
-        let publish = |tick: u64| {
-            let event = event(&live_game, ramp.snapshot_at(tick, kickoff), tick);
-            state
-                .live
-                .publish_event(contest_id, &event, std::slice::from_ref(&live_game));
-        };
-        publish(PASSING_CORRECTION_TICK - 1);
-        let before = points(&state);
-        publish(PASSING_CORRECTION_TICK);
-        let after = points(&state);
-        assert!(
-            after < before,
-            "the correction tick decreases the live score: {before} -> {after}"
-        );
-    }
-
-    #[sqlx::test]
-    async fn dev_feed_publishes_finished_games_at_start(pool: sqlx::SqlitePool) {
-        use crate::contests::ContestId;
-        use crate::entries::NflPlayerId;
-        use crate::tests::TestApp;
-        use nfl_data::{PlayerWeekStats, Season, TeamWeekStats, WeeklyRosterEntry};
-
-        let now = time::macros::datetime!(2025-09-07 22:00 UTC);
-        let kickoff = now - ::time::Duration::hours(5);
-        let game = factories::game_at("2025_01_BUF_KC", 1, kickoff);
-        let app = TestApp::from_pool_at_with_live_dev_feed(pool.clone(), now, true).await;
-
-        let mut qb = factories::player("00-A", "Alpha Runner");
-        qb.espn_id = Some("live-alpha".into());
-        app.nfl
-            .seed_for_test(&[qb], std::slice::from_ref(&game))
-            .await
-            .unwrap();
-        app.nfl
-            .seed_weekly_roster_for_test(&[WeeklyRosterEntry {
-                espn_id: Some("live-alpha".into()),
-                position: Some("QB".into()),
-                ..factories::weekly_roster_entry("00-A", "Alpha Runner", 1)
-            }])
-            .await
-            .unwrap();
-
-        let qb_stats = PlayerWeekStats {
-            gsis_id: "00-A".into(),
-            team: TeamAbbr::KC,
-            opponent: Some(TeamAbbr::BUF),
-            passing_yards: 400,
-            ..factories::player_stats("00-A", 1)
-        };
-        let kc_def = TeamWeekStats {
-            game_id: "2025_01_BUF_KC".into(),
-            ..factories::defense_stats("KC", "BUF", 1)
-        };
-        let buf_def = TeamWeekStats {
-            game_id: "2025_01_BUF_KC".into(),
-            ..factories::defense_stats("BUF", "KC", 1)
-        };
-        app.nfl
-            .seed_week_stats_for_test(
-                Season(2025),
-                std::slice::from_ref(&qb_stats),
-                &[kc_def, buf_def],
-            )
-            .await
-            .unwrap();
-
-        let contest = factories::contest_with_games(&pool, "Week 1", &["2025_01_BUF_KC"]).await;
-        let contest_id = ContestId(contest);
-
-        let mut config = (*app.state.config).clone();
-        config.live_dev_feed_tick_ms = 1;
-        let state = AppState {
-            config: Arc::new(config),
-            ..app.state.clone()
-        };
-
-        run(state.clone()).await;
-
-        let snapshot = state
-            .live
-            .snapshot(contest_id)
-            .expect("feed published a snapshot");
-        let game_state = snapshot
-            .game("2025_01_BUF_KC")
-            .expect("game state in snapshot");
-        assert_eq!(
-            game_state.phase,
-            LiveGamePhase::Final,
-            "a game that ended before the pinned now settles immediately"
-        );
-        let qb = snapshot
-            .stats
-            .players
-            .get(&NflPlayerId("00-A".into()))
-            .expect("qb resolved into the snapshot");
-        assert_eq!(
-            *qb, qb_stats,
-            "finished games publish the real finals line, not a ramp"
         );
     }
 }

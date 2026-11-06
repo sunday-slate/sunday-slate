@@ -5,7 +5,6 @@
 //! here rather than wiring their own auth.
 
 pub mod avatars;
-pub mod contests;
 
 use askama::Template;
 use axum::Router;
@@ -54,7 +53,6 @@ pub fn router(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/admin", get(index))
         .nest("/admin/avatars", avatars::router())
-        .nest("/admin/contests", contests::router())
         .route_layer(axum::middleware::from_fn_with_state(state, require_admin))
 }
 

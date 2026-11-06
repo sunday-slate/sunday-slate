@@ -2,7 +2,7 @@
 
 use nfl_data::{
     Game, Player, PlayerIdentity, PlayerWeekStats as NflPlayerWeekStats, Season, SeasonType,
-    TeamAbbr, TeamWeekStats as NflTeamWeekStats, Week, WeeklyRosterEntry,
+    TeamAbbr, TeamWeekStats as NflTeamWeekStats, Week,
 };
 use sqlx::SqlitePool;
 
@@ -109,21 +109,6 @@ pub fn player(gsis: &str, name: &str) -> Player {
     }
 }
 
-/// A KC weekly roster entry — how a pick absent from the `players` release
-/// still gets a name.
-pub fn weekly_roster_entry(gsis: &str, name: &str, week: u8) -> WeeklyRosterEntry {
-    WeeklyRosterEntry {
-        season: Season(2025),
-        week: Week(week),
-        team: TeamAbbr::KC,
-        gsis_id: Some(gsis.into()),
-        espn_id: None,
-        full_name: name.into(),
-        last_name: None,
-        position: None,
-    }
-}
-
 /// A resolved identity, as `NflData::identify` returns one.
 pub fn identity(name: &str, team: Option<&str>) -> PlayerIdentity {
     PlayerIdentity {
@@ -140,20 +125,6 @@ pub async fn contest(pool: &SqlitePool, name: &str) -> i64 {
         .fetch_one(pool)
         .await
         .unwrap()
-}
-
-/// Insert a contest and freeze its slate onto `games`.
-pub async fn contest_with_games(pool: &SqlitePool, name: &str, games: &[&str]) -> i64 {
-    let id = contest(pool, name).await;
-    for game in games {
-        sqlx::query("INSERT INTO contest_games (contest_id, game_id) VALUES (?1, ?2)")
-            .bind(id)
-            .bind(game)
-            .execute(pool)
-            .await
-            .unwrap();
-    }
-    id
 }
 
 /// Insert a full nine-slot entry and return its id. Only `rb1` is the

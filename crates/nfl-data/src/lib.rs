@@ -21,7 +21,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use crate::slates::{Slate, SlateId};
-use crate::snapshot::Snapshot;
+pub use crate::snapshot::Snapshot;
 pub use config::NflDataConfig;
 pub use data_revision::DataRevision;
 pub use error::NflDataError;
