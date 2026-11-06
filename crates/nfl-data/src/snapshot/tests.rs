@@ -375,6 +375,59 @@ async fn build_uses_the_configured_seasons_salaried_slates() {
 }
 
 #[tokio::test]
+async fn games_for_slate_does_not_require_salaries() {
+    let nfl = NflData::in_memory().await.expect("in-memory handle");
+    // Games only: no players, links, or salaries are seeded.
+    nfl.seed_for_test(&[], &seeded_games())
+        .await
+        .expect("seed games");
+    slates::populate_at(&nfl.provider, &nfl.store, SEASON, PINNED_NOW)
+        .await
+        .expect("populate slates");
+
+    nfl.rebuild_snapshot().await.expect("rebuild");
+    let snapshot = nfl.snapshot();
+    drop(nfl);
+
+    let main_id = main_slate_id(SEASON);
+    assert!(
+        snapshot.slate(&main_id).is_none(),
+        "without salaried players the slate is not exposed"
+    );
+    let games = snapshot.games_for_slate(&main_id);
+    assert_eq!(games.len(), 1, "the stored membership resolves one game");
+    let game = &games[0];
+    assert_eq!(game.game_id, "2026_05_BUF_KC");
+    assert_eq!(game.kickoff, Some(datetime!(2026-10-04 17:00 UTC)));
+    assert_eq!(
+        (game.home_team, game.away_team),
+        (TeamAbbr::BUF, TeamAbbr::KC)
+    );
+}
+
+#[tokio::test]
+async fn games_for_slate_is_empty_for_absent_slates() {
+    let nfl = in_memory_fixture().await;
+    let snapshot = Snapshot::build(&nfl).await.expect("build");
+
+    assert!(
+        snapshot.games_for_slate(&main_slate_id(SEASON)).len() == 1,
+        "the configured season's slate carries its game"
+    );
+    assert!(
+        snapshot.games_for_slate(&SlateId(-1)).is_empty(),
+        "an unknown id has no games"
+    );
+    assert!(
+        snapshot
+            .games_for_slate(&main_slate_id(PREVIOUS_SEASON))
+            .is_empty(),
+        "a stored slate outside the configured season has no games"
+    );
+    assert!(Snapshot::default().games_for_slate(&SlateId(0)).is_empty());
+}
+
+#[tokio::test]
 async fn connect_populates_slates_before_the_initial_snapshot() {
     let dbs = TempDatabases::new();
 

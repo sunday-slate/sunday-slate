@@ -1,7 +1,7 @@
 use crate::salaried_players::{self, SalariedPlayer, SalariedPlayersBySlot};
 use crate::slates::{self, Slate, SlateId};
 use crate::{NflData, NflDataError};
-use nfl_model::{DfsPositionSlotType, NflPlayerId, PlayerOrDefenseId, TeamAbbr};
+use nfl_model::{DfsPositionSlotType, Game, NflPlayerId, PlayerOrDefenseId, TeamAbbr};
 use std::collections::{BTreeMap, HashMap};
 
 #[cfg(test)]
@@ -48,6 +48,7 @@ impl SalariedPlayers {
 #[derive(Default)]
 pub struct Snapshot {
     slates: BTreeMap<SlateId, Slate>,
+    games: HashMap<SlateId, Vec<Game>>,
     salaried_players: HashMap<SlateId, SalariedPlayers>,
 }
 
@@ -56,6 +57,13 @@ impl Snapshot {
     /// salaried players that resolve for them.
     pub(crate) async fn build(nfl: &NflData) -> Result<Self, NflDataError> {
         let all_slates: Vec<Slate> = slates::all(nfl).await?.into_iter().collect();
+
+        // Every stored slate's games, resolved at build time; independent of
+        // whether the slate resolves to salaried players.
+        let mut games: HashMap<SlateId, Vec<Game>> = HashMap::with_capacity(all_slates.len());
+        for slate in &all_slates {
+            games.insert(slate.id, slates::games(nfl, &slate.id).await?);
+        }
 
         // stored slates exist for every week, even those without games or
         // salaries; only the ones that resolve to players belong in a snapshot
@@ -75,6 +83,7 @@ impl Snapshot {
 
         Ok(Self {
             slates,
+            games,
             salaried_players: salaried,
         })
     }
@@ -92,6 +101,15 @@ impl Snapshot {
     /// The slate with this id, or `None` when it has no salaried players.
     pub fn slate(&self, id: &SlateId) -> Option<&Slate> {
         self.slates.get(id)
+    }
+
+    /// The stored slate's games as captured at build time, independent of
+    /// whether the slate resolves to salaried players: known kickoffs
+    /// ascending, unknown kickoffs last, game id breaking ties. `None` for the
+    /// slate itself does not make this empty. Unknown ids and slates with no
+    /// membership yield an empty slice.
+    pub fn games_for_slate(&self, slate_id: &SlateId) -> &[Game] {
+        self.games.get(slate_id).map(Vec::as_slice).unwrap_or(&[])
     }
 
     /// Player-only index for `slate_id`; `None` when unpopulated.
