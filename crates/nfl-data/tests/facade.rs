@@ -1,7 +1,4 @@
-use nfl_data::{
-    Game, NflData, NflDataConfig, Player, Season, SeasonType, SeasonWeek, TeamAbbr, Week,
-    WeeklyRosterEntry,
-};
+use nfl_data::{NflData, NflDataConfig, Player, Season, TeamAbbr, Week, WeeklyRosterEntry};
 
 fn player() -> Player {
     Player {
@@ -16,28 +13,10 @@ fn player() -> Player {
     }
 }
 
-fn game() -> Game {
-    Game {
-        game_id: "2025_01_BUF_KC".into(),
-        season_week: SeasonWeek {
-            season: Season(2025),
-            season_type: SeasonType::Reg,
-            week: Week(1),
-        },
-        kickoff: None,
-        home_team: TeamAbbr::KC,
-        away_team: TeamAbbr::BUF,
-        home_score: None,
-        away_score: None,
-    }
-}
-
 #[tokio::test]
 async fn empty_provider_reads_preserve_missing_result_behavior() {
     let nfl = NflData::in_memory().await.unwrap();
-    assert!(nfl.games(Season(2025)).await.unwrap().is_empty());
     assert!(nfl.players().await.unwrap().is_empty());
-    assert!(nfl.players_by_gsis(&["missing"]).await.unwrap().is_empty());
     assert!(
         nfl.identify(&[nfl_model::NflPlayerId("missing".into())])
             .await
@@ -78,7 +57,7 @@ async fn seeded_records_preserve_identity_and_prefer_players() {
         ..Default::default()
     };
     let nfl = NflData::connect(config).await.unwrap();
-    nfl.seed_for_test(&[player()], &[game()]).await.unwrap();
+    nfl.seed_for_test(&[player()], &[]).await.unwrap();
     let roster = |id: &str| WeeklyRosterEntry {
         season: Season(2025),
         week: Week(1),
@@ -92,14 +71,7 @@ async fn seeded_records_preserve_identity_and_prefer_players() {
     nfl.seed_weekly_roster_for_test(&[roster("00-P"), roster("00-R")])
         .await
         .unwrap();
-    assert_eq!(nfl.games(Season(2025)).await.unwrap(), [game()]);
     assert_eq!(nfl.players().await.unwrap(), [player()]);
-    let players = nfl
-        .players_by_gsis(&["00-P", "00-P", "missing"])
-        .await
-        .unwrap();
-    assert_eq!(players.len(), 1);
-    assert_eq!(players["00-P"], player());
     assert_eq!(
         nfl.weekly_roster(Season(2025), Week(1), &TeamAbbr::BUF)
             .await

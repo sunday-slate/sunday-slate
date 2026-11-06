@@ -1,13 +1,14 @@
+use crate::NflData;
 use crate::slates::{Slate, SlateId, rule};
 use crate::store::Store;
 use crate::store::slates as slates_store;
-use crate::{NflData, NflverseData};
 use nfl_model::{Game, Season, SeasonWeek, to_eastern};
+use nflverse_data::NflverseData;
 use std::collections::{BTreeSet, HashMap};
 use time::OffsetDateTime;
 
 /// Every stored slate for the handle's season, in ascending order.
-pub async fn all(nfl: &NflData) -> Result<BTreeSet<Slate>, crate::NflDataError> {
+pub(crate) async fn all(nfl: &NflData) -> Result<BTreeSet<Slate>, crate::NflDataError> {
     Ok(slates_store::for_season(nfl.store.reader(), nfl.season())
         .await?
         .into_iter()
@@ -15,12 +16,19 @@ pub async fn all(nfl: &NflData) -> Result<BTreeSet<Slate>, crate::NflDataError> 
 }
 
 /// The week's stored slates, ordered by kickoff
-pub async fn by_week(nfl: &NflData, week: SeasonWeek) -> Result<Vec<Slate>, crate::NflDataError> {
+#[cfg(test)]
+pub(crate) async fn by_week(
+    nfl: &NflData,
+    week: SeasonWeek,
+) -> Result<Vec<Slate>, crate::NflDataError> {
     Ok(slates_store::for_week(nfl.store.reader(), week).await?)
 }
 
 /// The stored slate with this id, or `None` when the id is unknown.
-pub async fn by_id(nfl: &NflData, id: &SlateId) -> Result<Option<Slate>, crate::NflDataError> {
+pub(crate) async fn by_id(
+    nfl: &NflData,
+    id: &SlateId,
+) -> Result<Option<Slate>, crate::NflDataError> {
     Ok(slates_store::by_id(nfl.store.reader(), id).await?)
 }
 
@@ -31,7 +39,7 @@ pub async fn by_id(nfl: &NflData, id: &SlateId) -> Result<Option<Slate>, crate::
 /// rescheduled games keep their slate and current kickoff. Games whose schedule
 /// row is absent drop out without leaving the snapshot, and an id with no
 /// stored membership has no games.
-pub async fn games(nfl: &NflData, id: &SlateId) -> Result<Vec<Game>, crate::NflDataError> {
+pub(crate) async fn games(nfl: &NflData, id: &SlateId) -> Result<Vec<Game>, crate::NflDataError> {
     let Some(stored) = slates_store::by_id(nfl.store.reader(), id).await? else {
         return Ok(Vec::new());
     };
@@ -51,7 +59,7 @@ pub(crate) async fn counts(nfl: &NflData) -> Result<HashMap<SlateId, usize>, cra
 /// Callers that already hold populated tables do not need this: reads answer
 /// from storage, and the handle populates at startup and after each successful
 /// sync. It exists for a deliberate rebuild.
-pub async fn refresh(nfl: &NflData) -> Result<BTreeSet<Slate>, crate::NflDataError> {
+pub(crate) async fn refresh(nfl: &NflData) -> Result<BTreeSet<Slate>, crate::NflDataError> {
     populate_at(
         &nfl.provider,
         &nfl.store,

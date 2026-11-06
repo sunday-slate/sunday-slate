@@ -95,7 +95,7 @@ async fn seed_admin_slate(nfl: &NflData) {
     }])
     .await
     .unwrap();
-    nfl.refresh_slates().await.unwrap();
+    crate::slates::refresh(nfl).await.unwrap();
 }
 
 fn admin_fixture(nfl: Arc<NflData>, admin_season: Season) -> AdminFixture {
@@ -299,11 +299,15 @@ async fn dashboard_groups_sources_by_season_type_and_week() {
             week: crate::Week(1),
         },
     ] {
-        let salaries = state
-            .nfl
-            .parse_fanduel_csv(season_week, DASHBOARD_CSV.as_bytes())
+        let salaries = crate::salaries::parse_fanduel_csv(
+            &state.nfl.fanduel,
+            season_week,
+            DASHBOARD_CSV.as_bytes(),
+        )
+        .unwrap();
+        crate::salaries::save_fanduel_salaries(&state.nfl.fanduel, &salaries)
+            .await
             .unwrap();
-        state.nfl.save_fanduel_salaries(&salaries).await.unwrap();
     }
     let root = state.server.get("/nfl-data-admin/salary-imports").await;
     root.assert_status_ok();

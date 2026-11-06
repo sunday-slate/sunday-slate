@@ -117,12 +117,18 @@ async fn import_salary_csv(
     season_week: SeasonWeek,
     csv_data: &[u8],
 ) -> Result<SalaryWeekOverview, NflDataError> {
-    let source = state.nfl.parse_fanduel_csv(season_week, csv_data)?;
-    let games = state.nfl.games(season_week.season).await?;
+    let source = salaries::parse_fanduel_csv(&state.nfl.fanduel, season_week, csv_data)?;
+    let games = crate::provider::games(&state.nfl.provider, season_week.season).await?;
     salaries::resolve_slate_games(&games, &season_week, &salaries::salary_matchups(&source))
         .map_err(|_| NflDataError::Schedule)?;
-    state.nfl.save_fanduel_salaries(&source).await?;
-    let linked = state.nfl.reconcile_salary_week(season_week).await;
+    salaries::save_fanduel_salaries(&state.nfl.fanduel, &source).await?;
+    let linked = salaries::reconcile_salary_week(
+        &state.nfl.fanduel,
+        &state.nfl.provider,
+        &state.nfl.store,
+        season_week,
+    )
+    .await;
     let rebuilt = state.nfl.reconcile_slates_and_rebuild().await;
     linked?;
     rebuilt?;
@@ -291,9 +297,7 @@ mod tests {
                 .assert_status(StatusCode::BAD_REQUEST);
         }
         assert!(
-            state
-                .nfl
-                .fanduel_weekly_summaries(&[])
+            crate::salaries::fanduel_weekly_summaries(&state.nfl.fanduel, &[])
                 .await
                 .unwrap()
                 .is_empty()

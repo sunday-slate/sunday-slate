@@ -63,6 +63,7 @@ fn season_bounds(season: Season) -> Option<(i64, i64)> {
 }
 
 /// Every stored slate for an NFL week, ordered by slate id.
+#[cfg(test)]
 pub(crate) async fn for_week(
     pool: &SqlitePool,
     week: SeasonWeek,

@@ -29,6 +29,7 @@ async fn import_rejects_unscheduled_matchup_without_poisoning_corrected_upload()
     assert!(
         state
             .nfl
+            .fanduel
             .salaried_players_for(week1)
             .await
             .unwrap()
@@ -47,7 +48,13 @@ async fn import_rejects_unscheduled_matchup_without_poisoning_corrected_upload()
         "/nfl-data-admin/salary-imports/2025001"
     );
     assert_eq!(
-        state.nfl.salaried_players_for(week1).await.unwrap().len(),
+        state
+            .nfl
+            .fanduel
+            .salaried_players_for(week1)
+            .await
+            .unwrap()
+            .len(),
         4
     );
     let links = player_link::links(state.nfl.store.reader()).await.unwrap();
@@ -72,7 +79,13 @@ async fn import_rejects_unscheduled_matchup_without_poisoning_corrected_upload()
         .await
         .assert_status(StatusCode::SEE_OTHER);
     assert_eq!(
-        state.nfl.salaried_players_for(week1).await.unwrap().len(),
+        state
+            .nfl
+            .fanduel
+            .salaried_players_for(week1)
+            .await
+            .unwrap()
+            .len(),
         4
     );
     assert_eq!(
@@ -121,15 +134,17 @@ async fn link_applies_globally_without_reimport_and_price_updates_flow_through()
         "the persisted link resolves Josh Allen without re-importing"
     );
 
-    let mut updated = state.nfl.salaried_players_for(week2).await.unwrap();
+    let mut updated = state.nfl.fanduel.salaried_players_for(week2).await.unwrap();
     for row in &mut updated {
         if row.player.as_ref().is_some_and(|p| p.id == 62239) {
             row.salary = 9000;
         }
     }
-    state.nfl.save_fanduel_salaries(&updated).await.unwrap();
+    crate::salaries::save_fanduel_salaries(&state.nfl.fanduel, &updated)
+        .await
+        .unwrap();
 
-    let priced = state.nfl.salaried_players_for(week2).await.unwrap();
+    let priced = state.nfl.fanduel.salaried_players_for(week2).await.unwrap();
     assert_eq!(priced.len(), 4);
     assert_eq!(
         priced

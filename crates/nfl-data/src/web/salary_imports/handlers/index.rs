@@ -47,7 +47,8 @@ async fn salary_week_summaries(
         .keys()
         .copied()
         .collect();
-    let summaries = state.nfl.fanduel_weekly_summaries(&matched_ids).await?;
+    let summaries =
+        crate::salaries::fanduel_weekly_summaries(&state.nfl.fanduel, &matched_ids).await?;
 
     Ok(summaries
         .into_iter()
@@ -65,7 +66,7 @@ async fn salary_week_summaries(
 
 async fn current_week(state: &AdminState) -> Result<SeasonWeek, SalaryAdminError> {
     let season = state.config.season;
-    let games = state.nfl.games(season).await?;
+    let games = crate::provider::games(&state.nfl.provider, season).await?;
     let now = state
         .config
         .now_override

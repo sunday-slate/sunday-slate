@@ -206,10 +206,9 @@ async fn seed_sources(nfl: &NflData) {
         (SEASON_WEEK_5, SALARIES_CSV),
         (PREVIOUS_WEEK_5, PREVIOUS_SEASON_SALARIES_CSV),
     ] {
-        let rows = nfl
-            .parse_fanduel_csv(week, csv.as_bytes())
+        let rows = crate::salaries::parse_fanduel_csv(&nfl.fanduel, week, csv.as_bytes())
             .expect("parse salaries");
-        nfl.save_fanduel_salaries(&rows)
+        crate::salaries::save_fanduel_salaries(&nfl.fanduel, &rows)
             .await
             .expect("save salaries");
     }

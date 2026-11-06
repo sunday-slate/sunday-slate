@@ -1,6 +1,9 @@
 use nflverse_data::Dataset;
 use time::OffsetDateTime;
 
+use crate::NflData;
+use crate::error::NflDataError;
+
 /// Opaque snapshot hint used to detect changes in NFL-data freshness.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DataRevision(Vec<(Dataset, u32, Option<OffsetDateTime>)>);
@@ -8,6 +11,19 @@ pub struct DataRevision(Vec<(Dataset, u32, Option<OffsetDateTime>)>);
 impl DataRevision {
     pub(crate) fn from_snapshot(snapshot: Vec<(Dataset, u32, Option<OffsetDateTime>)>) -> Self {
         Self(snapshot)
+    }
+}
+
+impl NflData {
+    /// Read an opaque hint for changes in the complete provider freshness snapshot.
+    pub async fn data_revision(&self) -> Result<DataRevision, NflDataError> {
+        let snapshot = self.provider.freshness().await?;
+        Ok(DataRevision::from_snapshot(
+            snapshot
+                .into_iter()
+                .map(|row| (row.dataset, row.assets, row.last_synced_at))
+                .collect(),
+        ))
     }
 }
 
@@ -100,8 +116,19 @@ mod tests {
                 .iter()
                 .all(|row| matches!(row.status, nflverse_data::DatasetStatus::Failed(_)))
         );
-        assert_eq!(nfl.games(crate::Season(2025)).await.unwrap().len(), 1);
-        assert!(nfl.games(crate::Season(2024)).await.unwrap().is_empty());
+        assert_eq!(
+            crate::provider::games(&nfl.provider, crate::Season(2025))
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(
+            crate::provider::games(&nfl.provider, crate::Season(2024))
+                .await
+                .unwrap()
+                .is_empty()
+        );
         assert!(nfl.data_revision().await.is_ok());
     }
 

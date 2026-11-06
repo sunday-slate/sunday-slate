@@ -225,10 +225,13 @@ Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,
         nfl.seed_for_test(&[mack()], &[])
             .await
             .expect("seed provider");
-        let rows = nfl
-            .parse_fanduel_csv(salaried_week(), SALARIES_CSV.as_bytes())
-            .expect("parse salaries");
-        nfl.save_fanduel_salaries(&rows)
+        let rows = crate::salaries::parse_fanduel_csv(
+            &nfl.fanduel,
+            salaried_week(),
+            SALARIES_CSV.as_bytes(),
+        )
+        .expect("parse salaries");
+        crate::salaries::save_fanduel_salaries(&nfl.fanduel, &rows)
             .await
             .expect("save salaries");
         player_link::save_links(

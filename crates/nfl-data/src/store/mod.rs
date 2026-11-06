@@ -10,7 +10,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use crate::NflDataError;
-pub use player_link::PlayerLink;
+pub(crate) use player_link::PlayerLink;
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 

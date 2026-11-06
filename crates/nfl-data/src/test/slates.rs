@@ -6,9 +6,9 @@ use tempfile::TempDir;
 use time::OffsetDateTime;
 use time::macros::datetime;
 
-use nfl_data::slates;
-use nfl_data::slates::{Slate, SlateId};
-use nfl_data::{Game, NflData, NflDataConfig, Season, SeasonType, SeasonWeek, Week};
+use crate::slates;
+use crate::slates::{Slate, SlateId};
+use crate::{Game, NflData, NflDataConfig, Season, SeasonType, SeasonWeek, Week};
 
 const WEEK_13: SeasonWeek = SeasonWeek {
     season: Season(2025),
@@ -130,7 +130,7 @@ async fn public_slate_is_metadata_only() {
     let mut games = week_13_games();
     games.extend(week_16_games());
     nfl.seed_for_test(&[], &games).await.unwrap();
-    nfl.refresh_slates().await.unwrap();
+    slates::refresh(&nfl).await.unwrap();
 
     let listed = slates::by_week(&nfl, WEEK_13).await.unwrap();
     assert_eq!(
@@ -176,7 +176,7 @@ async fn public_access_returns_metadata_and_games_separately() {
     let temp = TempDatabases::connect().await;
     let nfl = temp.open().await;
     nfl.seed_for_test(&[], &week_13_games()).await.unwrap();
-    nfl.refresh_slates().await.unwrap();
+    slates::refresh(&nfl).await.unwrap();
 
     let listed = slates::by_week(&nfl, WEEK_13).await.unwrap();
     assert_eq!(names(&listed), ["Thanksgiving", "Week 13"]);
@@ -209,7 +209,7 @@ async fn fixed_ids_and_metadata_survive_reopen() {
     let temp = TempDatabases::connect().await;
     let nfl = temp.open().await;
     nfl.seed_for_test(&[], &week_13_games()).await.unwrap();
-    nfl.refresh_slates().await.unwrap();
+    slates::refresh(&nfl).await.unwrap();
 
     let listed = slates::by_week(&nfl, WEEK_13).await.unwrap();
     let main_id = named(&listed, "Week 13").id;
@@ -221,7 +221,7 @@ async fn fixed_ids_and_metadata_survive_reopen() {
     drop(nfl);
 
     let nfl = temp.open().await;
-    nfl.refresh_slates().await.unwrap();
+    slates::refresh(&nfl).await.unwrap();
     let reopened = slates::by_week(&nfl, WEEK_13).await.unwrap();
     assert_eq!(named(&reopened, "Week 13").id, main_id);
     assert_eq!(named(&reopened, "Thanksgiving").id, thanksgiving_id);
@@ -242,7 +242,7 @@ async fn fixed_ids_and_metadata_survive_reopen() {
     temp.change_kickoff("sun_1", datetime!(2025-11-29 21:30 UTC))
         .await;
     let nfl = temp.open().await;
-    nfl.refresh_slates().await.unwrap();
+    slates::refresh(&nfl).await.unwrap();
 
     assert_eq!(
         game_ids(&slates::games(&nfl, &main_id).await.unwrap()),
@@ -268,10 +268,13 @@ async fn slate_access_has_no_salary_prerequisite() {
     let temp = TempDatabases::connect().await;
     let nfl = temp.open().await;
     nfl.seed_for_test(&[], &week_13_games()).await.unwrap();
-    nfl.refresh_slates().await.unwrap();
+    slates::refresh(&nfl).await.unwrap();
 
     assert!(
-        nfl.fanduel_weekly_summaries(&[]).await.unwrap().is_empty(),
+        crate::salaries::fanduel_weekly_summaries(&nfl.fanduel, &[])
+            .await
+            .unwrap()
+            .is_empty(),
         "no stored salary summaries exist before slate access"
     );
 
@@ -284,7 +287,10 @@ async fn slate_access_has_no_salary_prerequisite() {
     );
 
     assert!(
-        nfl.fanduel_weekly_summaries(&[]).await.unwrap().is_empty(),
+        crate::salaries::fanduel_weekly_summaries(&nfl.fanduel, &[])
+            .await
+            .unwrap()
+            .is_empty(),
         "slate access persisted no salary summaries"
     );
 }

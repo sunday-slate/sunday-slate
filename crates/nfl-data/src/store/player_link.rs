@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 /// A confirmed link between a FanDuel player and its GSIS identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PlayerLink {
+pub(crate) struct PlayerLink {
     pub fd_player_id: u32,
     pub gsis_player_id: String,
 }
@@ -101,6 +101,20 @@ async fn save_links_tx(
         .execute(&mut *conn)
         .await?;
     }
+    Ok(())
+}
+
+/// Persist FanDuel→GSIS player links, skipping an empty batch. Callers
+/// republish the snapshot at their workflow boundary, once the whole import is
+/// persisted.
+pub(crate) async fn save_player_links(
+    store: &Store,
+    links: &[PlayerLink],
+) -> Result<(), NflDataError> {
+    if links.is_empty() {
+        return Ok(());
+    }
+    save_links(store, links).await?;
     Ok(())
 }
 

@@ -1,5 +1,6 @@
 use crate::NflDataError;
-use crate::{Player, SalariedPlayer, Season, SeasonWeek, TeamAbbr, Week, WeeklyRosterEntry};
+use crate::{Player, Season, SeasonWeek, TeamAbbr, Week, WeeklyRosterEntry};
+use fanduel_data::SalariedPlayer;
 
 pub struct Candidate {
     pub gsis_id: String,

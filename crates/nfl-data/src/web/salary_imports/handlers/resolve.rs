@@ -1,3 +1,4 @@
+use crate::store::player_link;
 use crate::web::salary_imports::SalaryAdminError;
 use crate::web::{AdminState, salary_imports};
 use crate::{NflDataError, PlayerLink, SalaryWeekOverview};
@@ -51,13 +52,14 @@ async fn resolve_salary_player(
     }) {
         return Err(NflDataError::Schedule);
     }
-    state
-        .nfl
-        .save_player_links(&[PlayerLink {
+    player_link::save_player_links(
+        &state.nfl.store,
+        &[PlayerLink {
             fd_player_id,
             gsis_player_id: gsis_player_id.to_owned(),
-        }])
-        .await?;
+        }],
+    )
+    .await?;
     state.nfl.rebuild_snapshot().await?;
     salary_imports::salary_week_overview(state, season_week).await
 }
