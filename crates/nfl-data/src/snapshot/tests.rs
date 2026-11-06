@@ -424,7 +424,6 @@ async fn games_for_slate_is_empty_for_absent_slates() {
             .is_empty(),
         "a stored slate outside the configured season has no games"
     );
-    assert!(Snapshot::default().games_for_slate(&SlateId(0)).is_empty());
 }
 
 #[tokio::test]

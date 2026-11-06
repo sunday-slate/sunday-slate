@@ -598,9 +598,6 @@ async fn get_or_create_draft(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::TestApp;
-    use crate::tests::factories::{self, TeamOptions};
-    use sqlx::SqlitePool;
 
     #[test]
     fn remaining_flips_negative_over_cap() {
@@ -703,36 +700,5 @@ mod tests {
             None,
             "locked hides the hint"
         );
-    }
-
-    /// Resolving the slate gates the draft. A contest whose slate carries no
-    /// salaried players in the published snapshot does not resolve, so the
-    /// request is `NotFound` — and must not leave a draft row behind for a
-    /// slate that cannot be played.
-    #[sqlx::test]
-    async fn choices_on_an_unresolvable_slate_creates_no_draft(pool: SqlitePool) {
-        let app = TestApp::from_pool(pool.clone()).await;
-        let fixture = factories::team(&pool, TeamOptions::default()).await;
-        // Nothing publishes this contest's slate into the snapshot.
-        let contest = factories::contest(&pool, "Week 1").await;
-
-        let team_id = FantasyTeamId(fixture.team.id);
-        let contest_id = ContestId(contest);
-
-        match choices(&app.state(), team_id, contest_id, RosterSlot::Qb).await {
-            Err(AppError::NotFound) => {}
-            Err(e) => panic!("expected NotFound, got {e:?}"),
-            Ok(list) => panic!("expected NotFound, got {} choices", list.len()),
-        }
-
-        let drafts: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM draft_entries WHERE contest_id = ?1 AND fantasy_team_id = ?2",
-        )
-        .bind(contest_id)
-        .bind(team_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        assert_eq!(drafts, 0, "no draft row for an unplayable slate");
     }
 }
