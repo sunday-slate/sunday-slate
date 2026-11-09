@@ -100,7 +100,13 @@ async fn score_region_updates_for_one_slate_and_not_another(pool: sqlx::SqlitePo
     let game1 = game("2026_01_BUF_KC", week1, datetime!(2026-09-13 17:00 UTC));
     let game2 = game("2026_02_BUF_KC", week2, datetime!(2026-09-13 17:00 UTC));
     let alpha = player("00-A", "Alpha Runner", "RB");
-    let slate = publish_slate(&app, week1, std::slice::from_ref(&game1), &[alpha.clone()]).await;
+    let slate = publish_slate(
+        &app,
+        week1,
+        std::slice::from_ref(&game1),
+        std::slice::from_ref(&alpha),
+    )
+    .await;
     let other = publish_slate(&app, week2, std::slice::from_ref(&game2), &[]).await;
     let entry_id = factories::full_entry(&pool, slate, team.team.id, "00-A").await;
 
