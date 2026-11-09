@@ -328,7 +328,7 @@ mod tests {
 
     fn subscriber(filter: &str, captured: Captured) -> impl tracing::Subscriber + Send + Sync {
         tracing_subscriber::registry()
-            .with(EnvFilter::new(filter.to_string()))
+            .with(EnvFilter::new(filter))
             .with(
                 fmt::layer()
                     .with_ansi(false)
