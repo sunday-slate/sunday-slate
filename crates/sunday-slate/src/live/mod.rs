@@ -6,10 +6,9 @@ mod snapshot;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-use nfl_data::{Game, LiveGamePhase, Season, SeasonType, TeamAbbr, Week};
+use nfl_data::{Game, LiveGamePhase, TeamAbbr};
 use tokio::sync::watch;
 
-use crate::contests::service::slate_locked;
 use crate::live::identity::LiveIdentityIndex;
 use crate::live::snapshot::SnapshotReducer;
 use crate::scoring::WeekStats;
@@ -176,6 +175,7 @@ impl LiveContestHub {
         identity: Arc<LiveIdentityIndex>,
         feeds: &[coordinator::FeedReplay],
         now: time::OffsetDateTime,
+        locked: bool,
     ) {
         if !self.enabled() {
             return;
@@ -185,7 +185,7 @@ impl LiveContestHub {
             .registrations
             .get(&id)
             .and_then(|registration| registration.locked_at)
-            .or_else(|| slate_locked(&games, now).then_some(now));
+            .or_else(|| locked.then_some(now));
         let unchanged = state.registrations.get(&id).is_some_and(|registration| {
             registration.games == games && Arc::ptr_eq(&registration.identity, &identity)
         });
@@ -308,10 +308,14 @@ pub enum ContestScores {
     Unavailable,
 }
 
-pub fn official_complete_for_slate(games: &[Game], stats: &WeekStats) -> bool {
-    let Some((season, week, season_type)) = slate_tuple(games) else {
-        return false;
-    };
+pub fn official_complete_for_slate(
+    season_week: nfl_data::SeasonWeek,
+    games: &[Game],
+    stats: &WeekStats,
+) -> bool {
+    let season = season_week.season;
+    let week = season_week.week;
+    let season_type = season_week.season_type;
     let mut player_teams = HashSet::new();
     let mut defense_coverage = HashSet::new();
     for game in games {
@@ -354,14 +358,11 @@ pub async fn load_contest_scores(
     contest: SlateId,
 ) -> Result<ContestScores, crate::AppError> {
     let snapshot = state.nfl.snapshot();
-    if snapshot.slate(&contest).is_none() {
+    let Some(slate) = snapshot.slate(&contest) else {
         return Ok(ContestScores::Unavailable);
-    }
+    };
     let games = snapshot.games_for_slate(&contest);
-    if games.is_empty() {
-        return Ok(ContestScores::Unavailable);
-    }
-    if !slate_locked(games, state.now()) {
+    if !slate.locked(state.now()) {
         if games.iter().any(|game| game.kickoff.is_none()) {
             return Ok(ContestScores::Unavailable);
         }
@@ -374,9 +375,9 @@ pub async fn load_contest_scores(
         return Ok(ContestScores::Provisional(snapshot));
     }
 
-    let Some((season, week, season_type)) = slate_tuple(games) else {
-        return Ok(ContestScores::Unavailable);
-    };
+    let season = slate.season_week.season;
+    let week = slate.season_week.week;
+    let season_type = slate.season_week.season_type;
     let players = state.nfl.player_week_stats(season, week).await?;
     let defenses = state.nfl.team_week_stats(season, week).await?;
     let expected_games = games
@@ -437,7 +438,7 @@ pub async fn load_contest_scores(
         players: player_map,
         defenses: defense_map,
     };
-    if official_complete_for_slate(games, &stats) {
+    if official_complete_for_slate(slate.season_week, games, &stats) {
         return Ok(ContestScores::Official(Arc::new(stats)));
     }
     Ok(state
@@ -456,30 +457,10 @@ pub(crate) async fn stream_eligible(
         return Ok(false);
     }
     let snapshot = state.nfl.snapshot();
-    if snapshot.slate(&contest).is_none() {
+    let Some(slate) = snapshot.slate(&contest) else {
         return Ok(false);
-    }
-    let games = snapshot.games_for_slate(&contest);
-    if games.is_empty() {
-        return Ok(false);
-    }
-    Ok(slate_locked(games, state.now()))
-}
-
-pub(crate) fn slate_tuple(games: &[Game]) -> Option<(Season, Week, SeasonType)> {
-    let first = games.first()?;
-    let tuple = (
-        first.season_week.season,
-        first.season_week.week,
-        first.season_week.season_type,
-    );
-    games
-        .iter()
-        .all(|game| {
-            let sw = &game.season_week;
-            (sw.season, sw.week, sw.season_type) == tuple
-        })
-        .then_some(tuple)
+    };
+    Ok(slate.locked(state.now()))
 }
 
 #[cfg(test)]
@@ -510,6 +491,7 @@ mod tests {
             identity,
             &[],
             time::macros::datetime!(2026-09-13 18:00 UTC),
+            true,
         );
 
         assert!(hub.snapshot(one).is_some(), "the published slate registers");
@@ -559,6 +541,7 @@ mod tests {
         };
 
         assert!(official_complete_for_slate(
+            game.season_week,
             std::slice::from_ref(&game),
             &complete
         ));
@@ -566,6 +549,7 @@ mod tests {
         let mut missing = complete.clone();
         missing.defenses.remove(&TeamAbbr::BUF);
         assert!(!official_complete_for_slate(
+            game.season_week,
             std::slice::from_ref(&game),
             &missing
         ));

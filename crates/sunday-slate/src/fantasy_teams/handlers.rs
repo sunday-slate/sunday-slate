@@ -21,7 +21,6 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use axum_htmx::HxRequest;
 use garde::Validate;
-use nfl_data::slates::SlateId;
 use serde::Deserialize;
 use std::collections::HashSet;
 use tower_sessions::Session;
@@ -295,11 +294,11 @@ pub async fn show(
     let edit_team_id = viewer_team.map(|t| t.id).filter(|id| *id == team_id);
     let now = state.now_eastern();
 
-    // Officially-decided contests only, narrowed to this team's. A live
-    // contest stays out: the open-contests section above owns the live row.
+    // Officially-decided contests only; `score_entries` narrows them to this
+    // team's entries. A live contest stays out: the open-contests section
+    // above owns the live row.
     let snapshot = state.nfl.snapshot();
-    let wanted: HashSet<SlateId> = team.entries.iter().map(|e| e.slate_id).collect();
-    let results = contests_service::official_contest_weeks(&state, &snapshot, &wanted).await?;
+    let results = contests_service::official_contest_weeks(&state, &snapshot).await?;
     let scores =
         scoring_service::score_entries(&team.entries, &results.contest_week, &results.stats);
 
@@ -369,6 +368,7 @@ pub async fn show(
 mod tests {
     use super::*;
     use crate::fantasy_teams::contest_entries::ContestRow;
+    use nfl_data::slates::SlateId;
 
     fn contest_row(name: &str, points: f64, counts: bool, score_to_beat: bool) -> ContestRow {
         ContestRow {

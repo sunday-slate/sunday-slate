@@ -24,63 +24,51 @@ pub struct OfficialResults {
     pub stats: HashMap<Week, WeekStats>,
 }
 
-/// Each published slate's NFL week, derived from the games it resolves.
-/// Slates that resolve no games are absent.
+/// Each published slate's NFL week, from its authoritative metadata.
 pub fn contest_weeks(snapshot: &nfl_data::Snapshot) -> HashMap<SlateId, Week> {
     snapshot
         .slates()
-        .filter_map(|slate| Some((slate.id, slate_week(snapshot.games_for_slate(&slate.id))?)))
+        .map(|slate| (slate.id, slate.season_week.week))
         .collect()
 }
 
-/// The `wanted` slates whose official stats have fully arrived — the same
+/// The published slates whose official stats have fully arrived — the same
 /// gate the contest page applies. Skips non-locked slates and ones whose
 /// stats have not arrived rather than reporting false zeros; while the dev
 /// live feed owns a registered snapshot, the result stays provisional.
 pub async fn official_contest_weeks(
     state: &AppState,
     snapshot: &nfl_data::Snapshot,
-    wanted: &HashSet<SlateId>,
 ) -> Result<OfficialResults, AppError> {
     let now = state.now();
-    let mut candidates: Vec<(SlateId, Week, &[Game])> = Vec::new();
-    for slate in snapshot.slates() {
-        if !wanted.contains(&slate.id) {
-            continue;
-        }
-        let games = snapshot.games_for_slate(&slate.id);
-        if games.is_empty() {
-            continue;
-        }
-        if !slate_locked(games, now) {
-            continue;
-        }
-        if state.config.live_dev_feed && state.live.snapshot(slate.id).is_some() {
-            continue;
-        }
-        let Some(week) = live::slate_tuple(games).map(|(_, week, _)| week) else {
-            continue;
-        };
-        candidates.push((slate.id, week, games));
-    }
+    let candidates: Vec<(SlateId, nfl_data::SeasonWeek, &[Game])> = snapshot
+        .slates()
+        .filter(|slate| !(state.config.live_dev_feed && state.live.snapshot(slate.id).is_some()))
+        .filter_map(|slate| {
+            let games = snapshot.games_for_slate(&slate.id);
+            slate
+                .locked(now)
+                .then_some((slate.id, slate.season_week, games))
+        })
+        .collect();
     if candidates.is_empty() {
         return Ok(OfficialResults::default());
     }
 
     let weeks = candidates
         .iter()
-        .map(|(_, week, _)| *week)
+        .map(|(_, season_week, _)| season_week.week)
         .collect::<HashSet<_>>();
     let mut stats =
         crate::scoring::service::week_stats(&state.nfl, Season(state.config.season), weeks).await?;
 
     let mut contest_week = HashMap::new();
-    for (slate_id, week, games) in candidates {
-        let Some(week_stats) = stats.get(&week) else {
+    for (slate_id, season_week, games) in candidates {
+        let Some(week_stats) = stats.get(&season_week.week) else {
             continue;
         };
-        if live::official_complete_for_slate(games, week_stats) {
-            contest_week.insert(slate_id, week);
+        if live::official_complete_for_slate(season_week, games, week_stats) {
+            contest_week.insert(slate_id, season_week.week);
         }
     }
     stats.retain(|week, _| contest_week.values().any(|w| w == week));
@@ -91,27 +79,23 @@ pub async fn official_contest_weeks(
 }
 
 /// Pair each published slate with its earliest and latest kickoff.
-/// Slates that resolve no games are dropped.
 pub fn slate_contests(snapshot: &nfl_data::Snapshot) -> Vec<SlateContest> {
     snapshot
         .slates()
-        .filter_map(|slate| {
+        .map(|slate| {
             let games = snapshot.games_for_slate(&slate.id);
-            if games.is_empty() {
-                return None;
-            }
             let mut first: Option<OffsetDateTime> = None;
             let mut last: Option<OffsetDateTime> = None;
             for kickoff in games.iter().filter_map(Game::kickoff_eastern) {
                 first = Some(first.map_or(kickoff, |first| first.min(kickoff)));
                 last = Some(last.map_or(kickoff, |last| last.max(kickoff)));
             }
-            Some(SlateContest {
+            SlateContest {
                 id: slate.id,
                 name: slate.name.clone(),
                 first,
                 last,
-            })
+            }
         })
         .collect()
 }
@@ -211,16 +195,6 @@ impl ContestRow {
     pub fn is_finished(&self) -> bool {
         self.state == ContestState::Finished
     }
-}
-
-/// A slate is read-only once its earliest kickoff has passed. The gate
-/// protects lineups, so a contest that resolves no games is never locked.
-pub fn slate_locked(games: &[Game], now: OffsetDateTime) -> bool {
-    games
-        .iter()
-        .filter_map(Game::kickoff_eastern)
-        .min()
-        .is_some_and(|kickoff| now >= kickoff)
 }
 
 /// Classify a contest from its slate's first and last kickoff and the current
@@ -801,12 +775,6 @@ fn rows_in_entry_order(entrants: Vec<ContestEntrant>, mine: Option<EntryId>) -> 
     rows
 }
 
-/// The slate's NFL week. `None` for a slate with no games. Every slate holds
-/// one week, so the first game names it.
-pub fn slate_week(games: &[Game]) -> Option<Week> {
-    games.first().map(|g| g.season_week.week)
-}
-
 /// A slate game for display: its id, matchup, and Eastern kickoff.
 pub struct GameRow {
     pub id: String,
@@ -1089,7 +1057,7 @@ pub async fn details_for_league(
     let score = contest_score_meta(&source, id, league_id, &rows, now, stream_eligible);
     Ok(Some(ContestDetails {
         name,
-        entries_open: upcoming && !games.is_empty(),
+        entries_open: upcoming,
         games: if upcoming {
             game_rows(games)
         } else {

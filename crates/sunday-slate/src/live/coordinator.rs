@@ -268,9 +268,6 @@ where
 
     for slate in snapshot.slates() {
         let games = snapshot.games_for_slate(&slate.id);
-        if games.is_empty() {
-            continue;
-        }
         let first = games.iter().filter_map(Game::kickoff_eastern).min();
         let last = games.iter().filter_map(Game::kickoff_eastern).max();
         let started = coordinator.started.contains(&slate.id)
@@ -283,14 +280,11 @@ where
                     .contains(&slate.id)
             });
 
-        let first_week = &games[0].season_week;
-        let tuple = (first_week.season, first_week.week, first_week.season_type);
-        if !games.iter().all(|game| {
-            let sw = &game.season_week;
-            (sw.season, sw.week, sw.season_type) == tuple
-        }) {
-            continue;
-        }
+        let tuple = (
+            slate.season_week.season,
+            slate.season_week.week,
+            slate.season_week.season_type,
+        );
 
         let mut teams = games
             .iter()
@@ -491,15 +485,20 @@ where
                 replays.push(replay.clone());
             }
         }
-        state
-            .live
-            .rebase_contest(contest, games, identity, &replays, now);
+        state.live.rebase_contest(
+            contest,
+            games,
+            identity,
+            &replays,
+            now,
+            snapshot
+                .slate(&contest)
+                .is_some_and(|slate| slate.locked(now)),
+        );
     }
 
     for slate in snapshot.slates() {
-        if !snapshot.games_for_slate(&slate.id).is_empty() {
-            state.live.notify(slate.id);
-        }
+        state.live.notify(slate.id);
     }
 
     refresh_injuries(state, provider, coordinator, &targets, now).await?;

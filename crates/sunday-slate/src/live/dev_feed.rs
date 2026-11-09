@@ -13,7 +13,6 @@ use nfl_data::{
 use tank01_data::{PollEvent, PollRequest};
 use time::OffsetDateTime;
 
-use crate::contests::service::slate_locked;
 use crate::live::identity::LiveIdentityIndex;
 use crate::live::snapshot::live_game;
 use crate::{AppError, AppState};
@@ -296,23 +295,17 @@ async fn run_inner(state: &AppState) -> Result<(), AppError> {
     let now = state.now_eastern();
     let snapshot = state.nfl.snapshot();
 
-    let mut targets: Vec<(SlateId, Vec<Game>, Vec<LiveGame>)> = Vec::new();
+    let mut targets: Vec<(SlateId, nfl_data::SeasonWeek, Vec<Game>, Vec<LiveGame>)> = Vec::new();
     let mut distinct: BTreeMap<String, Game> = BTreeMap::new();
     for slate in snapshot.slates() {
         let games = snapshot.games_for_slate(&slate.id);
-        if games.is_empty() {
-            continue;
-        }
-        if !slate_locked(games, now) {
+        if !slate.locked(now) {
             continue;
         }
         let Some(last) = games.iter().filter_map(Game::kickoff_eastern).max() else {
             continue;
         };
         if last < now - STARTUP_RECOVERY {
-            continue;
-        }
-        if super::slate_tuple(games).is_none() {
             continue;
         }
         let live_games = games.iter().filter_map(live_game).collect::<Vec<_>>();
@@ -324,7 +317,7 @@ async fn run_inner(state: &AppState) -> Result<(), AppError> {
                 .entry(game.game_id.clone())
                 .or_insert_with(|| game.clone());
         }
-        targets.push((slate.id, games.to_vec(), live_games));
+        targets.push((slate.id, slate.season_week, games.to_vec(), live_games));
     }
 
     if targets.is_empty() {
@@ -332,8 +325,9 @@ async fn run_inner(state: &AppState) -> Result<(), AppError> {
         return Ok(());
     }
 
-    for (contest, games, _) in &targets {
-        let (season, week, _) = super::slate_tuple(games).expect("uniform slate");
+    for (contest, season_week, games, _) in &targets {
+        let season = season_week.season;
+        let week = season_week.week;
         let mut teams = games
             .iter()
             .flat_map(|game| [game.home_team, game.away_team])
@@ -341,7 +335,11 @@ async fn run_inner(state: &AppState) -> Result<(), AppError> {
         teams.sort_by(|a, b| a.as_str().cmp(b.as_str()));
         teams.dedup_by(|a, b| a == b);
         let identity = Arc::new(LiveIdentityIndex::build(&state.nfl, season, week, &teams).await?);
-        let key = super::slate_tuple(games).expect("uniform slate");
+        let key = (
+            season_week.season,
+            season_week.week,
+            season_week.season_type,
+        );
         state.injuries.publish(
             key,
             crate::injuries::SlateInjuries {
@@ -351,9 +349,16 @@ async fn run_inner(state: &AppState) -> Result<(), AppError> {
             },
         );
         state.live.notify(*contest);
-        state
-            .live
-            .rebase_contest(*contest, games.clone(), identity, &[], now);
+        state.live.rebase_contest(
+            *contest,
+            games.clone(),
+            identity,
+            &[],
+            now,
+            snapshot
+                .slate(contest)
+                .is_some_and(|slate| slate.locked(now)),
+        );
     }
 
     let mut ramps = BTreeMap::new();
@@ -363,7 +368,7 @@ async fn run_inner(state: &AppState) -> Result<(), AppError> {
         }
     }
 
-    for (contest, _, live_games) in &targets {
+    for (contest, _, _, live_games) in &targets {
         for game in live_games {
             let Some((Lane::EndedBeforeNow, ramp)) = ramps.get(&game.game_id) else {
                 continue;
@@ -376,7 +381,7 @@ async fn run_inner(state: &AppState) -> Result<(), AppError> {
     let tick_ms = Duration::from_millis(state.config.live_dev_feed_tick_ms.max(1));
     let mut shutdown = state.live.shutdown_receiver();
     for tick in 0..=DEV_TICKS {
-        for (contest, _, live_games) in &targets {
+        for (contest, _, _, live_games) in &targets {
             for game in live_games {
                 let Some((Lane::InFlight, ramp)) = ramps.get(&game.game_id) else {
                     continue;
@@ -743,7 +748,7 @@ mod tests {
         assert_eq!(
             lane(&at(::time::Duration::ZERO), now),
             Lane::InFlight,
-            "kickoff == now counts as in flight, matching slate_locked"
+            "kickoff == now counts as in flight, matching Slate::locked"
         );
         assert_eq!(lane(&at(-::time::Duration::hours(1)), now), Lane::InFlight);
         assert_eq!(

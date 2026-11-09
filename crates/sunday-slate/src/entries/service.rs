@@ -950,7 +950,7 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
     let now = state.now();
 
     let is_owner = entry.team.user_id == viewer.id;
-    let kicked_off = contests::slate_locked(games, now);
+    let kicked_off = slate.locked(now);
 
     if is_owner && !kicked_off {
         let values: Vec<PlayerOrDefenseId> = entry
@@ -1015,6 +1015,11 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
             ContestScores::Upcoming | ContestScores::Unavailable => None,
         };
 
+        let slate_key = (
+            slate.season_week.season,
+            slate.season_week.week,
+            slate.season_week.season_type,
+        );
         let mut picks = build_picks(
             &entry.lineup,
             &names,
@@ -1027,8 +1032,9 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
             },
             &ownership,
             &avatars,
-            &live::slate_tuple(games)
-                .and_then(|key| state.injuries.report(&key))
+            &state
+                .injuries
+                .report(&slate_key)
                 .map(|report| report.by_gsis)
                 .unwrap_or_default(),
         );

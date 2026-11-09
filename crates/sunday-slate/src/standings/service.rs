@@ -1,7 +1,7 @@
 //! Assemble the standings: fetch each fantasy team's entries, resolve the
 //! officially-decided contests, load their stats, score, rank.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::contests::service;
 use crate::entries::store as entries;
@@ -51,8 +51,7 @@ pub async fn standings_for_league(
     league_id: i64,
 ) -> Result<Vec<StandingRow>, AppError> {
     let snapshot = state.nfl.snapshot();
-    let wanted: HashSet<SlateId> = service::contest_weeks(&snapshot).keys().copied().collect();
-    let results = service::official_contest_weeks(state, &snapshot, &wanted).await?;
+    let results = service::official_contest_weeks(state, &snapshot).await?;
     Ok(standings::rank(
         scored_teams(state, league_id, &results.contest_week, &results.stats).await?,
     ))

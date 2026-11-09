@@ -119,6 +119,11 @@ async fn score_region_updates_for_one_slate_and_not_another(pool: sqlx::SqlitePo
         identity,
         &[],
         state.now_eastern(),
+        state
+            .nfl
+            .snapshot()
+            .slate(&slate)
+            .is_some_and(|slate| slate.locked(state.now_eastern())),
     );
     assert!(state.live.snapshot(slate).is_some());
     assert!(state.live.snapshot(other).is_none());
