@@ -21,6 +21,7 @@ use arc_swap::ArcSwap;
 use nflverse_data::{NflverseData, SyncEvent};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
+use tracing::Instrument;
 
 pub use config::NflDataConfig;
 pub use data_revision::DataRevision;
@@ -107,8 +108,18 @@ impl NflData {
         };
 
         // The initial build reads stored slates, so reconcile them first.
-        slates::refresh(&nfl_data).await?;
-        nfl_data.build_and_publish().await?;
+        let initial = async {
+            slates::refresh(&nfl_data).await?;
+            nfl_data.build_and_publish().await
+        };
+        initial
+            .instrument(tracing::info_span!(
+                parent: None,
+                "snapshot_update",
+                season = nfl_data.season.0,
+                trigger = "initial_connect",
+            ))
+            .await?;
 
         Ok(nfl_data)
     }

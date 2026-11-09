@@ -28,6 +28,7 @@ pub mod mail;
 pub mod media;
 pub mod nfl_player_headshots;
 pub mod nfl_teams;
+mod observability;
 pub(crate) mod player_identity;
 mod router;
 pub mod rules;
@@ -49,14 +50,26 @@ pub use error::AppError;
 pub use state::AppState;
 pub use users::User;
 
+/// Default filter; a set `RUST_LOG` replaces it.
+const DEFAULT_LOG_FILTER: &str = "warn,sunday_slate=info,nfl_data=info,nflverse_data=info,tank01_data=info,fanduel_data=info,utils=info";
+
 pub fn init_tracing() -> anyhow::Result<()> {
+    use std::io::IsTerminal;
     use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
+    let filter = match std::env::var("RUST_LOG") {
+        Ok(value) => EnvFilter::try_new(&value)
+            .map_err(|error| anyhow::anyhow!("invalid RUST_LOG {value:?}: {error}"))?,
+        Err(std::env::VarError::NotPresent) => EnvFilter::new(DEFAULT_LOG_FILTER),
+        Err(error) => return Err(anyhow::anyhow!("RUST_LOG is not valid Unicode: {error}")),
+    };
+
+    // journald and pipes are not terminals.
+    let ansi = std::io::stdout().is_terminal();
+
     tracing_subscriber::registry()
-        .with(EnvFilter::new(std::env::var("RUST_LOG").unwrap_or_else(
-            |_| "axum_login=debug,tower_sessions=debug,sqlx=warn,tower_http=debug".into(),
-        )))
-        .with(tracing_subscriber::fmt::layer())
+        .with(filter)
+        .with(tracing_subscriber::fmt::layer().with_ansi(ansi))
         .try_init()?;
     Ok(())
 }

@@ -1,3 +1,4 @@
+use anyhow::Context;
 use axum::Router;
 use std::sync::Arc;
 use std::time::Duration;
@@ -24,10 +25,20 @@ impl App {
             .tank01_api_key
             .clone()
             .map(|key| Tank01Client::new(Tank01Config::new(key)))
-            .transpose()?;
-        let db = Db::open(&config.database_url).await?;
-        std::fs::create_dir_all(&config.media_dir)?;
-        let (session_layer, sessions) = sessions::layer(&config).await?;
+            .transpose()
+            .context("creating the Tank01 provider")?;
+        let db = Db::open(&config.database_url)
+            .await
+            .context("opening the application database")?;
+        std::fs::create_dir_all(&config.media_dir).with_context(|| {
+            format!(
+                "creating the media directory {}",
+                config.media_dir.display()
+            )
+        })?;
+        let (session_layer, sessions) = sessions::layer(&config)
+            .await
+            .context("opening the session store")?;
 
         let nfl = Arc::new(
             nfl_data::NflData::connect(nfl_data::NflDataConfig {
@@ -39,7 +50,8 @@ impl App {
                 refresh_interval: config.nflverse_sync_interval(),
                 ..Default::default()
             })
-            .await?,
+            .await
+            .context("connecting the NFL data store")?,
         );
         let avatar_runner = Arc::new(crate::avatars::AvatarFetchRunner::new());
         let live_enabled = config.tank01_api_key.is_some() || config.live_dev_feed;
@@ -73,17 +85,37 @@ impl App {
         tracing::info!("listening on http://{bind_addr}");
 
         let coordinator_state = state.clone();
-        let deletion_task = tokio::task::spawn(
-            state
-                .sessions
-                .continuously_delete_expired(Duration::from_secs(3600)),
-        );
+        let deletion_task = tokio::task::spawn({
+            let state = state.clone();
+            async move {
+                let _exit = TaskExitGuard {
+                    task: "session_sweeper",
+                };
+                let live = state.live.clone();
+                match state
+                    .sessions
+                    .continuously_delete_expired(Duration::from_secs(3600))
+                    .await
+                {
+                    Ok(()) if shutdown_signaled(&live) => {
+                        tracing::info!("session sweeper stopped during shutdown")
+                    }
+                    Ok(()) => tracing::warn!("session sweeper returned unexpectedly"),
+                    Err(error) => {
+                        tracing::error!(error = ?error, "session sweeper exited with error")
+                    }
+                }
+            }
+        });
         let live_task = match provider {
-            Some(provider) => Some(tokio::spawn(crate::live::run_coordinator(
-                coordinator_state.clone(),
-                provider,
-            ))),
-            None if coordinator_state.config.live_dev_feed => Some(tokio::spawn(
+            Some(provider) => Some(spawn_supervised(
+                "live_coordinator",
+                state.live.clone(),
+                crate::live::run_coordinator(coordinator_state.clone(), provider),
+            )),
+            None if coordinator_state.config.live_dev_feed => Some(spawn_supervised(
+                "live_dev_feed",
+                state.live.clone(),
                 crate::live::dev_feed::run(coordinator_state.clone()),
             )),
             None => None,
@@ -106,8 +138,8 @@ impl App {
         }
 
         match deletion_task.await {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => tracing::error!(error = ?e, "session sweeper exited with error"),
+            // Outcomes were logged by the supervisor when the task ended.
+            Ok(()) => {}
             Err(e) if e.is_cancelled() => tracing::info!("session sweeper aborted on shutdown"),
             Err(e) => return Err(e.into()),
         }
@@ -125,6 +157,44 @@ impl App {
         tracing::info!("shutdown complete");
         Ok(())
     }
+}
+
+/// Whether the live hub has broadcast shutdown.
+fn shutdown_signaled(live: &crate::live::LiveContestHub) -> bool {
+    *live.shutdown_receiver().borrow()
+}
+
+/// Logs a panic escaping a supervised task while it unwinds.
+struct TaskExitGuard {
+    task: &'static str,
+}
+
+impl Drop for TaskExitGuard {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            tracing::error!(task = self.task, "background task panicked");
+        }
+    }
+}
+
+/// Spawn a long-lived task, logging panics and unexpected returns.
+fn spawn_supervised<F>(
+    task: &'static str,
+    live: Arc<crate::live::LiveContestHub>,
+    future: F,
+) -> tokio::task::JoinHandle<()>
+where
+    F: Future<Output = ()> + Send + 'static,
+{
+    tokio::task::spawn(async move {
+        let _exit = TaskExitGuard { task };
+        future.await;
+        if shutdown_signaled(&live) {
+            tracing::info!(task, "background task stopped during shutdown");
+        } else {
+            tracing::warn!(task, "background task returned unexpectedly");
+        }
+    })
 }
 
 async fn wait_for_shutdown_signal(
@@ -169,7 +239,8 @@ async fn wait_for_shutdown_signal(
             Err(error) if error.is_cancelled() => {
                 tracing::info!("live coordinator aborted on shutdown")
             }
-            Err(error) => tracing::error!(error = ?error, "live coordinator exited with error"),
+            // A non-cancelled JoinError is a panic, already logged while unwinding.
+            Err(_) => {}
         }
     }
 }

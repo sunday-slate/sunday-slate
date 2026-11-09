@@ -52,6 +52,7 @@ url = "2"
 urlencoding = "2"
 uuid.workspace = true
 http.workspace = true
+http-body.workspace = true
 
 [features]
 # Force rust-embed to embed at compile time even in debug builds, so

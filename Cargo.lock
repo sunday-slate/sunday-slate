@@ -3588,6 +3588,7 @@ dependencies = [
  "futures-util",
  "garde",
  "http",
+ "http-body",
  "http-body-util",
  "image",
  "itertools",
@@ -4268,6 +4269,7 @@ dependencies = [
  "serde_json",
  "time",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

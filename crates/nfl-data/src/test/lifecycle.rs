@@ -438,4 +438,77 @@ Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,
         );
         nfl.stop_background_tasks();
     }
+
+    #[tokio::test]
+    async fn failed_irrelevant_sync_keeps_the_published_snapshot() {
+        let mock = NflverseMock::start().await;
+        mock.set_release(
+            "schedules",
+            vec![MockAsset::csv(
+                "games.csv",
+                RELEASE_AT_1,
+                mock_games_csv("13:00"),
+            )],
+        );
+        mock.set_release(
+            "players",
+            vec![MockAsset::csv(
+                "players.csv",
+                RELEASE_AT_1,
+                mock_players_csv("Mack R. Runner"),
+            )],
+        );
+
+        let nfl = mock_nfl_data(&mock, None).await;
+        seed_sources(&nfl).await;
+        nfl.start_background_tasks();
+        assert!(
+            nfl.provider
+                .request_refresh()
+                .await
+                .expect("request refresh"),
+            "the runner was idle"
+        );
+        wait_for_successful_sync(&nfl, "the initial sync succeeded").await;
+        poll_until("the schedule published", || async {
+            nfl.snapshot().slate(&salaried_slate_id()).is_some()
+        })
+        .await;
+        let published = nfl.snapshot();
+
+        // Every listed asset now fails: nothing this season can see commits.
+        mock.set_release(
+            "schedules",
+            vec![MockAsset::failing("games.csv", RELEASE_AT_2, 500)],
+        );
+        mock.set_release(
+            "players",
+            vec![MockAsset::failing("players.csv", RELEASE_AT_2, 500)],
+        );
+        assert!(
+            nfl.provider
+                .request_refresh()
+                .await
+                .expect("request refresh"),
+            "the runner was idle"
+        );
+        poll_until("the failed sync settled", || async {
+            matches!(
+                nfl.provider.refresh_status(),
+                RunnerState::Idle {
+                    last: Some(LastRun {
+                        outcome: Err(_),
+                        ..
+                    }),
+                }
+            )
+        })
+        .await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(
+            Arc::ptr_eq(&published, &nfl.snapshot()),
+            "a failed irrelevant sync republished nothing"
+        );
+        nfl.stop_background_tasks();
+    }
 }

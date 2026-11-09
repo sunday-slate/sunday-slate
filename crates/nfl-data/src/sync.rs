@@ -2,8 +2,10 @@
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Weak};
+use std::time::Instant;
 
 use nflverse_data::{Dataset, SyncEvent};
+use tracing::Instrument;
 
 use crate::slates::{self, Slate, SlateId};
 use crate::snapshot::Snapshot;
@@ -77,6 +79,16 @@ impl NflData {
             .unwrap_or_else(|error| error.into_inner()) = Some(worker);
     }
 
+    /// Span for an update the caller owns; nested work inherits its trigger.
+    fn snapshot_update_span(&self, trigger: &'static str) -> tracing::Span {
+        tracing::info_span!("snapshot_update", season = self.season.0, trigger)
+    }
+
+    /// A failed operation leaves readers on the current snapshot.
+    fn log_update_failure(&self, error: &NflDataError) {
+        tracing::error!(error = %error, "snapshot update failed");
+    }
+
     /// Apply one completed sync: republish when the configured season's data
     /// changed, otherwise reconcile the slates only.
     async fn apply_sync_event(&self, event: SyncEvent) {
@@ -84,38 +96,79 @@ impl NflData {
             .updates
             .iter()
             .any(|update| update_is_relevant(update, self.season));
-        let outcome = if relevant {
-            // A committed relevant asset rebuilds even when a sibling dataset
-            // failed: its rows are in the store either way.
-            self.reconcile_slates_and_rebuild().await
-        } else if event.all_ok {
-            // An unchanged or historical-only sync still reconciles the
-            // slates, and republishes only when that changed what a build
-            // reads.
-            self.reconcile_slates_if_changed().await
-        } else {
-            // Nothing committed that this season can see.
-            return;
-        };
-        if let Err(error) = outcome {
-            tracing::warn!(%error, "snapshot update after sync failed");
+        // Channels carry no request context: root the span explicitly.
+        let span = tracing::info_span!(
+            parent: None,
+            "snapshot_update",
+            season = self.season.0,
+            trigger = "sync_event",
+            committed_updates = event.updates.len(),
+            relevant,
+        );
+        async move {
+            if !relevant && !event.all_ok {
+                // Nothing committed that this season can see.
+                tracing::debug!("snapshot update skipped");
+                return;
+            }
+            tracing::info!("snapshot update started");
+            let outcome = if relevant {
+                self.reconcile_slates_and_rebuild_inner().await
+            } else {
+                self.reconcile_slates_if_changed_inner().await
+            };
+            // Failures were logged at the operation that failed.
+            drop(outcome);
         }
+        .instrument(span)
+        .await
     }
 
     /// Reconcile the configured season's slates and republish. Returns after
     /// the new snapshot is published, or leaves the old one on error.
     pub(crate) async fn reconcile_slates_and_rebuild(&self) -> Result<(), NflDataError> {
+        let span = self.snapshot_update_span("reconcile_slates");
+        async {
+            tracing::info!("snapshot update started");
+            self.reconcile_slates_and_rebuild_inner().await
+        }
+        .instrument(span)
+        .await
+    }
+
+    /// [`Self::reconcile_slates_and_rebuild`] without a start event.
+    async fn reconcile_slates_and_rebuild_inner(&self) -> Result<(), NflDataError> {
         let _publication = self.publication.lock().await;
-        slates::refresh(self).await?;
+        if let Err(error) = slates::refresh(self).await {
+            self.log_update_failure(&error);
+            return Err(error);
+        }
         self.build_and_publish().await
     }
 
-    /// Reconcile the slates, republishing only when their stored state changed.
-    async fn reconcile_slates_if_changed(&self) -> Result<(), NflDataError> {
+    /// Reconcile and republish only when stored slate state changed.
+    async fn reconcile_slates_if_changed_inner(&self) -> Result<(), NflDataError> {
         let _publication = self.publication.lock().await;
-        let before = stored_slates(self).await?;
-        slates::refresh(self).await?;
-        if stored_slates(self).await? == before {
+        let before = match stored_slates(self).await {
+            Ok(before) => before,
+            Err(error) => {
+                self.log_update_failure(&error);
+                return Err(error);
+            }
+        };
+        if let Err(error) = slates::refresh(self).await {
+            self.log_update_failure(&error);
+            return Err(error);
+        }
+        let after = match stored_slates(self).await {
+            Ok(after) => after,
+            Err(error) => {
+                self.log_update_failure(&error);
+                return Err(error);
+            }
+        };
+        if after == before {
+            tracing::debug!("snapshot update skipped");
             return Ok(());
         }
         self.build_and_publish().await
@@ -124,14 +177,36 @@ impl NflData {
     /// Rebuild the snapshot and publish it. A failed build keeps the snapshot
     /// readers already hold; the next request to rebuild tries again.
     pub(crate) async fn rebuild_snapshot(&self) -> Result<(), NflDataError> {
-        let _publication = self.publication.lock().await;
-        self.build_and_publish().await
+        let span = self.snapshot_update_span("rebuild");
+        async {
+            tracing::info!("snapshot update started");
+            let _publication = self.publication.lock().await;
+            self.build_and_publish().await
+        }
+        .instrument(span)
+        .await
     }
 
     /// [`Self::rebuild_snapshot`] with the publication lock already held.
     pub(crate) async fn build_and_publish(&self) -> Result<(), NflDataError> {
-        let snapshot = Snapshot::build(self).await?;
+        let started = Instant::now();
+        let snapshot = match Snapshot::build(self).await {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                tracing::error!(
+                    error = %error,
+                    duration_ms = started.elapsed().as_millis() as u64,
+                    "snapshot update failed"
+                );
+                return Err(error);
+            }
+        };
+        // The atomic store is the publication boundary.
         self.snapshot.store(Arc::new(snapshot));
+        tracing::info!(
+            duration_ms = started.elapsed().as_millis() as u64,
+            "snapshot published"
+        );
         Ok(())
     }
 }

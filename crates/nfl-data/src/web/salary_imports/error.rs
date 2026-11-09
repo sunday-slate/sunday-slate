@@ -25,10 +25,11 @@ impl IntoResponse for SalaryAdminError {
         };
         if status.is_server_error() {
             tracing::error!(error = ?self, status = %status, "salary admin request failed");
+            (status, "Internal server error").into_response()
         } else {
             tracing::debug!(error = ?self, status = %status, "request rejected");
+            (status, self.to_string()).into_response()
         }
-        (status, self.to_string()).into_response()
     }
 }
 
@@ -59,5 +60,26 @@ mod tests {
         ))
         .into_response();
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+}
+
+#[cfg(test)]
+mod privacy_tests {
+    use axum::body::to_bytes;
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
+
+    use super::SalaryAdminError;
+
+    #[tokio::test]
+    async fn server_errors_return_a_generic_body() {
+        let error = SalaryAdminError::Domain(crate::NflDataError::Fanduel(
+            fanduel_data::FanduelDataError::InvalidRow("SENTINEL_ROW".into()),
+        ));
+        let response = error.into_response();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(body, "Internal server error");
+        assert!(!String::from_utf8_lossy(&body).contains("SENTINEL_ROW"));
     }
 }

@@ -190,7 +190,19 @@ impl LogoSubmission {
         while let Some(field) = mp.next_field().await.map_err(multipart_app_error)? {
             match field.name() {
                 Some("remove") => return Ok(Self::Remove),
-                Some("logo") => logo = Some(field.bytes().await.map_err(multipart_app_error)?),
+                Some("logo") => {
+                    let filename = field.file_name().map(str::to_owned);
+                    let content_type = field.content_type().map(str::to_owned);
+                    let bytes = field.bytes().await.map_err(multipart_app_error)?;
+                    tracing::debug!(
+                        target: "sunday_slate::http_input",
+                        filename = ?filename,
+                        content_type = ?content_type,
+                        bytes = bytes.len(),
+                        "logo upload"
+                    );
+                    logo = Some(bytes);
+                }
                 _ => {}
             }
         }

@@ -15,9 +15,16 @@ pub async fn upload(
     mp: Multipart,
 ) -> Result<impl IntoResponse, SalaryAdminError> {
     let SalaryUpload { season_week, csv } = read_upload(mp).await?;
-    import_salary_csv(&state, season_week, &csv)
+    let overview = import_salary_csv(&state, season_week, &csv)
         .await
         .map_err(|e| SalaryAdminError::BadRequest(e.to_string()))?;
+    tracing::info!(
+        season = overview.season_week.season.0,
+        week = overview.season_week.week.0,
+        season_type = ?overview.season_week.season_type,
+        salary_count = overview.salary_count,
+        "salary import processed"
+    );
     Ok(Redirect::to(&format!(
         "/nfl-data-admin/salary-imports/{}",
         season_week.encode()
@@ -60,13 +67,21 @@ async fn read_upload(mut mp: Multipart) -> Result<SalaryUpload, SalaryAdminError
                 )
             }
             "csv" => {
-                csv = Some(
-                    field
-                        .bytes()
-                        .await
-                        .map_err(|e| SalaryAdminError::BadRequest(e.to_string()))?
-                        .to_vec(),
-                )
+                let filename = field.file_name().map(str::to_owned);
+                let content_type = field.content_type().map(str::to_owned);
+                let bytes = field
+                    .bytes()
+                    .await
+                    .map_err(|e| SalaryAdminError::BadRequest(e.to_string()))?
+                    .to_vec();
+                tracing::debug!(
+                    target: "sunday_slate::http_input",
+                    filename = ?filename,
+                    content_type = ?content_type,
+                    bytes = bytes.len(),
+                    "salary csv upload"
+                );
+                csv = Some(bytes);
             }
             _ => {}
         }

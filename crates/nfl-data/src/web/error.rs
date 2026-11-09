@@ -14,7 +14,7 @@ pub(super) enum AdminError {
 
 impl IntoResponse for AdminError {
     fn into_response(self) -> Response {
-        tracing::error!(error = %self, "NFL data admin request failed");
+        tracing::error!(error = ?self, "NFL data admin request failed");
         (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error").into_response()
     }
 }

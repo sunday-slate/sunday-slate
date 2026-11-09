@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tracing::warn;
+use tracing::{Instrument, warn};
 
 use crate::media::{self, process::ProcessedImage, store as media_store};
 use crate::nfl_player_headshots::service as headshot_service;
@@ -57,11 +57,37 @@ pub async fn fetch_missing(
 pub fn start_fetch(state: &AppState) -> bool {
     let runner = Arc::clone(&state.avatar_runner);
     let state = state.clone();
-    runner.try_start(FetchProgress::default(), move |progress| async move {
-        fetch_missing(&state, &progress)
-            .await
-            .map_err(|error| error.to_string())
-    })
+    let parent = tracing::Span::current();
+    let span = tracing::info_span!(parent: &parent, "background_job", job = "avatar_fetch");
+    let started = runner.try_start(FetchProgress::default(), move |progress| {
+        async move {
+            tracing::info!("avatar fetch started");
+            let started = std::time::Instant::now();
+            let result = fetch_missing(&state, &progress).await;
+            match &result {
+                Ok(report) => tracing::info!(
+                    players_fetched = report.players_fetched,
+                    teams_fetched = report.teams_fetched,
+                    failed = report.failed,
+                    skipped = report.skipped,
+                    duration_ms = started.elapsed().as_millis() as u64,
+                    "avatar fetch completed"
+                ),
+                Err(error) => tracing::error!(
+                    error = %error,
+                    duration_ms = started.elapsed().as_millis() as u64,
+                    "avatar fetch failed"
+                ),
+            }
+            result.map_err(|error| error.to_string())
+        }
+        .instrument(span)
+    });
+    if !started {
+        // Refusal is not a start.
+        tracing::debug!(job = "avatar_fetch", "avatar fetch already running");
+    }
+    started
 }
 
 async fn fetch_missing_with<F>(

@@ -10,6 +10,7 @@ use std::future::Future;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use time::OffsetDateTime;
+use tracing::Instrument;
 
 pub struct Runner<P, R> {
     state: Mutex<RunnerState<P, R>>,
@@ -102,11 +103,14 @@ impl<P: Clone + Send + 'static, R: Clone + Send + 'static> Runner<P, R> {
         let progress = Progress {
             runner: Arc::clone(self),
         };
-        tokio::spawn(async move {
-            guard.outcome = Some(job(progress).await);
-            // Explicit: the guard's Drop publishes the outcome.
-            drop(guard);
-        });
+        tokio::spawn(
+            async move {
+                guard.outcome = Some(job(progress).await);
+                // Explicit: the guard's Drop publishes the outcome.
+                drop(guard);
+            }
+            .in_current_span(),
+        );
         true
     }
 

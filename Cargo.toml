@@ -23,6 +23,7 @@ fake = "5"
 flate2 = "1.1"
 garde = "0.23"
 http = "1.5.0"
+http-body = "1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 itertools = "0.15"
 lettre = { version = "0.11", default-features = false, features = [
