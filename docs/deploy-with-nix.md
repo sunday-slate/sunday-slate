@@ -87,7 +87,8 @@ The service logs structured text to stdout, which systemd captures in the
 journal. ANSI escapes are disabled automatically when stdout is not a
 terminal, so `journalctl` output is plain text.
 
-`RUST_LOG` selects events. When it is unset or empty, the service uses:
+`RUST_LOG` selects events. When it is unset or blank (empty or
+whitespace-only), the service uses:
 
 ```text
 warn,sunday_slate=info,nfl_data=info,nflverse_data=info,tank01_data=info,fanduel_data=info,utils=info
@@ -102,11 +103,14 @@ change it in the systemd environment file and restart
 ### Request correlation
 
 Every HTTP request gets a generated UUID, an `http_request` span, and an
-`x-request-id` response header. The `request completed` summary is emitted as
-soon as response headers are ready — before the body streams — so
-`duration_ms`, `status`, `method`, and `path` describe time to headers, not
-time to the last body byte. Streaming (SSE) responses are summarized when
-they open. Body-stream failures are logged separately once they occur.
+`x-request-id` response header. When the filter suppresses INFO but still
+admits ERROR events, the span is recorded at ERROR level so surviving error
+events keep `request_id`, `method`, and `path`. The `request completed`
+summary is emitted as soon as response headers are ready — before the body
+streams — so `duration_ms`, `status`, `method`, and `path` describe time to
+headers, not time to the last body byte. Streaming (SSE) responses are
+summarized when they open. Body-stream failures are logged separately once
+they occur.
 
 Correlate a response with its server-side log:
 

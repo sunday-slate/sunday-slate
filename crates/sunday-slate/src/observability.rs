@@ -7,11 +7,11 @@ use std::time::Instant;
 
 use axum::body::{Body, Bytes};
 use axum::extract::Request;
-use axum::http::{HeaderValue, header};
+use axum::http::{HeaderValue, Method, header};
 use axum::middleware::Next;
 use axum::response::Response;
 use http_body::{Frame, SizeHint};
-use tracing::{Instrument, Span};
+use tracing::{Instrument, Level, Span};
 use uuid::Uuid;
 
 /// Upper bound on the raw bytes captured from a query or request body.
@@ -62,18 +62,37 @@ fn log_query(query: &str) {
     tracing::debug!(target: INPUT_TARGET, query = ?captured, truncated, "request query");
 }
 
+/// Correlation span. Normally INFO, but when the filter suppresses INFO and
+/// still admits ERROR, an ERROR span keeps the surviving error events tied to
+/// the request. Without it, `x-request-id` would match no log line.
+fn request_span(request_id: Uuid, method: &Method, path: &str) -> Span {
+    if tracing::enabled!(target: HTTP_TARGET, Level::INFO) {
+        tracing::info_span!(
+            target: HTTP_TARGET,
+            "http_request",
+            request_id = %request_id,
+            method = %method,
+            path = ?path,
+        )
+    } else if tracing::enabled!(target: HTTP_TARGET, Level::ERROR) {
+        tracing::error_span!(
+            target: HTTP_TARGET,
+            "http_request",
+            request_id = %request_id,
+            method = %method,
+            path = ?path,
+        )
+    } else {
+        Span::none()
+    }
+}
+
 /// Outer request instrumentation; attach with `.layer`, never `.route_layer`.
 pub(crate) async fn request_logging(mut request: Request, next: Next) -> Response {
     let request_id = Uuid::new_v4();
     let method = request.method().clone();
     let path = request.uri().path().to_owned();
-    let span = tracing::info_span!(
-        target: HTTP_TARGET,
-        "http_request",
-        request_id = %request_id,
-        method = %method,
-        path = ?path,
-    );
+    let span = request_span(request_id, &method, &path);
     let started = Instant::now();
 
     // No capture storage is allocated unless the target is enabled.
@@ -481,6 +500,25 @@ mod tests {
             assert!(!logs.contains("request query"));
         }
         .with_subscriber(http_subscriber(captured.clone()))
+        .await;
+    }
+
+    #[tokio::test]
+    async fn keeps_errors_correlated_when_info_is_filtered_out() {
+        let captured = Captured::default();
+        async {
+            let response = router().oneshot(get_request("/boom")).await.unwrap();
+            assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+            let id = request_id(&response);
+
+            let logs = captured.text();
+            assert!(logs.contains(&id.to_string()), "log: {logs}");
+            assert!(logs.contains("method=GET"), "log: {logs}");
+            assert!(logs.contains("path=\"/boom\""), "log: {logs}");
+            assert!(logs.contains("SENTINEL_CAUSE"), "log: {logs}");
+            assert!(!logs.contains("request started"), "log: {logs}");
+        }
+        .with_subscriber(subscriber("warn", captured.clone()))
         .await;
     }
 
