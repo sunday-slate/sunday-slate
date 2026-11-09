@@ -6,14 +6,12 @@ use std::sync::Arc;
 
 use nfl_data::DfsPosition;
 use nfl_data::salaried_players::SalariedPlayer;
-use nfl_data::slates::Slate;
+use nfl_data::slates::{Slate, SlateId};
 use nfl_data::snapshot::Snapshot;
 use nfl_model::{DfsPositionSlotType, InjuryDesignation};
 use strum::IntoEnumIterator;
 use time::OffsetDateTime;
 
-use crate::contests::ContestId;
-use crate::contests::store as contest_store;
 use crate::draft_entry::model::DraftEntry;
 use crate::draft_entry::store as draft_store;
 use crate::entries::service::{self as entries_service, PickInfo, SALARY_CAP};
@@ -143,26 +141,23 @@ pub struct SlotChoice {
 }
 
 /// Open (or resume) the draft and assemble the editor page. `NotFound` when
-/// the contest has no slate with salaried players.
+/// the slate is not published with salaried players.
 pub async fn editor_page(
     state: &AppState,
     team_id: FantasyTeamId,
     team_name: String,
-    contest_id: ContestId,
+    slate_id: SlateId,
 ) -> Result<EditorPage, AppError> {
     let reader = state.db.reader();
 
-    let contest = contest_store::by_id(reader, contest_id)
-        .await?
-        .ok_or(AppError::NotFound)?;
-    let ctx = slate_ctx(state, contest_id).await?;
+    let ctx = slate_ctx(state, slate_id).await?;
 
     // Resume an in-progress draft; seed a first open from the committed entry.
-    let committed = entries_store::lineup_for_team(reader, contest_id, team_id).await?;
+    let committed = entries_store::lineup_for_team(reader, slate_id, team_id).await?;
     let entry_id = committed.as_ref().map(|(id, _)| *id);
     let current_lineup = committed.and_then(|(_, lineup)| lineup);
     let draft_entry =
-        get_or_create_draft(state, contest_id, team_id, current_lineup.as_ref()).await?;
+        get_or_create_draft(state, slate_id, team_id, current_lineup.as_ref()).await?;
 
     let player_dst_ids: Vec<PlayerOrDefenseId> = RosterSlot::iter()
         .filter_map(|slot| draft_entry.get(slot))
@@ -193,7 +188,7 @@ pub async fn editor_page(
     let cap = CapState::new(&draft_entry, &ctx);
 
     Ok(EditorPage {
-        contest_name: contest.name,
+        contest_name: ctx.slate.name.clone(),
         team_name,
         cap,
         slots: roster_slots,
@@ -209,13 +204,13 @@ pub async fn editor_page(
 pub async fn choices(
     state: &AppState,
     team_id: FantasyTeamId,
-    contest_id: ContestId,
+    slate_id: SlateId,
     slot: RosterSlot,
 ) -> Result<Vec<SlotChoice>, AppError> {
     // Resolve the slate first: a contest with no playable slate is `NotFound`,
     // and must not leave a draft row behind.
-    let ctx = slate_ctx(state, contest_id).await?;
-    let draft = get_or_create_draft(state, contest_id, team_id, None).await?;
+    let ctx = slate_ctx(state, slate_id).await?;
+    let draft = get_or_create_draft(state, slate_id, team_id, None).await?;
 
     // The budget this slot may spend: the cap minus what the *other* slots
     // hold. Swapping replaces the current occupant, so it doesn't count.
@@ -287,12 +282,12 @@ pub async fn choices(
 pub async fn set_slot(
     state: &AppState,
     team_id: FantasyTeamId,
-    contest_id: ContestId,
+    slate_id: SlateId,
     slot: RosterSlot,
     value: PlayerOrDefenseId,
 ) -> Result<(), AppError> {
-    let ctx = require_open(state, contest_id).await?;
-    mutate_draft(state, contest_id, team_id, move |draft| {
+    let ctx = require_open(state, slate_id).await?;
+    mutate_draft(state, slate_id, team_id, move |draft| {
         validate_pick(draft, slot, &value, &ctx)?;
         draft.set(slot, value);
         Ok(())
@@ -305,11 +300,11 @@ pub async fn set_slot(
 pub async fn clear_slot(
     state: &AppState,
     team_id: FantasyTeamId,
-    contest_id: ContestId,
+    slate_id: SlateId,
     slot: RosterSlot,
 ) -> Result<(), AppError> {
-    require_open(state, contest_id).await?;
-    mutate_draft(state, contest_id, team_id, move |draft| {
+    require_open(state, slate_id).await?;
+    mutate_draft(state, slate_id, team_id, move |draft| {
         draft.clear(slot);
         Ok(())
     })
@@ -321,14 +316,14 @@ pub async fn clear_slot(
 /// back an incidental draft creation.
 async fn mutate_draft(
     state: &AppState,
-    contest_id: ContestId,
+    slate_id: SlateId,
     team_id: FantasyTeamId,
     mutate: impl FnOnce(&mut DraftEntry) -> Result<(), AppError> + Send,
 ) -> Result<(), AppError> {
     state
         .db
         .write_tx::<_, (), AppError>(async move |conn| {
-            let mut draft = draft_store::get_or_create_tx(conn, contest_id, team_id, None).await?;
+            let mut draft = draft_store::get_or_create_tx(conn, slate_id, team_id, None).await?;
             mutate(&mut draft)?;
             draft_store::save(conn, &draft).await?;
             Ok(())
@@ -341,12 +336,12 @@ async fn mutate_draft(
 pub async fn discard(
     state: &AppState,
     team_id: FantasyTeamId,
-    contest_id: ContestId,
+    slate_id: SlateId,
 ) -> Result<(), AppError> {
     state
         .db
         .write_tx::<_, (), AppError>(async move |conn| {
-            draft_store::delete_by_keys(conn, contest_id, team_id).await?;
+            draft_store::delete_by_keys(conn, slate_id, team_id).await?;
             Ok(())
         })
         .await
@@ -358,13 +353,13 @@ pub async fn discard(
 pub async fn save(
     state: &AppState,
     team_id: FantasyTeamId,
-    contest_id: ContestId,
+    slate_id: SlateId,
 ) -> Result<EntryId, AppError> {
-    let ctx = require_open(state, contest_id).await?;
+    let ctx = require_open(state, slate_id).await?;
     state
         .db
         .write_tx::<_, EntryId, AppError>(async move |conn| {
-            let Some(draft) = draft_store::by_keys(&mut *conn, contest_id, team_id).await? else {
+            let Some(draft) = draft_store::by_keys(&mut *conn, slate_id, team_id).await? else {
                 return Err(AppError::BadRequest(
                     "Complete all nine slots before saving.".into(),
                 ));
@@ -382,7 +377,7 @@ pub async fn save(
                 value: draft.get(s).expect("can_save guarantees nine filled slots"),
             }))
             .map_err(|e| AppError::BadRequest(e.to_string()))?;
-            let id = entries_store::upsert_with_lineup(conn, contest_id, team_id, &lineup).await?;
+            let id = entries_store::upsert_with_lineup(conn, slate_id, team_id, &lineup).await?;
             draft_store::delete(&mut *conn, draft.id).await?;
             Ok(id)
         })
@@ -498,11 +493,7 @@ impl SlateCtx {
     }
 }
 
-async fn slate_ctx(state: &AppState, contest_id: ContestId) -> Result<SlateCtx, AppError> {
-    let contest = contest_store::by_id(state.db.reader(), contest_id)
-        .await?
-        .ok_or(AppError::NotFound)?;
-    let slate_id = contest.slate_id().ok_or(AppError::NotFound)?;
+async fn slate_ctx(state: &AppState, slate_id: SlateId) -> Result<SlateCtx, AppError> {
     let snapshot = state.nfl.snapshot();
     let slate = snapshot.slate(&slate_id).ok_or(AppError::NotFound)?.clone();
     Ok(SlateCtx {
@@ -513,8 +504,8 @@ async fn slate_ctx(state: &AppState, contest_id: ContestId) -> Result<SlateCtx, 
 }
 
 /// The write-path gate: `Forbidden` once the slate kicks off.
-async fn require_open(state: &AppState, contest_id: ContestId) -> Result<SlateCtx, AppError> {
-    let ctx = slate_ctx(state, contest_id).await?;
+async fn require_open(state: &AppState, slate_id: SlateId) -> Result<SlateCtx, AppError> {
+    let ctx = slate_ctx(state, slate_id).await?;
     if ctx.locked() {
         return Err(AppError::Forbidden);
     }
@@ -580,17 +571,17 @@ fn build_slot_row(
 /// serialized write connection to create it.
 async fn get_or_create_draft(
     state: &AppState,
-    contest_id: ContestId,
+    slate_id: SlateId,
     team_id: FantasyTeamId,
     seed: Option<&Lineup>,
 ) -> Result<DraftEntry, AppError> {
-    if let Some(draft) = draft_store::by_keys(state.db.reader(), contest_id, team_id).await? {
+    if let Some(draft) = draft_store::by_keys(state.db.reader(), slate_id, team_id).await? {
         return Ok(draft);
     }
     state
         .db
         .write_tx::<_, DraftEntry, AppError>(async move |conn| {
-            Ok(draft_store::get_or_create_tx(conn, contest_id, team_id, seed).await?)
+            Ok(draft_store::get_or_create_tx(conn, slate_id, team_id, seed).await?)
         })
         .await
 }

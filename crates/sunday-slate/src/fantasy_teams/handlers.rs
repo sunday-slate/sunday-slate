@@ -1,7 +1,5 @@
 use crate::chrome::{Chrome, Tab};
 use crate::contests::service as contests_service;
-use crate::contests::service::{ContestState, contest_state};
-use crate::contests::{Contest, ContestId, store as contests_store};
 use crate::draft_entry::store as draft_entry_store;
 use crate::entries::store as entries_store;
 use crate::fantasy_teams::contest_entries::{SeasonView, season_view};
@@ -23,7 +21,7 @@ use axum::response::{Html, IntoResponse, Response};
 use axum_htmx::HxRequest;
 use garde::Validate;
 use serde::Deserialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use tower_sessions::Session;
 
 #[derive(Template, Default)]
@@ -295,26 +293,22 @@ pub async fn show(
     let edit_team_id = viewer_team.map(|t| t.id).filter(|id| *id == team_id);
     let now = state.now_eastern();
 
-    // Officially-decided contests only, narrowed to this team's. A live
-    // contest stays out: the open-contests section above owns the live row.
+    // Officially-decided contests only; `score_entries` narrows them to this
+    // team's entries. A live contest stays out: the open-contests section
+    // above owns the live row.
     let snapshot = state.nfl.snapshot();
-    let contests = contests_store::all(state.db.reader()).await?;
-    let wanted: HashSet<ContestId> = team.entries.iter().map(|e| e.contest).collect();
-    let results =
-        contests_service::official_contest_weeks(&state, &contests, &snapshot, &wanted).await?;
+    let results = contests_service::official_contest_weeks(&state, &snapshot).await?;
     let scores =
         scoring_service::score_entries(&team.entries, &results.contest_week, &results.stats);
 
-    let names: HashMap<ContestId, &str> =
-        contests.iter().map(|c| (c.id, c.name.as_str())).collect();
     let scored = scores
         .into_iter()
         .map(|(id, points)| {
-            let name = names
-                .get(&id)
-                .expect("entries.contest_id FK: contest exists")
-                .to_string();
-            (Contest { id, name }, points)
+            let slate = snapshot
+                .slate(&id)
+                .expect("official_contest_weeks returns published slates only")
+                .clone();
+            (slate, points)
         })
         .collect();
 
@@ -323,18 +317,18 @@ pub async fn show(
     let open = match edit_team_id {
         Some(team_id) => {
             // A contest whose official stats have landed is no longer open.
-            let slate_contests = contests_service::slate_contests(&contests, &snapshot)
-                .into_iter()
-                .filter(|c| !results.contest_week.contains_key(&c.id))
+            let candidates = snapshot
+                .slates()
+                .filter(|slate| !results.contest_week.contains_key(&slate.id))
+                .cloned()
                 .collect::<Vec<_>>();
             let entry_ids =
                 entries_store::entry_ids_for_team(state.db.reader(), FantasyTeamId(team_id))
                     .await?;
             let mut resumable = HashSet::new();
-            for c in &slate_contests {
-                let enterable = c.first.is_some()
-                    && !entry_ids.contains_key(&c.id)
-                    && contest_state(c.first, c.last, now) == ContestState::Upcoming;
+            for c in &candidates {
+                let enterable =
+                    c.kickoff.is_some() && !entry_ids.contains_key(&c.id) && c.upcoming(now);
                 if enterable
                     && draft_entry_store::by_keys(state.db.reader(), c.id, FantasyTeamId(team_id))
                         .await?
@@ -343,7 +337,7 @@ pub async fn show(
                     resumable.insert(c.id);
                 }
             }
-            open_contests(&slate_contests, &entry_ids, &resumable, now)
+            open_contests(&candidates, &entry_ids, &resumable, now)
         }
         None => Vec::new(),
     };
@@ -372,12 +366,12 @@ pub async fn show(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contests::ContestId;
     use crate::fantasy_teams::contest_entries::ContestRow;
+    use nfl_data::slates::SlateId;
 
     fn contest_row(name: &str, points: f64, counts: bool, score_to_beat: bool) -> ContestRow {
         ContestRow {
-            contest: ContestId(4),
+            contest: SlateId(20260011),
             name: name.to_string(),
             points,
             counts,
@@ -436,7 +430,7 @@ mod tests {
         .render()
         .expect("render");
         assert!(
-            html.contains(r#"href="/contests/4""#),
+            html.contains(r#"href="/contests/20260011""#),
             "contest row links to the contest details page: {html}"
         );
     }

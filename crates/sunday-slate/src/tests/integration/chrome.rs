@@ -1,6 +1,6 @@
 use crate::tests::factories::{LeagueOptions, TeamOptions, UserOptions};
 use crate::tests::utils::{as_rendered, href_before};
-use crate::tests::{TestApp, factories};
+use crate::tests::{TestApp, factories, publish_slate};
 
 const ACTIVE: &str = r#"aria-current="page""#;
 
@@ -131,18 +131,55 @@ async fn title_suffix_does_not_double_when_the_page_title_names_the_league() {
     );
 }
 
-/// `/` dispatches to the Current Contest, where the Current tab lights and
-/// links back to `/`.
-/// A contest with no games attached is never the Current Contest, so its
-/// detail page lights Contests, not Current.
+/// A slate that is not the snapshot's current (maximum-id) slate lights
+/// Contests, not Current.
 #[tokio::test]
 async fn contest_detail_lights_contests_tab_when_not_current() {
     let app = TestApp::new().await;
     let gen_team = factories::team(&app.pool, TeamOptions::default()).await;
     app.login_as(&gen_team.owner).await;
-    let wk1 = factories::contest(&app.pool, "Week 1").await;
+    let week1 = nfl_data::SeasonWeek {
+        season: nfl_data::Season(2026),
+        season_type: nfl_data::SeasonType::Reg,
+        week: nfl_data::Week(1),
+    };
+    let week2 = nfl_data::SeasonWeek {
+        week: nfl_data::Week(2),
+        ..week1
+    };
+    let game = |id: &str, week: nfl_data::SeasonWeek, kickoff| nfl_data::Game {
+        game_id: id.into(),
+        season_week: week,
+        kickoff: Some(kickoff),
+        home_team: nfl_data::TeamAbbr::KC,
+        away_team: nfl_data::TeamAbbr::BUF,
+        home_score: None,
+        away_score: None,
+    };
+    let wk1 = publish_slate(
+        &app,
+        week1,
+        &[game(
+            "2026_01_BUF_KC",
+            week1,
+            time::macros::datetime!(2026-09-13 17:00 UTC),
+        )],
+        &[],
+    )
+    .await;
+    publish_slate(
+        &app,
+        week2,
+        &[game(
+            "2026_02_BUF_KC",
+            week2,
+            time::macros::datetime!(2026-09-20 17:00 UTC),
+        )],
+        &[],
+    )
+    .await;
 
-    let resp = app.get(&format!("/contests/{wk1}")).await;
+    let resp = app.get(&format!("/contests/{}", wk1.0)).await;
     resp.assert_status_ok();
     let body = resp.text();
     assert_eq!(

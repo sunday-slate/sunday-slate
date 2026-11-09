@@ -2,6 +2,8 @@
 //! resolution, stale-session fallback.
 
 use crate::tests::factories::{self, LeagueOptions, TeamOptions, UserOptions};
+use crate::tests::nfl::mocked_nfl;
+use crate::tests::publish_slate;
 use crate::tests::test_app::TestApp;
 use http::StatusCode;
 use nfl_data::Game;
@@ -264,7 +266,8 @@ const KICKOFF: OffsetDateTime = datetime!(2025-09-07 17:00 UTC);
 /// user is not currently in switches the active league.
 #[sqlx::test]
 async fn entry_page_sticky_switches_the_active_league(pool: SqlitePool) {
-    let app = TestApp::from_pool_at(pool.clone(), KICKOFF).await;
+    let (nfl, _mock) = mocked_nfl(nfl_data::Season(2025)).await;
+    let app = TestApp::from_pool_with_nfl_at(pool.clone(), nfl, KICKOFF).await;
 
     // Created first, so it holds the lower id and is where the fallback starts.
     let fallback_league = factories::league(&pool, LeagueOptions::default()).await;
@@ -278,23 +281,17 @@ async fn entry_page_sticky_switches_the_active_league(pool: SqlitePool) {
         },
     )
     .await;
-    let contest = factories::contest(&pool, "Week 1").await;
-    let entry_id = factories::full_entry(&pool, contest, owner.team.id, "00-A").await;
-    let fillers: Vec<_> = (1..=7)
-        .map(|i| factories::player(&format!("00-F{i}"), &format!("Filler Player{i}")))
-        .collect();
     let scheduled = Game {
         kickoff: Some(KICKOFF),
         ..factories::game(SLATE_GAME, 1)
     };
-    app.nfl
-        .seed_for_test(&fillers, std::slice::from_ref(&scheduled))
-        .await
-        .unwrap();
-    app.nfl
-        .seed_for_test(&[factories::player("00-A", "Alpha Runner")], &[])
-        .await
-        .unwrap();
+    let week = nfl_data::SeasonWeek {
+        season: nfl_data::Season(2025),
+        season_type: nfl_data::SeasonType::Reg,
+        week: nfl_data::Week(1),
+    };
+    let slate = publish_slate(&app, week, &[scheduled], &[]).await;
+    let entry_id = factories::full_entry(&pool, slate, owner.team.id, "00-A").await;
 
     // The same person also plays in the lower-id league.
     factories::team(

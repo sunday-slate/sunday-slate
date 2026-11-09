@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT e.fantasy_team_id AS \"fantasy_team_id!: FantasyTeamId\",\n                  e.contest_id      AS \"contest_id!: ContestId\",\n                  s.roster_slot     AS \"roster_slot!: RosterSlot\",\n                  s.gsis_player_id  AS \"gsis_player_id?: NflPlayerId\",\n                  s.team_abbr       AS \"team_abbr?: TeamAbbr\"\n           FROM entry_slots s\n           JOIN entries e ON e.id = s.entry_id\n           JOIN fantasy_teams ft ON ft.id = e.fantasy_team_id\n           WHERE ft.league_id = ?1\n           ORDER BY e.fantasy_team_id, e.contest_id",
+  "query": "SELECT e.fantasy_team_id AS \"fantasy_team_id!: FantasyTeamId\",\n                  e.slate_id        AS \"slate_id!: SlateId\",\n                  s.roster_slot     AS \"roster_slot!: RosterSlot\",\n                  s.gsis_player_id  AS \"gsis_player_id?: NflPlayerId\",\n                  s.team_abbr       AS \"team_abbr?: TeamAbbr\"\n           FROM entry_slots s\n           JOIN entries e ON e.id = s.entry_id\n           JOIN fantasy_teams ft ON ft.id = e.fantasy_team_id\n           WHERE ft.league_id = ?1\n           ORDER BY e.fantasy_team_id, e.slate_id",
   "describe": {
     "columns": [
       {
@@ -15,13 +15,13 @@
         }
       },
       {
-        "name": "contest_id!: ContestId",
+        "name": "slate_id!: SlateId",
         "ordinal": 1,
         "type_info": "Integer",
         "origin": {
           "Table": {
             "table": "entries",
-            "name": "contest_id"
+            "name": "slate_id"
           }
         }
       },
@@ -70,5 +70,5 @@
       true
     ]
   },
-  "hash": "e1b30cbd0cb2475271866a509d455946fa379c5044b069957cefb824f29eb40e"
+  "hash": "28eceb9f40311038bce367ab90c82764e87c806e88a2bcfe90279619eb37d162"
 }

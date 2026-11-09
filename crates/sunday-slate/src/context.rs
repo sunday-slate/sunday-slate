@@ -146,11 +146,7 @@ pub async fn request_ctx(State(state): State<AppState>, req: Request, next: Next
             // resolves its contest in the handler. Best-effort: an error
             // hides the tab.
             let current_contest = if full_page_get && parts.uri.path() != "/" {
-                crate::home::service::current_contest_id(&state)
-                    .await
-                    .ok()
-                    .flatten()
-                    .map(|id| id.0)
+                crate::home::service::current_contest_id(&state).map(|id| id.0)
             } else {
                 None
             };

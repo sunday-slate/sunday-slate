@@ -11,20 +11,18 @@ use serde::Deserialize;
 
 use crate::auth::CurrentUser;
 use crate::chrome::{Chrome, Tab};
-use crate::contests::ContestId;
 use crate::contests::service::{
     self, ContestRow, EntryRow, GameRow, Upcoming, WaitingRow, WinnerRow,
 };
-use crate::contests::store;
 use crate::draft_entry::store as draft_entry_store;
 use crate::entries::store as entries_store;
 use crate::fantasy_teams::{self, FantasyTeamId, MaybeTeam};
-use crate::home::dispatch;
 use crate::leagues::CurrentLeague;
 use crate::live::ContestScores;
 use crate::scoring::service as scoring_service;
 use crate::standings::service as standings_service;
 use crate::{AppError, AppState};
+use nfl_data::slates::{SlateId, SlateStatus};
 
 #[derive(Template)]
 #[template(path = "contests/index.html")]
@@ -44,11 +42,10 @@ pub async fn index(
     let snapshot = state.nfl.snapshot();
     let now = state.now_eastern();
 
-    let contests = store::all(state.db.reader()).await?;
-    let slate_contests = service::slate_contests(&contests, &snapshot);
-    let current = dispatch::current_contest(&slate_contests, now);
-    let slate_contests = service::listed_contests(slate_contests, current, now);
-    let contest_weeks = service::contest_weeks(&contests, &snapshot);
+    let contests = snapshot.slates().cloned().collect::<Vec<_>>();
+    let current = snapshot.current_slate().map(|slate| slate.id);
+    let slate_contests = service::listed_contests(contests, current, now);
+    let contest_weeks = service::contest_weeks(&snapshot);
     let stats =
         scoring_service::week_stats(&state.nfl, season, contest_weeks.values().copied()).await?;
     let teams = standings_service::scored_teams(&state, league.id, &contest_weeks, &stats).await?;
@@ -58,7 +55,7 @@ pub async fn index(
     for row in &mut rows {
         match crate::live::load_contest_scores(&state, row.id).await? {
             ContestScores::Official(stats) => {
-                row.state = service::ContestState::Finished;
+                row.state = SlateStatus::Finished;
                 let entries =
                     entries_store::by_contest(state.db.reader(), row.id, league.id).await?;
                 row.winners =
@@ -82,9 +79,9 @@ pub async fn index(
                     .values()
                     .all(|game| game.phase == LiveGamePhase::Final);
                 if row.pending_official {
-                    row.state = service::ContestState::Finished;
+                    row.state = SlateStatus::Finished;
                 } else {
-                    row.state = service::ContestState::Live;
+                    row.state = SlateStatus::Live;
                 }
             }
             ContestScores::Upcoming => {}
@@ -161,8 +158,9 @@ pub async fn show(
     Path(id): Path<String>,
 ) -> Result<Html<String>, AppError> {
     let id: i64 = id.parse().map_err(|_| AppError::NotFound)?;
+    let slate_id = SlateId(id);
     let viewer = team.map(|t| FantasyTeamId(t.id));
-    let details = service::details_for_league(&state, league.id, viewer, ContestId(id))
+    let details = service::details_for_league(&state, league.id, viewer, slate_id)
         .await?
         .ok_or(AppError::NotFound)?;
 
@@ -171,7 +169,7 @@ pub async fn show(
     // viewer's highlighted roll-call row is the affordance — no CTA.
     let draft_action = match (viewer, details.entries_open) {
         (Some(team), true) if details.my_entry.is_none() => {
-            let resume = draft_entry_store::by_keys(state.db.reader(), ContestId(id), team)
+            let resume = draft_entry_store::by_keys(state.db.reader(), slate_id, team)
                 .await?
                 .is_some_and(|d| d.has_picks());
             let kind = if resume {
@@ -218,7 +216,7 @@ pub async fn events(
     if *shutdown.borrow() {
         return Err(AppError::NotFound);
     }
-    let contest_id = ContestId(id.parse().map_err(|_| AppError::NotFound)?);
+    let contest_id = SlateId(id.parse().map_err(|_| AppError::NotFound)?);
     let team = fantasy_teams::store::team_for_user(state.db.reader(), query.league_id, user.id)
         .await?
         .ok_or(AppError::NotFound)?;

@@ -1,10 +1,10 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT e.id           AS \"entry_id!: EntryId\",\n                  ft.id          AS \"id!: FantasyTeamId\",\n                  ft.name        AS \"name!: String\",\n                  ft.owner_name  AS \"owner_name!: String\",\n                  m.id           AS \"media_id?: MediaId\",\n                  m.path         AS \"media_path?: String\",\n                  m.content_type AS \"media_content_type?: String\",\n                  m.byte_size    AS \"media_byte_size?: i64\",\n                  m.width        AS \"media_width?: i64\",\n                  m.height       AS \"media_height?: i64\",\n                  m.created_at   AS \"media_created_at?: PrimitiveDateTime\",\n                  m.updated_at   AS \"media_updated_at?: PrimitiveDateTime\"\n           FROM entries e\n           JOIN fantasy_teams ft ON ft.id = e.fantasy_team_id\n           LEFT JOIN media m ON m.id = ft.logo_media_id\n           WHERE e.contest_id = ?1 AND ft.league_id = ?2\n           ORDER BY e.created_at, e.id",
+  "query": "SELECT e.id            AS \"id!: EntryId\",\n                  ft.league_id    AS \"league_id!: i64\",\n                  e.slate_id      AS \"slate_id!: SlateId\",\n                  ft.id           AS \"team_id!: FantasyTeamId\",\n                  ft.user_id      AS \"user_id!: i64\",\n                  ft.name         AS \"team_name!: String\",\n                  ft.owner_name   AS \"owner_name!: String\",\n                  m.id            AS \"media_id?: MediaId\",\n                  m.path          AS \"media_path?: String\",\n                  m.content_type  AS \"media_content_type?: String\",\n                  m.byte_size     AS \"media_byte_size?: i64\",\n                  m.width         AS \"media_width?: i64\",\n                  m.height        AS \"media_height?: i64\",\n                  m.created_at    AS \"media_created_at?: PrimitiveDateTime\",\n                  m.updated_at    AS \"media_updated_at?: PrimitiveDateTime\"\n           FROM entries e\n           JOIN fantasy_teams ft ON ft.id = e.fantasy_team_id\n           LEFT JOIN media m ON m.id = ft.logo_media_id\n           WHERE e.id = ?1",
   "describe": {
     "columns": [
       {
-        "name": "entry_id!: EntryId",
+        "name": "id!: EntryId",
         "ordinal": 0,
         "type_info": "Integer",
         "origin": {
@@ -15,8 +15,30 @@
         }
       },
       {
-        "name": "id!: FantasyTeamId",
+        "name": "league_id!: i64",
         "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "fantasy_teams",
+            "name": "league_id"
+          }
+        }
+      },
+      {
+        "name": "slate_id!: SlateId",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "entries",
+            "name": "slate_id"
+          }
+        }
+      },
+      {
+        "name": "team_id!: FantasyTeamId",
+        "ordinal": 3,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -26,8 +48,19 @@
         }
       },
       {
-        "name": "name!: String",
-        "ordinal": 2,
+        "name": "user_id!: i64",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "fantasy_teams",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "name": "team_name!: String",
+        "ordinal": 5,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -38,7 +71,7 @@
       },
       {
         "name": "owner_name!: String",
-        "ordinal": 3,
+        "ordinal": 6,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -49,7 +82,7 @@
       },
       {
         "name": "media_id?: MediaId",
-        "ordinal": 4,
+        "ordinal": 7,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -60,7 +93,7 @@
       },
       {
         "name": "media_path?: String",
-        "ordinal": 5,
+        "ordinal": 8,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -71,7 +104,7 @@
       },
       {
         "name": "media_content_type?: String",
-        "ordinal": 6,
+        "ordinal": 9,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -82,7 +115,7 @@
       },
       {
         "name": "media_byte_size?: i64",
-        "ordinal": 7,
+        "ordinal": 10,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -93,7 +126,7 @@
       },
       {
         "name": "media_width?: i64",
-        "ordinal": 8,
+        "ordinal": 11,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -104,7 +137,7 @@
       },
       {
         "name": "media_height?: i64",
-        "ordinal": 9,
+        "ordinal": 12,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -115,7 +148,7 @@
       },
       {
         "name": "media_created_at?: PrimitiveDateTime",
-        "ordinal": 10,
+        "ordinal": 13,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -126,7 +159,7 @@
       },
       {
         "name": "media_updated_at?: PrimitiveDateTime",
-        "ordinal": 11,
+        "ordinal": 14,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -137,9 +170,12 @@
       }
     ],
     "parameters": {
-      "Right": 2
+      "Right": 1
     },
     "nullable": [
+      false,
+      false,
+      false,
       false,
       false,
       false,
@@ -154,5 +190,5 @@
       true
     ]
   },
-  "hash": "4b688bfc39a7ffb8402397a947bb399163c379675c4d9f706374ee77146de474"
+  "hash": "257f67451e3c18d9c3a56a650813273e692495fd62c3fb3c0025839760c4d6ef"
 }

@@ -7,12 +7,12 @@ use nfl_data::{
 };
 use time::OffsetDateTime;
 
-use crate::contests::ContestId;
 use crate::entries::{Lineup, NflPlayerId, RosterSlot};
 use crate::live::identity::{IdentityMatch, LiveIdentityIndex};
 use crate::live::{Coverage, LiveContestSnapshot, LiveError, LiveSlotStatus, LiveTotal};
 use crate::player_identity::{canonical_team, provider_team};
 use crate::scoring::{self, WeekStats};
+use nfl_data::slates::SlateId;
 use tank01_data::PollEvent;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -99,7 +99,7 @@ impl LiveGameState {
 }
 
 pub struct SnapshotReducer {
-    contest: ContestId,
+    contest: SlateId,
     games: Vec<Game>,
     identity: Arc<LiveIdentityIndex>,
     game_states: HashMap<String, LiveGameState>,
@@ -111,7 +111,7 @@ pub struct SnapshotReducer {
 
 impl SnapshotReducer {
     pub fn new(
-        contest: ContestId,
+        contest: SlateId,
         games: Vec<Game>,
         identity: Arc<LiveIdentityIndex>,
         now: OffsetDateTime,
@@ -865,7 +865,7 @@ mod tests {
         let game = game();
         let live_game = live_game(&game).expect("fixture kickoff");
         let observed_at = datetime!(2025 - 09 - 07 18:00 UTC);
-        let mut reducer = SnapshotReducer::new(ContestId(1), vec![game], identity(), observed_at);
+        let mut reducer = SnapshotReducer::new(SlateId(1), vec![game], identity(), observed_at);
         let first = LiveGameSnapshot {
             game: live_game.clone(),
             observed_at,
@@ -946,7 +946,7 @@ mod tests {
         let live_game = live_game(&game).expect("fixture kickoff");
         let identity = identity();
         let scheduled_at = datetime!(2025 - 09 - 07 16:00 UTC);
-        let mut reducer = SnapshotReducer::new(ContestId(1), vec![game], identity, scheduled_at);
+        let mut reducer = SnapshotReducer::new(SlateId(1), vec![game], identity, scheduled_at);
         let scheduled = reducer.snapshot();
         let scheduled_total = score_live_lineup(&lineup(), &scheduled, scheduled_at);
         assert_eq!(scheduled_total.points, Some(0.0));
@@ -979,7 +979,7 @@ mod tests {
     fn final_games_are_not_delayed_by_stale_state() {
         let game = game();
         let reducer = SnapshotReducer::new(
-            ContestId(1),
+            SlateId(1),
             vec![game],
             identity(),
             datetime!(2025 - 09 - 07 18:00 UTC),
@@ -1004,7 +1004,7 @@ mod tests {
         let game = game();
         let live_game = live_game(&game).expect("fixture kickoff");
         let observed_at = datetime!(2025 - 09 - 07 18:00 UTC);
-        let mut reducer = SnapshotReducer::new(ContestId(1), vec![game], identity(), observed_at);
+        let mut reducer = SnapshotReducer::new(SlateId(1), vec![game], identity(), observed_at);
         let live = LiveGameSnapshot {
             game: live_game.clone(),
             observed_at,
@@ -1027,7 +1027,7 @@ mod tests {
     fn due_game_without_status_observation_is_unavailable() {
         let game = game();
         let now = datetime!(2025 - 09 - 07 18:00 UTC);
-        let reducer = SnapshotReducer::new(ContestId(1), vec![game], identity(), now);
+        let reducer = SnapshotReducer::new(SlateId(1), vec![game], identity(), now);
         let total = score_live_lineup(&lineup(), &reducer.snapshot(), now);
 
         assert_eq!(total.points, None);
@@ -1161,7 +1161,7 @@ mod tests {
     ) -> LiveContestSnapshot {
         let state = minutes_state(phase, period, clock);
         LiveContestSnapshot {
-            contest: ContestId(1),
+            contest: SlateId(1),
             games: vec![state.game.clone()],
             stats: WeekStats::default(),
             game_states: HashMap::from([("live".into(), state)]),

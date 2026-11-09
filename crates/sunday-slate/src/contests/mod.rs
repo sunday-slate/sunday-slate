@@ -1,9 +1,5 @@
 mod handlers;
-pub mod model;
 pub mod service;
-pub mod store;
-
-pub use model::{Contest, ContestId};
 
 use crate::AppState;
 use axum::Router;

@@ -12,12 +12,12 @@ use axum_htmx::HxRequest;
 use serde::Deserialize;
 
 use crate::chrome::Chrome;
-use crate::contests::ContestId;
 use crate::draft_entry::service::{self, EditorPage, SlotChoice};
 use crate::entries::RosterSlot;
 use crate::fantasy_teams::{CurrentTeam, FantasyTeamId};
 use crate::web::redirect;
 use crate::{AppError, AppState};
+use nfl_data::slates::SlateId;
 
 /// Routes for the draft-entry editor.
 pub fn router() -> Router<AppState> {
@@ -51,8 +51,7 @@ pub async fn editor(
     CurrentTeam(team): CurrentTeam,
     Path(id): Path<i64>,
 ) -> Result<Html<String>, AppError> {
-    let page =
-        service::editor_page(&state, FantasyTeamId(team.id), team.name, ContestId(id)).await?;
+    let page = service::editor_page(&state, FantasyTeamId(team.id), team.name, SlateId(id)).await?;
     let chrome = Chrome::focused("Edit Lineup", format!("/contests/{id}"));
     Ok(Html(
         EditorView {
@@ -81,7 +80,7 @@ pub async fn pick(
     Path((id, slot)): Path<(i64, String)>,
 ) -> Result<Html<String>, AppError> {
     let slot = parse_slot(&slot)?;
-    let choices = service::choices(&state, FantasyTeamId(team.id), ContestId(id), slot).await?;
+    let choices = service::choices(&state, FantasyTeamId(team.id), SlateId(id), slot).await?;
     let chrome = Chrome::focused(
         format!("Select {}", slot.position_label()),
         format!("/contests/{id}/draft-entry"),
@@ -112,7 +111,7 @@ pub async fn set_slot(
     axum::Form(form): axum::Form<SetSlotForm>,
 ) -> Result<Response, AppError> {
     let slot = parse_slot(&slot)?;
-    let contest_id = ContestId(id);
+    let contest_id = SlateId(id);
     let value = slot.parse_value(form.value).map_err(AppError::BadRequest)?;
     service::set_slot(&state, FantasyTeamId(team.id), contest_id, slot, value).await?;
     Ok(redirect(is_htmx, format!("/contests/{id}/draft-entry")))
@@ -126,7 +125,7 @@ pub async fn clear_slot(
     Path((id, slot)): Path<(i64, String)>,
 ) -> Result<Response, AppError> {
     let slot = parse_slot(&slot)?;
-    service::clear_slot(&state, FantasyTeamId(team.id), ContestId(id), slot).await?;
+    service::clear_slot(&state, FantasyTeamId(team.id), SlateId(id), slot).await?;
     Ok(redirect(is_htmx, format!("/contests/{id}/draft-entry")))
 }
 
@@ -137,7 +136,7 @@ pub async fn save(
     CurrentTeam(team): CurrentTeam,
     Path(id): Path<i64>,
 ) -> Result<Response, AppError> {
-    let entry_id = service::save(&state, FantasyTeamId(team.id), ContestId(id)).await?;
+    let entry_id = service::save(&state, FantasyTeamId(team.id), SlateId(id)).await?;
     Ok(redirect(is_htmx, format!("/entries/{}", entry_id.0)))
 }
 
@@ -148,7 +147,7 @@ pub async fn discard(
     CurrentTeam(team): CurrentTeam,
     Path(id): Path<i64>,
 ) -> Result<Response, AppError> {
-    service::discard(&state, FantasyTeamId(team.id), ContestId(id)).await?;
+    service::discard(&state, FantasyTeamId(team.id), SlateId(id)).await?;
     Ok(redirect(is_htmx, format!("/contests/{id}")))
 }
 

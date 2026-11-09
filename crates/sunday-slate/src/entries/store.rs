@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use itertools::Itertools;
 
-use crate::contests::{Contest, ContestId};
 use crate::entries::model::{
     ContestEntry, EntryDetails, EntryId, EntrySlot, EntryTeam, FantasyTeamEntries,
     FantasyTeamEntry, Lineup, LineupError, NflPlayerId, PlayerOrDefenseId, RosterSlot,
@@ -11,6 +10,7 @@ use crate::fantasy_teams::FantasyTeamId;
 use crate::media::MediaId;
 use crate::media::store::{LogoColumns, build_logo};
 use nfl_data::TeamAbbr;
+use nfl_data::slates::SlateId;
 use sqlx::{Sqlite, SqliteConnection};
 use time::PrimitiveDateTime;
 
@@ -21,9 +21,9 @@ pub enum EntriesError {
 
     /// An entry whose slot rows don't form a complete lineup — the entries
     /// table holds complete lineups; anything less is corruption.
-    #[error("entry in contest {contest:?}: {source}")]
+    #[error("entry in slate {slate_id:?}: {source}")]
     Lineup {
-        contest: ContestId,
+        slate_id: SlateId,
         source: LineupError,
     },
 }
@@ -60,7 +60,7 @@ where
 
     let slot_rows = sqlx::query!(
         r#"SELECT e.fantasy_team_id AS "fantasy_team_id!: FantasyTeamId",
-                  e.contest_id      AS "contest_id!: ContestId",
+                  e.slate_id        AS "slate_id!: SlateId",
                   s.roster_slot     AS "roster_slot!: RosterSlot",
                   s.gsis_player_id  AS "gsis_player_id?: NflPlayerId",
                   s.team_abbr       AS "team_abbr?: TeamAbbr"
@@ -68,24 +68,24 @@ where
            JOIN entries e ON e.id = s.entry_id
            JOIN fantasy_teams ft ON ft.id = e.fantasy_team_id
            WHERE ft.league_id = ?1
-           ORDER BY e.fantasy_team_id, e.contest_id"#,
+           ORDER BY e.fantasy_team_id, e.slate_id"#,
         league_id,
     )
     .fetch_all(ex)
     .await?;
 
     // ORDER BY makes each entry's slot rows adjacent (and entries land in
-    // contest order per team), so chunk_by yields one chunk per entry.
+    // slate order per team), so chunk_by yields one chunk per entry.
     let by_entry = slot_rows
         .into_iter()
-        .chunk_by(|r| (r.fantasy_team_id, r.contest_id));
+        .chunk_by(|r| (r.fantasy_team_id, r.slate_id));
     let mut entries_by_team: HashMap<FantasyTeamId, Vec<FantasyTeamEntry>> = by_entry
         .into_iter()
-        .map(|((team_id, contest), rows)| {
+        .map(|((team_id, slate_id), rows)| {
             let slots = rows.map(|r| entry_slot(r.roster_slot, r.gsis_player_id, r.team_abbr));
             Lineup::from_slots(slots)
-                .map(|lineup| (team_id, FantasyTeamEntry { contest, lineup }))
-                .map_err(|source| EntriesError::Lineup { contest, source })
+                .map(|lineup| (team_id, FantasyTeamEntry { slate_id, lineup }))
+                .map_err(|source| EntriesError::Lineup { slate_id, source })
         })
         .collect::<Result<Vec<_>, _>>()?
         .into_iter()
@@ -147,14 +147,14 @@ where
     };
 
     let slot_rows = sqlx::query!(
-        r#"SELECT e.contest_id     AS "contest_id!: ContestId",
+        r#"SELECT e.slate_id       AS "slate_id!: SlateId",
                   s.roster_slot    AS "roster_slot!: RosterSlot",
                   s.gsis_player_id AS "gsis_player_id?: NflPlayerId",
                   s.team_abbr      AS "team_abbr?: TeamAbbr"
            FROM entry_slots s
            JOIN entries e ON e.id = s.entry_id
            WHERE e.fantasy_team_id = ?1
-           ORDER BY e.contest_id"#,
+           ORDER BY e.slate_id"#,
         team_id,
     )
     .fetch_all(ex)
@@ -162,14 +162,14 @@ where
 
     // ORDER BY makes each entry's rows adjacent, so chunk_by yields one chunk
     // per entry.
-    let by_entry = slot_rows.into_iter().chunk_by(|r| r.contest_id);
+    let by_entry = slot_rows.into_iter().chunk_by(|r| r.slate_id);
     let entries = by_entry
         .into_iter()
-        .map(|(contest, rows)| {
+        .map(|(slate_id, rows)| {
             let slots = rows.map(|r| entry_slot(r.roster_slot, r.gsis_player_id, r.team_abbr));
             Lineup::from_slots(slots)
-                .map(|lineup| FantasyTeamEntry { contest, lineup })
-                .map_err(|source| EntriesError::Lineup { contest, source })
+                .map(|lineup| FantasyTeamEntry { slate_id, lineup })
+                .map_err(|source| EntriesError::Lineup { slate_id, source })
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -191,24 +191,24 @@ where
     }))
 }
 
-/// Each of a fantasy team's entries: contest id → entry id, for linking
+/// Each of a fantasy team's entries: slate id → entry id, for linking
 /// straight to a lineup.
 pub async fn entry_ids_for_team<'e, E>(
     ex: E,
     team_id: FantasyTeamId,
-) -> Result<HashMap<ContestId, EntryId>, sqlx::Error>
+) -> Result<HashMap<SlateId, EntryId>, sqlx::Error>
 where
     E: sqlx::Executor<'e, Database = Sqlite>,
 {
     let rows = sqlx::query!(
-        r#"SELECT id AS "id!: EntryId", contest_id AS "contest_id!: ContestId"
+        r#"SELECT id AS "id!: EntryId", slate_id AS "slate_id!: SlateId"
            FROM entries
            WHERE fantasy_team_id = ?1"#,
         team_id,
     )
     .fetch_all(ex)
     .await?;
-    Ok(rows.into_iter().map(|r| (r.contest_id, r.id)).collect())
+    Ok(rows.into_iter().map(|r| (r.slate_id, r.id)).collect())
 }
 
 /// One contest's entries within one league: each entering fantasy team with
@@ -216,7 +216,7 @@ where
 /// appear. Row order is by fantasy team id; callers sort for display.
 pub async fn by_contest<'e, E>(
     ex: E,
-    contest_id: ContestId,
+    slate_id: SlateId,
     league_id: i64,
 ) -> Result<Vec<ContestEntry>, EntriesError>
 where
@@ -238,9 +238,9 @@ where
            FROM entries e
            JOIN fantasy_teams ft ON ft.id = e.fantasy_team_id
            LEFT JOIN media m ON m.id = ft.logo_media_id
-           WHERE e.contest_id = ?1 AND ft.league_id = ?2
+           WHERE e.slate_id = ?1 AND ft.league_id = ?2
            ORDER BY e.created_at, e.id"#,
-        contest_id,
+        slate_id,
         league_id,
     )
     .fetch_all(ex)
@@ -254,9 +254,9 @@ where
            FROM entry_slots s
            JOIN entries e ON e.id = s.entry_id
            JOIN fantasy_teams ft ON ft.id = e.fantasy_team_id
-           WHERE e.contest_id = ?1 AND ft.league_id = ?2
+           WHERE e.slate_id = ?1 AND ft.league_id = ?2
            ORDER BY e.fantasy_team_id"#,
-        contest_id,
+        slate_id,
         league_id,
     )
     .fetch_all(ex)
@@ -278,10 +278,8 @@ where
             // No slot rows means a slotless entry; `from_slots` names the
             // first missing slot.
             let slots = slots_by_team.remove(&t.id).unwrap_or_default();
-            let lineup = Lineup::from_slots(slots).map_err(|source| EntriesError::Lineup {
-                contest: contest_id,
-                source,
-            })?;
+            let lineup = Lineup::from_slots(slots)
+                .map_err(|source| EntriesError::Lineup { slate_id, source })?;
             Ok(ContestEntry {
                 id: t.entry_id,
                 fantasy_team: t.id,
@@ -327,8 +325,7 @@ where
     let Some(h) = sqlx::query!(
         r#"SELECT e.id            AS "id!: EntryId",
                   ft.league_id    AS "league_id!: i64",
-                  c.id            AS "contest_id!: ContestId",
-                  c.name          AS "contest_name!: String",
+                  e.slate_id      AS "slate_id!: SlateId",
                   ft.id           AS "team_id!: FantasyTeamId",
                   ft.user_id      AS "user_id!: i64",
                   ft.name         AS "team_name!: String",
@@ -342,7 +339,6 @@ where
                   m.created_at    AS "media_created_at?: PrimitiveDateTime",
                   m.updated_at    AS "media_updated_at?: PrimitiveDateTime"
            FROM entries e
-           JOIN contests c ON c.id = e.contest_id
            JOIN fantasy_teams ft ON ft.id = e.fantasy_team_id
            LEFT JOIN media m ON m.id = ft.logo_media_id
            WHERE e.id = ?1"#,
@@ -370,17 +366,14 @@ where
             .map(|r| entry_slot(r.roster_slot, r.gsis_player_id, r.team_abbr)),
     )
     .map_err(|source| EntriesError::Lineup {
-        contest: h.contest_id,
+        slate_id: h.slate_id,
         source,
     })?;
 
     Ok(Some(EntryDetails {
         id: h.id,
         league_id: h.league_id,
-        contest: Contest {
-            id: h.contest_id,
-            name: h.contest_name,
-        },
+        slate_id: h.slate_id,
         team: EntryTeam {
             id: h.team_id,
             user_id: h.user_id,
@@ -418,23 +411,23 @@ where
     .await
 }
 
-/// Upsert the (contest, fantasy team) entry and replace its slots with the
+/// Upsert the (slate, fantasy team) entry and replace its slots with the
 /// lineup's nine. Runs on the caller's write connection, inside its
 /// transaction.
 pub async fn upsert_with_lineup(
     conn: &mut SqliteConnection,
-    contest_id: ContestId,
+    slate_id: SlateId,
     team_id: FantasyTeamId,
     lineup: &Lineup,
 ) -> Result<EntryId, sqlx::Error> {
     let id: i64 = sqlx::query_scalar(
-        r#"INSERT INTO entries (contest_id, fantasy_team_id)
+        r#"INSERT INTO entries (slate_id, fantasy_team_id)
            VALUES (?1, ?2)
-           ON CONFLICT(contest_id, fantasy_team_id)
+           ON CONFLICT(slate_id, fantasy_team_id)
            DO UPDATE SET updated_at = datetime('now', 'subsec')
            RETURNING id"#,
     )
-    .bind(contest_id)
+    .bind(slate_id)
     .bind(team_id)
     .fetch_one(&mut *conn)
     .await?;
@@ -474,12 +467,12 @@ pub async fn upsert_with_lineup(
     Ok(EntryId(id))
 }
 
-/// The team's committed entry in a contest: its id and its lineup. The lineup
+/// The team's committed entry in a slate: its id and its lineup. The lineup
 /// is `None` when the stored slots don't parse (corrupt or incomplete), which
 /// still marks the entry as existing.
 pub async fn lineup_for_team<'e, E>(
     ex: E,
-    contest_id: ContestId,
+    slate_id: SlateId,
     team_id: FantasyTeamId,
 ) -> Result<Option<(EntryId, Option<Lineup>)>, sqlx::Error>
 where
@@ -492,8 +485,8 @@ where
                   s.team_abbr      AS "team_abbr?: TeamAbbr"
            FROM entry_slots s
            JOIN entries e ON e.id = s.entry_id
-           WHERE e.contest_id = ?1 AND e.fantasy_team_id = ?2"#,
-        contest_id,
+           WHERE e.slate_id = ?1 AND e.fantasy_team_id = ?2"#,
+        slate_id,
         team_id,
     )
     .fetch_all(ex)
@@ -512,6 +505,11 @@ mod tests {
     use super::*;
     use crate::tests::factories::{self, TeamOptions};
     use sqlx::SqlitePool;
+
+    /// The 2026 regular-season main slate for `week`.
+    fn slate(week: u8) -> SlateId {
+        SlateId((2026 * 1000 + i64::from(week)) * 10 + 1)
+    }
 
     #[sqlx::test]
     async fn by_fantasy_team_groups_entries_under_teams(pool: SqlitePool) {
@@ -535,8 +533,8 @@ mod tests {
             },
         )
         .await;
-        let c1 = factories::contest(&pool, "Week 1").await;
-        let c2 = factories::contest(&pool, "Week 2").await;
+        let c1 = slate(1);
+        let c2 = slate(2);
         factories::full_entry(&pool, c1, a.team.id, "00-A").await;
         factories::full_entry(&pool, c2, a.team.id, "00-A").await;
         factories::full_entry(&pool, c1, b.team.id, "00-B").await;
@@ -555,7 +553,7 @@ mod tests {
             .unwrap();
         assert_eq!(ta.entries.len(), 2);
         assert_eq!(tb.entries.len(), 1);
-        assert_eq!(tb.entries[0].contest, ContestId(c1));
+        assert_eq!(tb.entries[0].slate_id, c1);
         assert_eq!(tb.entries[0].lineup.rb1, NflPlayerId("00-B".into()));
         assert_eq!(ta.name, a.team.name);
         assert_eq!(ta.owner_name, a.team.owner_name);
@@ -637,9 +635,9 @@ mod tests {
     #[sqlx::test]
     async fn by_fantasy_team_rejects_incomplete_lineup(pool: SqlitePool) {
         let fixture = factories::team(&pool, TeamOptions::default()).await;
-        let contest = factories::contest(&pool, "Week 1").await;
+        let contest = slate(1);
         let entry_id: i64 = sqlx::query_scalar(
-            "INSERT INTO entries (contest_id, fantasy_team_id) VALUES (?1, ?2) RETURNING id",
+            "INSERT INTO entries (slate_id, fantasy_team_id) VALUES (?1, ?2) RETURNING id",
         )
         .bind(contest)
         .bind(fixture.team.id)
@@ -656,7 +654,7 @@ mod tests {
 
         let err = by_fantasy_team(&pool, fixture.league.id).await.unwrap_err();
         assert!(
-            matches!(err, EntriesError::Lineup { contest: c, .. } if c == ContestId(contest)),
+            matches!(err, EntriesError::Lineup { slate_id: c, .. } if c == contest),
             "incomplete lineup is a lineup error naming the contest, got: {err:?}"
         );
     }
@@ -680,7 +678,7 @@ mod tests {
             },
         )
         .await;
-        let c1 = factories::contest(&pool, "Week 1").await;
+        let c1 = slate(1);
         factories::full_entry(&pool, c1, a.team.id, "00-A").await;
         factories::full_entry(&pool, c1, b.team.id, "00-B").await;
 
@@ -735,16 +733,14 @@ mod tests {
         // A fantasy team in a *different* league (TeamOptions::default creates one).
         let outsider = factories::team(&pool, TeamOptions::default()).await;
 
-        let c1 = factories::contest(&pool, "Week 1").await;
-        let c2 = factories::contest(&pool, "Week 2").await;
+        let c1 = slate(1);
+        let c2 = slate(2);
         let entry_a = factories::full_entry(&pool, c1, a.team.id, "00-A").await;
         factories::full_entry(&pool, c1, b.team.id, "00-B").await;
         factories::full_entry(&pool, c2, a.team.id, "00-A").await; // other contest
         factories::full_entry(&pool, c1, outsider.team.id, "00-C").await; // other league
 
-        let rows = by_contest(&pool, ContestId(c1), a.league.id)
-            .await
-            .expect("load");
+        let rows = by_contest(&pool, c1, a.league.id).await.expect("load");
         assert_eq!(rows.len(), 2, "one row per entering league fantasy team");
         assert_eq!(
             rows.iter()
@@ -771,7 +767,7 @@ mod tests {
     #[sqlx::test]
     async fn by_contest_joins_logo_media(pool: SqlitePool) {
         let fixture = factories::team(&pool, TeamOptions::default()).await;
-        let contest = factories::contest(&pool, "Week 1").await;
+        let contest = slate(1);
         factories::full_entry(&pool, contest, fixture.team.id, "00-A").await;
         let media_id: MediaId = sqlx::query_scalar(
             "INSERT INTO media (path, content_type, byte_size, width, height)
@@ -787,7 +783,7 @@ mod tests {
             .await
             .unwrap();
 
-        let rows = by_contest(&pool, ContestId(contest), fixture.league.id)
+        let rows = by_contest(&pool, contest, fixture.league.id)
             .await
             .expect("load");
         let logo = rows[0].logo.as_ref().expect("logo media");
@@ -797,9 +793,9 @@ mod tests {
     #[sqlx::test]
     async fn by_contest_rejects_incomplete_lineup(pool: SqlitePool) {
         let fixture = factories::team(&pool, TeamOptions::default()).await;
-        let contest = factories::contest(&pool, "Week 1").await;
+        let contest = slate(1);
         let entry_id: i64 = sqlx::query_scalar(
-            "INSERT INTO entries (contest_id, fantasy_team_id) VALUES (?1, ?2) RETURNING id",
+            "INSERT INTO entries (slate_id, fantasy_team_id) VALUES (?1, ?2) RETURNING id",
         )
         .bind(contest)
         .bind(fixture.team.id)
@@ -814,11 +810,11 @@ mod tests {
         .await
         .unwrap();
 
-        let err = by_contest(&pool, ContestId(contest), fixture.league.id)
+        let err = by_contest(&pool, contest, fixture.league.id)
             .await
             .unwrap_err();
         assert!(
-            matches!(err, EntriesError::Lineup { contest: c, .. } if c == ContestId(contest)),
+            matches!(err, EntriesError::Lineup { slate_id: c, .. } if c == contest),
             "incomplete lineup is a lineup error naming the contest, got: {err:?}"
         );
     }
@@ -826,7 +822,7 @@ mod tests {
     #[sqlx::test]
     async fn by_id_loads_entry_with_context(pool: SqlitePool) {
         let fixture = factories::team(&pool, TeamOptions::default()).await;
-        let contest = factories::contest(&pool, "Week 5").await;
+        let contest = slate(5);
         let entry_id = factories::full_entry(&pool, contest, fixture.team.id, "00-A").await;
 
         let entry = by_id(&pool, EntryId(entry_id))
@@ -835,8 +831,7 @@ mod tests {
             .expect("found");
         assert_eq!(entry.id, EntryId(entry_id));
         assert_eq!(entry.league_id, fixture.league.id);
-        assert_eq!(entry.contest.id, ContestId(contest));
-        assert_eq!(entry.contest.name, "Week 5");
+        assert_eq!(entry.slate_id, slate(5));
         assert_eq!(entry.team.id, FantasyTeamId(fixture.team.id));
         assert_eq!(entry.team.user_id, fixture.team.user_id);
         assert_eq!(entry.team.name, fixture.team.name);
@@ -849,9 +844,9 @@ mod tests {
     #[sqlx::test]
     async fn league_id_of_walks_entry_to_team_to_league(pool: SqlitePool) {
         let fixture = factories::team(&pool, TeamOptions::default()).await;
-        let contest = factories::contest(&pool, "Week 1").await;
+        let contest = slate(1);
         let entry_id: i64 = sqlx::query_scalar(
-            "INSERT INTO entries (contest_id, fantasy_team_id) VALUES (?1, ?2) RETURNING id",
+            "INSERT INTO entries (slate_id, fantasy_team_id) VALUES (?1, ?2) RETURNING id",
         )
         .bind(contest)
         .bind(fixture.team.id)
@@ -879,8 +874,8 @@ mod tests {
             },
         )
         .await;
-        let c1 = factories::contest(&pool, "Week 1").await;
-        let c2 = factories::contest(&pool, "Week 2").await;
+        let c1 = slate(1);
+        let c2 = slate(2);
         let e1 = factories::full_entry(&pool, c1, a.team.id, "00-A").await;
         let e2 = factories::full_entry(&pool, c2, a.team.id, "00-A").await;
         // Another team's entry in the same contest must not leak in.
@@ -890,7 +885,7 @@ mod tests {
             .await
             .expect("query");
         assert_eq!(ids.len(), 2);
-        assert_eq!(ids.get(&ContestId(c1)), Some(&EntryId(e1)));
-        assert_eq!(ids.get(&ContestId(c2)), Some(&EntryId(e2)));
+        assert_eq!(ids.get(&c1), Some(&EntryId(e1)));
+        assert_eq!(ids.get(&c2), Some(&EntryId(e2)));
     }
 }

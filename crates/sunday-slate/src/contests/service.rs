@@ -1,13 +1,13 @@
-//! Contest lookups composing the store with the published NFL snapshot, plus
-//! pure contest-list assembly.
+//! Contest views over the published NFL snapshot, plus pure contest-list
+//! assembly.
 
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 
+use nfl_data::slates::{Slate, SlateId, SlateStatus};
 use nfl_data::{Game, Season, Week};
 use time::OffsetDateTime;
 
-use crate::contests::{Contest, ContestId, store};
 use crate::entries::store as entries_store;
 use crate::entries::{ContestEntry, EntryId};
 use crate::fantasy_teams::store as fantasy_teams_store;
@@ -20,72 +20,55 @@ use crate::{AppError, AppState};
 /// Contests whose slates' official stats have fully arrived, plus those stats.
 #[derive(Default)]
 pub struct OfficialResults {
-    pub contest_week: HashMap<ContestId, Week>,
+    pub contest_week: HashMap<SlateId, Week>,
     pub stats: HashMap<Week, WeekStats>,
 }
 
-/// Each contest's NFL week, derived from the games its slate resolves.
-/// Contests that resolve no games are absent.
-pub fn contest_weeks(
-    contests: &[Contest],
-    snapshot: &nfl_data::Snapshot,
-) -> HashMap<ContestId, Week> {
-    contests
-        .iter()
-        .filter_map(|contest| Some((contest.id, slate_week(contest.games(snapshot))?)))
+/// Each published slate's NFL week, from its authoritative metadata.
+pub fn contest_weeks(snapshot: &nfl_data::Snapshot) -> HashMap<SlateId, Week> {
+    snapshot
+        .slates()
+        .map(|slate| (slate.id, slate.season_week.week))
         .collect()
 }
 
-/// The `wanted` contests whose slates' official stats have fully arrived
-/// — the same gate the contest page applies. Skips non-locked slates and
-/// ones whose stats have not arrived rather than reporting false zeros;
-/// while the dev live feed owns a registered snapshot, the result stays
-/// provisional.
+/// The published slates whose official stats have fully arrived — the same
+/// gate the contest page applies. Skips non-locked slates and ones whose
+/// stats have not arrived rather than reporting false zeros; while the dev
+/// live feed owns a registered snapshot, the result stays provisional.
 pub async fn official_contest_weeks(
     state: &AppState,
-    contests: &[Contest],
     snapshot: &nfl_data::Snapshot,
-    wanted: &HashSet<ContestId>,
 ) -> Result<OfficialResults, AppError> {
     let now = state.now();
-    let mut candidates: Vec<(ContestId, Week, &[Game])> = Vec::new();
-    for contest in contests
-        .iter()
-        .filter(|contest| wanted.contains(&contest.id))
-    {
-        let games = contest.games(snapshot);
-        if games.is_empty() {
-            continue;
-        }
-        if !slate_locked(games, now) {
-            continue;
-        }
-        if state.config.live_dev_feed && state.live.snapshot(contest.id).is_some() {
-            continue;
-        }
-        let Some(week) = live::slate_tuple(games).map(|(_, week, _)| week) else {
-            continue;
-        };
-        candidates.push((contest.id, week, games));
-    }
+    let candidates: Vec<(SlateId, nfl_data::SeasonWeek, &[Game])> = snapshot
+        .slates()
+        .filter(|slate| !(state.config.live_dev_feed && state.live.snapshot(slate.id).is_some()))
+        .filter_map(|slate| {
+            let games = snapshot.games_for_slate(&slate.id);
+            slate
+                .locked(now)
+                .then_some((slate.id, slate.season_week, games))
+        })
+        .collect();
     if candidates.is_empty() {
         return Ok(OfficialResults::default());
     }
 
     let weeks = candidates
         .iter()
-        .map(|(_, week, _)| *week)
+        .map(|(_, season_week, _)| season_week.week)
         .collect::<HashSet<_>>();
     let mut stats =
         crate::scoring::service::week_stats(&state.nfl, Season(state.config.season), weeks).await?;
 
     let mut contest_week = HashMap::new();
-    for (contest, week, games) in candidates {
-        let Some(week_stats) = stats.get(&week) else {
+    for (slate_id, season_week, games) in candidates {
+        let Some(week_stats) = stats.get(&season_week.week) else {
             continue;
         };
-        if live::official_complete_for_slate(games, week_stats) {
-            contest_week.insert(contest, week);
+        if live::official_complete_for_slate(season_week, games, week_stats) {
+            contest_week.insert(slate_id, season_week.week);
         }
     }
     stats.retain(|week, _| contest_week.values().any(|w| w == week));
@@ -95,57 +78,18 @@ pub async fn official_contest_weeks(
     })
 }
 
-/// Pair each contest with its slate's earliest and latest kickoff.
-/// Contests that resolve no games — including slates without salaried
-/// players — are dropped.
-pub fn slate_contests(contests: &[Contest], snapshot: &nfl_data::Snapshot) -> Vec<SlateContest> {
-    contests
-        .iter()
-        .filter_map(|contest| {
-            let games = contest.games(snapshot);
-            if games.is_empty() {
-                return None;
-            }
-            let mut first: Option<OffsetDateTime> = None;
-            let mut last: Option<OffsetDateTime> = None;
-            for kickoff in games.iter().filter_map(Game::kickoff_eastern) {
-                first = Some(first.map_or(kickoff, |first| first.min(kickoff)));
-                last = Some(last.map_or(kickoff, |last| last.max(kickoff)));
-            }
-            Some(SlateContest {
-                id: contest.id,
-                name: contest.name.clone(),
-                first,
-                last,
-            })
-        })
-        .collect()
-}
-
 /// The contests the Contests tab lists: every contest that has started (live
 /// or finished) plus the Current Contest while it is still upcoming. Later
 /// contests stay hidden until one of them becomes current.
 pub fn listed_contests(
-    contests: Vec<SlateContest>,
-    current: Option<ContestId>,
+    contests: Vec<Slate>,
+    current: Option<SlateId>,
     now: OffsetDateTime,
-) -> Vec<SlateContest> {
+) -> Vec<Slate> {
     contests
         .into_iter()
-        .filter(|contest| {
-            contest_state(contest.first, contest.last, now) != ContestState::Upcoming
-                || current == Some(contest.id)
-        })
+        .filter(|slate| !slate.upcoming(now) || current == Some(slate.id))
         .collect()
-}
-
-/// A slate-set contest heading into list assembly: name plus the slate's
-/// first and last kickoff (None when no game in the slate has a kickoff).
-pub struct SlateContest {
-    pub id: ContestId,
-    pub name: String,
-    pub first: Option<OffsetDateTime>,
-    pub last: Option<OffsetDateTime>,
 }
 
 /// A contest's winning fantasy team, for display.
@@ -159,14 +103,6 @@ impl WinnerRow {
     pub fn points_str(&self) -> String {
         scoring::format_points(self.points)
     }
-}
-
-/// Where a contest sits in time, decided from its slate and the clock.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ContestState {
-    Upcoming,
-    Live,
-    Finished,
 }
 
 /// An upcoming contest's kickoff, as the middle column's headline and
@@ -199,59 +135,30 @@ impl Kickoff {
 /// One rendered contest-list row.
 pub struct ContestRow {
     /// The `/contests/{id}` link target.
-    pub id: ContestId,
+    pub id: SlateId,
     pub name: String,
     pub dates: String,
     /// Upcoming rows only.
     pub kickoff: Option<Kickoff>,
     pub entry_count: usize,
     pub winners: Vec<WinnerRow>,
-    pub state: ContestState,
+    pub state: SlateStatus,
     pub pending_official: bool,
 }
 impl ContestRow {
     pub fn is_live(&self) -> bool {
-        self.state == ContestState::Live
+        self.state == SlateStatus::Live
     }
 
     pub fn is_finished(&self) -> bool {
-        self.state == ContestState::Finished
-    }
-}
-
-/// A slate is read-only once its earliest kickoff has passed. The gate
-/// protects lineups, so a contest that resolves no games is never locked.
-pub fn slate_locked(games: &[Game], now: OffsetDateTime) -> bool {
-    games
-        .iter()
-        .filter_map(Game::kickoff_eastern)
-        .min()
-        .is_some_and(|kickoff| now >= kickoff)
-}
-
-/// Classify a contest from its slate's first and last kickoff and the current
-/// instant. A slate with no known kickoff has not started.
-pub(crate) fn contest_state(
-    first: Option<OffsetDateTime>,
-    last: Option<OffsetDateTime>,
-    now: OffsetDateTime,
-) -> ContestState {
-    let (Some(first), Some(last)) = (first, last) else {
-        return ContestState::Upcoming;
-    };
-    if now.date() > last.date() {
-        ContestState::Finished
-    } else if now >= first {
-        ContestState::Live
-    } else {
-        ContestState::Upcoming
+        self.state == SlateStatus::Finished
     }
 }
 
 /// The winners of a finished contest: every entered team tied at the top
 /// score. Empty when no entry scored above zero, which also covers a contest
 /// with no entries at all.
-fn winners(contest: ContestId, teams: &[ScoredFantasyTeam]) -> Vec<WinnerRow> {
+fn winners(contest: SlateId, teams: &[ScoredFantasyTeam]) -> Vec<WinnerRow> {
     let scored: Vec<(&ScoredFantasyTeam, f64)> = teams
         .iter()
         .filter_map(|t| {
@@ -276,34 +183,44 @@ fn winners(contest: ContestId, teams: &[ScoredFantasyTeam]) -> Vec<WinnerRow> {
 /// Fold contests and scored fantasy teams into display rows, newest first.
 /// Winners show only once a contest has finished.
 pub fn contest_list(
-    contests: &[SlateContest],
+    contests: &[Slate],
     teams: &[ScoredFantasyTeam],
     now: OffsetDateTime,
 ) -> Vec<ContestRow> {
     let mut dated: Vec<(Option<OffsetDateTime>, ContestRow)> = contests
         .iter()
-        .map(|c| {
-            let state = contest_state(c.first, c.last, now);
+        .map(|slate| {
+            let state = slate.status(now);
+            let first = slate.kickoff.map(nfl_data::to_eastern);
+            let dates = first.map_or_else(String::new, |first| {
+                let day = first.date();
+                let last = if slate.multiday {
+                    day.next_day().unwrap_or(day)
+                } else {
+                    day
+                };
+                format_dates(day, last)
+            });
             let row = ContestRow {
-                id: c.id,
-                name: c.name.clone(),
-                dates: match (c.first, c.last) {
-                    (Some(f), Some(l)) => format_dates(f.date(), l.date()),
-                    _ => String::new(),
-                },
-                kickoff: match (state, c.first) {
-                    (ContestState::Upcoming, Some(k)) => Some(Kickoff::new(k)),
+                id: slate.id,
+                name: slate.name.clone(),
+                dates,
+                kickoff: match (state, first) {
+                    (SlateStatus::Upcoming, Some(kickoff)) => Some(Kickoff::new(kickoff)),
                     _ => None,
                 },
-                entry_count: teams.iter().filter(|t| t.entered.contains(&c.id)).count(),
+                entry_count: teams
+                    .iter()
+                    .filter(|t| t.entered.contains(&slate.id))
+                    .count(),
                 winners: match state {
-                    ContestState::Finished => winners(c.id, teams),
+                    SlateStatus::Finished => winners(slate.id, teams),
                     _ => Vec::new(),
                 },
                 state,
                 pending_official: false,
             };
-            (c.first, row)
+            (first, row)
         })
         .collect();
 
@@ -335,6 +252,7 @@ fn format_dates(first: time::Date, last: time::Date) -> String {
 #[cfg(test)]
 mod contest_list_tests {
     use super::*;
+    use nfl_data::{SeasonType, SeasonWeek};
     use time::macros::{date, datetime};
 
     /// A fixed "now" late enough that every Sept 2025 contest is finished.
@@ -342,24 +260,24 @@ mod contest_list_tests {
         datetime!(2026 - 01 - 01 0:00 UTC)
     }
 
-    /// A 1:00pm Eastern kickoff on `date`, the shape the handler feeds in.
+    /// A 1:00pm Eastern kickoff on `date`.
     fn kickoff(date: time::Date) -> OffsetDateTime {
         date.with_hms(13, 0, 0)
             .expect("valid time")
             .assume_offset(nfl_data::eastern_offset(date))
     }
 
-    fn contest(
-        id: i64,
-        name: &str,
-        first: Option<time::Date>,
-        last: Option<time::Date>,
-    ) -> SlateContest {
-        SlateContest {
-            id: ContestId(id),
+    fn contest(id: i64, name: &str, kickoff: Option<OffsetDateTime>, multiday: bool) -> Slate {
+        Slate {
+            id: SlateId(id),
+            season_week: SeasonWeek {
+                season: Season(2026),
+                season_type: SeasonType::Reg,
+                week: Week(1),
+            },
             name: name.into(),
-            first: first.map(kickoff),
-            last: last.map(kickoff),
+            kickoff,
+            multiday,
         }
     }
 
@@ -369,13 +287,13 @@ mod contest_list_tests {
             name: name.into(),
             owner_name: "Owner".into(),
             logo: None,
-            entered: entered.iter().map(|c| ContestId(*c)).collect(),
-            scores: scores.iter().map(|(c, p)| (ContestId(*c), *p)).collect(),
+            entered: entered.iter().map(|c| SlateId(*c)).collect(),
+            scores: scores.iter().map(|(c, p)| (SlateId(*c), *p)).collect(),
         }
     }
 
-    fn one_day(id: i64, name: &str, day: time::Date) -> SlateContest {
-        contest(id, name, Some(day), Some(day))
+    fn one_day(id: i64, name: &str, day: time::Date) -> Slate {
+        contest(id, name, Some(kickoff(day)), false)
     }
 
     #[test]
@@ -385,11 +303,30 @@ mod contest_list_tests {
             &[team("Alpha", &[1], &[(1, 13.0)])],
             datetime!(2025 - 09 - 10 12:00 UTC),
         );
-        assert_eq!(rows[0].state, ContestState::Upcoming);
+        assert_eq!(rows[0].state, SlateStatus::Upcoming);
         assert!(rows[0].winners.is_empty(), "upcoming shows no winner");
         let kickoff = rows[0].kickoff.as_ref().expect("kickoff shown");
         assert_eq!(kickoff.weekday, "Sunday");
         assert_eq!(kickoff.time, "1:00pm ET");
+    }
+
+    #[test]
+    fn stored_utc_kickoff_displays_in_eastern() {
+        // Sunday Nov 8, 8 PM EST; a UTC-date read would say Monday Nov 9.
+        let rows = contest_list(
+            &[contest(
+                1,
+                "Week 10",
+                Some(datetime!(2026-11-09 01:00 UTC)),
+                false,
+            )],
+            &[],
+            datetime!(2026-11-05 12:00 UTC),
+        );
+        assert_eq!(rows[0].dates, "Nov 8");
+        let kickoff = rows[0].kickoff.as_ref().expect("upcoming shows kickoff");
+        assert_eq!(kickoff.weekday, "Sunday");
+        assert_eq!(kickoff.time, "8:00pm ET");
     }
 
     #[test]
@@ -406,18 +343,19 @@ mod contest_list_tests {
 
     #[test]
     fn a_contest_stays_live_until_its_last_gameday_is_over() {
-        // A Sunday-to-Monday slate is still live during the Monday game.
+        // A Sunday-to-Monday slate is still live late Monday Eastern.
         let rows = contest_list(
             &[contest(
                 1,
                 "Week 2",
-                Some(date!(2025 - 09 - 14)),
-                Some(date!(2025 - 09 - 15)),
+                Some(datetime!(2025-09-14 17:00 UTC)),
+                true,
             )],
             &[team("Alpha", &[1], &[(1, 13.0)])],
-            datetime!(2025 - 09 - 15 22:00 -4),
+            datetime!(2025-09-16 02:00 UTC),
         );
         assert!(rows[0].is_live());
+        assert_eq!(rows[0].dates, "Sep 14–15");
     }
 
     #[test]
@@ -511,7 +449,7 @@ mod contest_list_tests {
             &[
                 one_day(1, "Week 1", date!(2025 - 09 - 07)),
                 one_day(2, "Week 2", date!(2025 - 09 - 14)),
-                contest(3, "Mystery", None, None),
+                contest(3, "Mystery", None, false),
             ],
             &[],
             now(),
@@ -531,7 +469,7 @@ mod contest_list_tests {
         let listed = listed_contests(vec![past, current, later], Some(current_id), at);
         assert_eq!(
             listed.iter().map(|c| c.id).collect::<Vec<_>>(),
-            vec![ContestId(1), ContestId(2)],
+            vec![SlateId(1), SlateId(2)],
             "finished and current contests show; later ones wait"
         );
 
@@ -541,7 +479,7 @@ mod contest_list_tests {
         let listed = listed_contests(vec![live, upcoming], Some(live_id), at);
         assert_eq!(
             listed.iter().map(|c| c.id).collect::<Vec<_>>(),
-            vec![ContestId(4)],
+            vec![SlateId(4)],
             "a live contest stays listed"
         );
     }
@@ -551,19 +489,9 @@ mod contest_list_tests {
         let rows = contest_list(
             &[
                 one_day(1, "Single", date!(2025 - 09 - 07)),
-                contest(
-                    2,
-                    "SameMonth",
-                    Some(date!(2026 - 01 - 10)),
-                    Some(date!(2026 - 01 - 11)),
-                ),
-                contest(
-                    3,
-                    "CrossMonth",
-                    Some(date!(2025 - 11 - 30)),
-                    Some(date!(2025 - 12 - 01)),
-                ),
-                contest(4, "NoDate", None, None),
+                contest(2, "SameMonth", Some(datetime!(2026-01-10 17:00 UTC)), true),
+                contest(3, "CrossMonth", Some(datetime!(2025-11-30 17:00 UTC)), true),
+                contest(4, "NoDate", None, false),
             ],
             &[],
             now(),
@@ -807,12 +735,6 @@ fn rows_in_entry_order(entrants: Vec<ContestEntrant>, mine: Option<EntryId>) -> 
     rows
 }
 
-/// The slate's NFL week. `None` for a slate with no games. Every slate holds
-/// one week, so the first game names it.
-pub fn slate_week(games: &[Game]) -> Option<Week> {
-    games.first().map(|g| g.season_week.week)
-}
-
 /// A slate game for display: its id, matchup, and Eastern kickoff.
 pub struct GameRow {
     pub id: String,
@@ -975,7 +897,7 @@ pub struct ContestScoreMeta {
 
 fn contest_score_meta(
     source: &live::ContestScores,
-    contest: ContestId,
+    contest: SlateId,
     league_id: i64,
     rows: &[EntryRow],
     now: OffsetDateTime,
@@ -1032,21 +954,20 @@ pub async fn details_for_league(
     state: &AppState,
     league_id: i64,
     viewer: Option<FantasyTeamId>,
-    id: ContestId,
+    id: SlateId,
 ) -> Result<Option<ContestDetails>, AppError> {
-    let Some(contest) = store::by_id(state.db.reader(), id).await? else {
+    let snapshot = state.nfl.snapshot();
+    let Some(slate) = snapshot.slate(&id) else {
         return Ok(None);
     };
-    let snapshot = state.nfl.snapshot();
+    let name = slate.name.clone();
     let now = state.now_eastern();
-    let games = contest.games(&snapshot);
+    let games = snapshot.games_for_slate(&id);
 
     let entries = entries_store::by_contest(state.db.reader(), id, league_id).await?;
 
-    let kickoffs: Vec<OffsetDateTime> = games.iter().filter_map(|g| g.kickoff_eastern()).collect();
-    let first = kickoffs.iter().min().copied();
-    let upcoming =
-        contest_state(first, kickoffs.iter().max().copied(), now) == ContestState::Upcoming;
+    let upcoming = slate.upcoming(now);
+    let first = slate.kickoff.map(nfl_data::to_eastern);
 
     let source = live::load_contest_scores(state, id).await?;
     let stream_eligible = live::stream_eligible(state, id, &source).await?;
@@ -1093,8 +1014,8 @@ pub async fn details_for_league(
 
     let score = contest_score_meta(&source, id, league_id, &rows, now, stream_eligible);
     Ok(Some(ContestDetails {
-        name: contest.name,
-        entries_open: upcoming && !games.is_empty(),
+        name,
+        entries_open: upcoming,
         games: if upcoming {
             game_rows(games)
         } else {
@@ -1357,7 +1278,7 @@ mod tests {
             last_error: None,
         };
         let snapshot = LiveContestSnapshot {
-            contest: ContestId(1),
+            contest: SlateId(1),
             games: vec![game],
             stats: WeekStats::default(),
             game_states: HashMap::from([("live".into(), state)]),
@@ -1432,7 +1353,7 @@ mod tests {
     async fn details_none_for_unknown_contest(pool: SqlitePool) {
         let app = TestApp::from_pool(pool.clone()).await;
         let fixture = factories::team(&pool, TeamOptions::default()).await;
-        let details = details_for_league(&app.state(), fixture.league.id, None, ContestId(999))
+        let details = details_for_league(&app.state(), fixture.league.id, None, SlateId(999))
             .await
             .expect("assemble");
         assert!(details.is_none());
@@ -1443,10 +1364,24 @@ mod tests {
         let app = TestApp::from_pool(pool.clone()).await;
         let mine = factories::team(&pool, TeamOptions::default()).await;
         let other = factories::team(&pool, TeamOptions::default()).await;
-        let wk1 = factories::contest(&pool, "Week 1").await;
+        let week = nfl_data::SeasonWeek {
+            season: Season(2026),
+            season_type: SeasonType::Reg,
+            week: Week(1),
+        };
+        let game = nfl_data::Game {
+            game_id: "2026_01_BUF_KC".into(),
+            season_week: week,
+            kickoff: Some(datetime!(2026 - 09 - 13 17:00 UTC)),
+            home_team: TeamAbbr::KC,
+            away_team: TeamAbbr::BUF,
+            home_score: None,
+            away_score: None,
+        };
+        let wk1 = crate::tests::publish_slate(&app, week, &[game], &[]).await;
         factories::full_entry(&pool, wk1, other.team.id, "00-B").await;
 
-        let details = details_for_league(&app.state(), mine.league.id, None, ContestId(wk1))
+        let details = details_for_league(&app.state(), mine.league.id, None, wk1)
             .await
             .expect("assemble")
             .expect("contest exists");

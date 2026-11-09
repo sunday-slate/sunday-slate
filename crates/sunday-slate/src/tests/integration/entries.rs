@@ -10,6 +10,8 @@ use time::OffsetDateTime;
 use time::macros::datetime;
 
 use crate::tests::factories::{self, GeneratedTeam, TeamOptions};
+use crate::tests::nfl::mocked_nfl;
+use crate::tests::publish_slate;
 use crate::tests::test_app::TestApp;
 use crate::tests::utils::as_rendered;
 
@@ -29,16 +31,57 @@ fn scheduled_game() -> Game {
     }
 }
 
-/// Two fantasy teams in one league, a "Week 1" contest whose slate is
-/// `SLATE_GAME`, and an entry for team `a` with `rb1` at RB1. The seven
-/// filler picks are named in nfl-data; `scheduled` is the schedule nfl-data
-/// holds. Returns (owner team, other-member team, entry id).
+/// The 2025 week-1 regular-season week the fixture publishes.
+fn week1() -> nfl_data::SeasonWeek {
+    nfl_data::SeasonWeek {
+        season: Season(2025),
+        season_type: nfl_data::SeasonType::Reg,
+        week: nfl_data::Week(1),
+    }
+}
+
+/// A 2025-season test app around mocked nfl-data. The returned mock keeps the
+/// provider's mocks alive for the test's lifetime.
+async fn app_at(pool: &SqlitePool, now: OffsetDateTime) -> (TestApp, wiremock::MockServer) {
+    let (nfl, server) = mocked_nfl(Season(2025)).await;
+    let app = TestApp::from_pool_with_nfl_at(pool.clone(), nfl, now).await;
+    (app, server)
+}
+
+/// Every lineup pick as a priced KC player: `rb1` at RB1 plus the seven
+/// fillers the full entry writes.
+fn lineup_players(rb1: &str) -> Vec<nfl_data::Player> {
+    let named = |gsis: &str, name: &str, position: &str| {
+        let mut player = factories::player(gsis, name);
+        player.position = Some(position.into());
+        player
+    };
+    let rb1_name = if rb1 == "00-A" {
+        "Alpha Runner"
+    } else {
+        "Beta Runner"
+    };
+    vec![
+        named(rb1, rb1_name, "RB"),
+        named("00-F1", "Filler Player1", "QB"),
+        named("00-F2", "Filler Player2", "RB"),
+        named("00-F3", "Filler Player3", "WR"),
+        named("00-F4", "Filler Player4", "WR"),
+        named("00-F5", "Filler Player5", "WR"),
+        named("00-F6", "Filler Player6", "TE"),
+        named("00-F7", "Filler Player7", "RB"),
+    ]
+}
+
+/// Two fantasy teams in one league, a published "Week 1" slate whose only
+/// game is `SLATE_GAME`, and an entry for team `a` with `rb1` at RB1.
+/// Returns (owner team, other-member team, entry id, slate id).
 async fn setup_entry(
     pool: &SqlitePool,
     app: &TestApp,
     rb1: &str,
     scheduled: &[Game],
-) -> (GeneratedTeam, GeneratedTeam, i64) {
+) -> (GeneratedTeam, GeneratedTeam, i64, nfl_data::slates::SlateId) {
     let a = factories::team(
         pool,
         TeamOptions {
@@ -57,15 +100,10 @@ async fn setup_entry(
     )
     .await;
 
-    let contest = factories::contest(pool, "Week 1").await;
-    let entry_id = factories::full_entry(pool, contest, a.team.id, rb1).await;
+    let slate = publish_slate(app, week1(), scheduled, &lineup_players(rb1)).await;
+    let entry_id = factories::full_entry(pool, slate, a.team.id, rb1).await;
 
-    let fillers: Vec<_> = (1..=7)
-        .map(|i| factories::player(&format!("00-F{i}"), &format!("Filler Player{i}")))
-        .collect();
-    app.nfl.seed_for_test(&fillers, scheduled).await.unwrap();
-
-    (a, b, entry_id)
+    (a, b, entry_id, slate)
 }
 
 /// `setup_entry` with the schedule loaded and "Alpha Runner" at RB1: 100
@@ -73,10 +111,7 @@ async fn setup_entry(
 /// "Filler Player1" throws for 200 yards = 8.00. The page total of 21.00
 /// matches no single row, so a total assertion cannot pass on a row instead.
 async fn setup(pool: &SqlitePool, app: &TestApp) -> (GeneratedTeam, GeneratedTeam, i64) {
-    let teams = setup_entry(pool, app, "00-A", &[scheduled_game()]).await;
-    let mut alpha = factories::player("00-A", "Alpha Runner");
-    alpha.position = Some("RB".into());
-    app.nfl.seed_for_test(&[alpha], &[]).await.unwrap();
+    let (a, b, entry_id, _slate) = setup_entry(pool, app, "00-A", &[scheduled_game()]).await;
     let buf = TeamAbbr::BUF;
     let kc = TeamAbbr::KC;
     let rb = NflPlayerWeekStats {
@@ -109,7 +144,7 @@ async fn setup(pool: &SqlitePool, app: &TestApp) -> (GeneratedTeam, GeneratedTea
         )
         .await
         .unwrap();
-    teams
+    (a, b, entry_id)
 }
 
 /// The entry's contest is the only contest, live at the pinned clock — the
@@ -118,7 +153,7 @@ async fn setup(pool: &SqlitePool, app: &TestApp) -> (GeneratedTeam, GeneratedTea
 /// contest, so the entry page lights Contests instead.
 #[sqlx::test]
 async fn unknown_entry_is_404(pool: SqlitePool) {
-    let app = TestApp::from_pool(pool.clone()).await;
+    let (app, _mock) = app_at(&pool, KICKOFF).await;
     let (a, _b, _entry_id) = setup(&pool, &app).await;
 
     app.login_as(&a.owner).await;
@@ -128,7 +163,7 @@ async fn unknown_entry_is_404(pool: SqlitePool) {
 
 #[sqlx::test]
 async fn user_outside_the_league_gets_404(pool: SqlitePool) {
-    let app = TestApp::from_pool(pool.clone()).await;
+    let (app, _mock) = app_at(&pool, KICKOFF).await;
     let (_a, _b, entry_id) = setup(&pool, &app).await;
     // A fantasy team in a different league (the factory default creates one).
     let outsider = factories::team(&pool, TeamOptions::default()).await;
@@ -140,7 +175,7 @@ async fn user_outside_the_league_gets_404(pool: SqlitePool) {
 
 #[sqlx::test]
 async fn unauthenticated_request_is_redirected_to_login(pool: SqlitePool) {
-    let app = TestApp::from_pool(pool.clone()).await;
+    let (app, _mock) = app_at(&pool, KICKOFF).await;
     let (_a, _b, entry_id) = setup(&pool, &app).await;
 
     // No login_as call: this request carries no session cookie.
@@ -150,7 +185,7 @@ async fn unauthenticated_request_is_redirected_to_login(pool: SqlitePool) {
 
 #[sqlx::test]
 async fn non_owner_before_kickoff_sees_note_not_picks(pool: SqlitePool) {
-    let app = TestApp::from_pool_at(pool.clone(), BEFORE_KICKOFF).await;
+    let (app, _mock) = app_at(&pool, BEFORE_KICKOFF).await;
     let (a, b, entry_id) = setup(&pool, &app).await;
 
     app.login_as(&b.owner).await;
@@ -174,7 +209,7 @@ async fn non_owner_before_kickoff_sees_note_not_picks(pool: SqlitePool) {
 async fn rank_badge_hidden_before_results(pool: SqlitePool) {
     // Rank and picks come from one branch, so the only viewer without a rank
     // is the one without picks: a non-owner before kickoff.
-    let app = TestApp::from_pool_at(pool.clone(), BEFORE_KICKOFF).await;
+    let (app, _mock) = app_at(&pool, BEFORE_KICKOFF).await;
     let (_a, b, entry_id) = setup(&pool, &app).await;
 
     app.login_as(&b.owner).await;
@@ -187,9 +222,9 @@ async fn rank_badge_hidden_before_results(pool: SqlitePool) {
 
 #[sqlx::test]
 async fn contest_entry_link_reaches_lineup_page(pool: SqlitePool) {
-    let app = TestApp::from_pool_at(pool.clone(), KICKOFF).await;
+    let (app, _mock) = app_at(&pool, KICKOFF).await;
     let (_owner, member, entry_id) = setup(&pool, &app).await;
-    let contest_id: i64 = sqlx::query_scalar("SELECT contest_id FROM entries WHERE id = ?1")
+    let contest_id: i64 = sqlx::query_scalar("SELECT slate_id FROM entries WHERE id = ?1")
         .bind(entry_id)
         .fetch_one(&pool)
         .await
@@ -212,7 +247,7 @@ async fn contest_entry_link_reaches_lineup_page(pool: SqlitePool) {
 
 #[sqlx::test]
 async fn entry_events_reject_users_outside_the_entry_league(pool: SqlitePool) {
-    let app = TestApp::from_pool_at(pool.clone(), KICKOFF).await;
+    let (app, _mock) = app_at(&pool, KICKOFF).await;
     let (_owner, _member, entry_id) = setup(&pool, &app).await;
     let outsider = factories::team(&pool, TeamOptions::default()).await;
 
@@ -223,9 +258,10 @@ async fn entry_events_reject_users_outside_the_entry_league(pool: SqlitePool) {
 
 #[sqlx::test]
 async fn contest_events_reject_a_foreign_pinned_league(pool: SqlitePool) {
-    let app = TestApp::from_pool_at(pool.clone(), KICKOFF).await;
-    let (_owner, member, entry_id) = setup_entry(&pool, &app, "00-A", &[scheduled_game()]).await;
-    let contest_id: i64 = sqlx::query_scalar("SELECT contest_id FROM entries WHERE id = ?1")
+    let (app, _mock) = app_at(&pool, KICKOFF).await;
+    let (_owner, member, entry_id, _slate) =
+        setup_entry(&pool, &app, "00-A", &[scheduled_game()]).await;
+    let contest_id: i64 = sqlx::query_scalar("SELECT slate_id FROM entries WHERE id = ?1")
         .bind(entry_id)
         .fetch_one(&pool)
         .await
@@ -240,16 +276,16 @@ async fn contest_events_reject_a_foreign_pinned_league(pool: SqlitePool) {
         .await;
     response.assert_status_not_found();
 }
-/// Minimal parent rows an entry needs: user 1, league 1, team 1, contest 1.
-/// (Companion to `setup`: direct-DB fixtures for schema-level contracts.)
+/// Minimal parent rows an entry needs: user 1, league 1, team 1, and a
+/// 2026 week-1 slate id. (Companion to `setup`: direct-DB fixtures for
+/// schema-level contracts.)
 async fn seed_entry_parents(pool: &SqlitePool) {
     for sql in [
         "INSERT INTO users (id, email) VALUES (1, 'a@example.com')",
         "INSERT INTO leagues (id, name) VALUES (1, 'L')",
         "INSERT INTO fantasy_teams (id, league_id, user_id, name, owner_name)
          VALUES (1, 1, 1, 'T', 'O')",
-        "INSERT INTO contests (id, name) VALUES (1, 'Week 1')",
-        "INSERT INTO entries (id, contest_id, fantasy_team_id) VALUES (1, 1, 1)",
+        "INSERT INTO entries (id, slate_id, fantasy_team_id) VALUES (1, 20260011, 1)",
     ] {
         sqlx::query(sql).execute(pool).await.unwrap();
     }
@@ -373,36 +409,6 @@ async fn deleting_a_fantasy_team_with_entries_fails_fantasy_team_cascade_rejecte
 }
 
 #[sqlx::test]
-async fn deleting_a_contest_cascades_to_its_entries_and_slots_contest_cascade_entries(
-    pool: SqlitePool,
-) {
-    seed_entry_parents(&pool).await;
-    sqlx::query(
-        "INSERT INTO entry_slots (entry_id, roster_slot, gsis_player_id)
-         VALUES (1, 'QB', '00-0034796')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    sqlx::query("DELETE FROM contests WHERE id = 1")
-        .execute(&pool)
-        .await
-        .unwrap();
-
-    let entries: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM entries")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    assert_eq!(entries, 0);
-    let slots: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM entry_slots")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    assert_eq!(slots, 0);
-}
-
-#[sqlx::test]
 async fn entries_are_kept_at_exactly_the_kickoff_instant_entries_kept_at_exact_kickoff(
     pool: SqlitePool,
 ) {
@@ -410,15 +416,104 @@ async fn entries_are_kept_at_exactly_the_kickoff_instant_entries_kept_at_exact_k
     // exactly at the kickoff instant the entry exists and its lineup page
     // renders (boundary is `<=`, not `<`). Built with the standard factories so
     // the owner/team/entry links satisfy the page's access rules.
-    let app = TestApp::from_pool_at(pool.clone(), KICKOFF).await;
+    let (app, _mock) = app_at(&pool, KICKOFF).await;
     let a = factories::team(&pool, TeamOptions::default()).await;
-    let contest = factories::contest(&pool, "Week 1").await;
-    let entry_id = factories::full_entry(&pool, contest, a.team.id, "00-A").await;
-    app.nfl
-        .seed_for_test(&[], &[scheduled_game()])
-        .await
-        .unwrap();
+    let slate = publish_slate(&app, week1(), &[scheduled_game()], &lineup_players("00-A")).await;
+    let entry_id = factories::full_entry(&pool, slate, a.team.id, "00-A").await;
     app.login_as(&a.owner).await;
     let resp = app.get(&format!("/entries/{entry_id}")).await;
     resp.assert_status_ok();
+}
+
+/// A migrated 2026 entry keeps its id and resolves its lineup and contest
+/// back-link from the mapped SlateId, with the scored total unchanged.
+#[sqlx::test]
+async fn migrated_2026_entry_keeps_its_id_and_links_its_slate(pool: SqlitePool) {
+    const KICKOFF_2026: OffsetDateTime = datetime!(2026-09-13 17:00 UTC);
+    let (nfl, _mock) = mocked_nfl(Season(2026)).await;
+    let app = TestApp::from_pool_with_nfl_at(pool.clone(), nfl, KICKOFF_2026).await;
+    let a = factories::team(
+        &pool,
+        TeamOptions {
+            name: Some("Gridiron Giants".into()),
+            ..Default::default()
+        },
+    )
+    .await;
+    let b = factories::team(
+        &pool,
+        TeamOptions {
+            league: Some(a.league.clone()),
+            name: Some("Turf Titans".into()),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    let week = nfl_data::SeasonWeek {
+        season: Season(2026),
+        season_type: nfl_data::SeasonType::Reg,
+        week: nfl_data::Week(1),
+    };
+    let game = Game {
+        game_id: "2026_01_BUF_KC".into(),
+        season_week: week,
+        kickoff: Some(KICKOFF_2026),
+        ..factories::game(SLATE_GAME, 1)
+    };
+    let slate = publish_slate(&app, week, &[game], &lineup_players("00-A")).await;
+    assert_eq!(slate.0, 20260011);
+    let entry_id = factories::full_entry(&pool, slate, a.team.id, "00-A").await;
+
+    let buf = TeamAbbr::BUF;
+    let kc = TeamAbbr::KC;
+    let rb = NflPlayerWeekStats {
+        season: Season(2026),
+        opponent: Some(buf),
+        ..factories::rb_stats("00-A", 1, 100)
+    };
+    let qb = NflPlayerWeekStats {
+        season: Season(2026),
+        passing_yards: 200,
+        opponent: Some(buf),
+        ..factories::player_stats("00-F1", 1)
+    };
+    let buf_player = NflPlayerWeekStats {
+        season: Season(2026),
+        gsis_id: "00-BUF".into(),
+        team: buf,
+        opponent: Some(kc),
+        ..factories::player_stats("00-BUF", 1)
+    };
+    let buf_defense = NflTeamWeekStats {
+        season: Season(2026),
+        game_id: "2026_01_BUF_KC".into(),
+        ..factories::scoreless_defense_stats("BUF", "KC", 1)
+    };
+    let kc_defense = NflTeamWeekStats {
+        season: Season(2026),
+        game_id: "2026_01_BUF_KC".into(),
+        ..factories::scoreless_defense_stats("KC", "BUF", 1)
+    };
+    app.nfl
+        .seed_week_stats_for_test(
+            Season(2026),
+            &[rb, qb, buf_player],
+            &[kc_defense, buf_defense],
+        )
+        .await
+        .unwrap();
+
+    app.login_as(&b.owner).await;
+    let body = app.get(&format!("/entries/{entry_id}")).await.text();
+    assert!(body.contains("Lineup Scores"), "{body}");
+    assert!(body.contains("Alpha Runner"), "the lineup resolves: {body}");
+    assert!(
+        body.contains(r#"href="/contests/20260011""#),
+        "the contest back-link carries the mapped SlateId: {body}"
+    );
+    assert!(
+        body.contains("21.00"),
+        "the scored total is unchanged: {body}"
+    );
 }

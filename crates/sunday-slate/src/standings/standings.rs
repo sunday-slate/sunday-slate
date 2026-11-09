@@ -6,9 +6,9 @@ use std::collections::HashMap;
 
 use itertools::Itertools;
 
-use crate::contests::ContestId;
 use crate::fantasy_teams::{FantasyTeamId, monogram};
 use crate::scoring::{format_points, ties, winning_score};
+use nfl_data::slates::SlateId;
 
 /// A fantasy team with its entered contests and its season's computed
 /// contest scores.
@@ -17,8 +17,8 @@ pub struct ScoredFantasyTeam {
     pub name: String,
     pub owner_name: String,
     pub logo: Option<String>,
-    pub entered: Vec<ContestId>,
-    pub scores: Vec<(ContestId, f64)>,
+    pub entered: Vec<SlateId>,
+    pub scores: Vec<(SlateId, f64)>,
 }
 
 /// A rendered standings row. `fantasy_team` is the `/teams/{id}` link target.
@@ -92,7 +92,7 @@ impl StandingRow {
 /// teams with no scored contest last by name with a blank total.
 pub fn rank(teams: Vec<ScoredFantasyTeam>) -> Vec<StandingRow> {
     // Contest wins: per contest, every fantasy team at the max score gets +1.
-    let by_contest: HashMap<ContestId, Vec<(FantasyTeamId, f64)>> = teams
+    let by_contest: HashMap<SlateId, Vec<(FantasyTeamId, f64)>> = teams
         .iter()
         .flat_map(|t| {
             t.scores
@@ -160,8 +160,8 @@ mod tests {
             name: name.to_string(),
             owner_name: "Owner".into(),
             logo: None,
-            entered: scores.iter().map(|(c, _)| ContestId(*c)).collect(),
-            scores: scores.iter().map(|(c, p)| (ContestId(*c), *p)).collect(),
+            entered: scores.iter().map(|(c, _)| SlateId(*c)).collect(),
+            scores: scores.iter().map(|(c, p)| (SlateId(*c), *p)).collect(),
         }
     }
 

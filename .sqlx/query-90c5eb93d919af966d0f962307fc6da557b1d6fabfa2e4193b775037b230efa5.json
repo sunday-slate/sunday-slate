@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id              AS \"id!: DraftEntryId\",\n                  contest_id      AS \"contest_id!: ContestId\",\n                  fantasy_team_id AS \"fantasy_team_id!: FantasyTeamId\",\n                  qb_gsis_id      AS \"qb_gsis_id?: NflPlayerId\",\n                  rb1_gsis_id     AS \"rb1_gsis_id?: NflPlayerId\",\n                  rb2_gsis_id     AS \"rb2_gsis_id?: NflPlayerId\",\n                  wr1_gsis_id     AS \"wr1_gsis_id?: NflPlayerId\",\n                  wr2_gsis_id     AS \"wr2_gsis_id?: NflPlayerId\",\n                  wr3_gsis_id     AS \"wr3_gsis_id?: NflPlayerId\",\n                  te_gsis_id      AS \"te_gsis_id?: NflPlayerId\",\n                  flex_gsis_id    AS \"flex_gsis_id?: NflPlayerId\",\n                  def_team_abbr   AS \"def_team_abbr?: nfl_data::TeamAbbr\"\n           FROM draft_entries\n           WHERE contest_id = ?1 AND fantasy_team_id = ?2",
+  "query": "SELECT id              AS \"id!: DraftEntryId\",\n                  slate_id      AS \"slate_id!: SlateId\",\n                  fantasy_team_id AS \"fantasy_team_id!: FantasyTeamId\",\n                  qb_gsis_id      AS \"qb_gsis_id?: NflPlayerId\",\n                  rb1_gsis_id     AS \"rb1_gsis_id?: NflPlayerId\",\n                  rb2_gsis_id     AS \"rb2_gsis_id?: NflPlayerId\",\n                  wr1_gsis_id     AS \"wr1_gsis_id?: NflPlayerId\",\n                  wr2_gsis_id     AS \"wr2_gsis_id?: NflPlayerId\",\n                  wr3_gsis_id     AS \"wr3_gsis_id?: NflPlayerId\",\n                  te_gsis_id      AS \"te_gsis_id?: NflPlayerId\",\n                  flex_gsis_id    AS \"flex_gsis_id?: NflPlayerId\",\n                  def_team_abbr   AS \"def_team_abbr?: nfl_data::TeamAbbr\"\n           FROM draft_entries\n           WHERE slate_id = ?1 AND fantasy_team_id = ?2",
   "describe": {
     "columns": [
       {
@@ -15,13 +15,13 @@
         }
       },
       {
-        "name": "contest_id!: ContestId",
+        "name": "slate_id!: SlateId",
         "ordinal": 1,
         "type_info": "Integer",
         "origin": {
           "Table": {
             "table": "draft_entries",
-            "name": "contest_id"
+            "name": "slate_id"
           }
         }
       },
@@ -154,5 +154,5 @@
       true
     ]
   },
-  "hash": "2158f4732fa24aa3be89b19655aeb89853d8aede38252f10445d0011616d9ed2"
+  "hash": "90c5eb93d919af966d0f962307fc6da557b1d6fabfa2e4193b775037b230efa5"
 }

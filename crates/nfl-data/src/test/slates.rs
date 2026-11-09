@@ -144,6 +144,7 @@ async fn public_slate_is_metadata_only() {
         season_week,
         name,
         kickoff,
+        multiday,
     } = named(&listed, "Week 13").clone();
     assert_eq!(
         id,
@@ -153,6 +154,7 @@ async fn public_slate_is_metadata_only() {
     assert_eq!(season_week, WEEK_13);
     assert_eq!(name, "Week 13");
     assert_eq!(kickoff, Some(datetime!(2025-11-30 17:00 UTC)));
+    assert!(!multiday, "the seeded main slate is a single day");
 
     let thanksgiving = named(&listed, "Thanksgiving");
     assert_eq!(thanksgiving.id, SlateId(20250130), "the derived holiday id");

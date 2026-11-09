@@ -6,7 +6,7 @@ use wiremock::{
     matchers::{method, path},
 };
 
-pub(crate) async fn mocked_nfl() -> (Arc<NflData>, MockServer) {
+pub(crate) async fn mocked_nfl(season: nfl_data::Season) -> (Arc<NflData>, MockServer) {
     let server = MockServer::start().await;
     for tag in [
         "schedules",
@@ -29,6 +29,7 @@ pub(crate) async fn mocked_nfl() -> (Arc<NflData>, MockServer) {
         database_url: "sqlite::memory:".into(),
         github_api_base: server.uri(),
         refresh_interval: Some(Duration::ZERO),
+        season,
         ..Default::default()
     })
     .await
