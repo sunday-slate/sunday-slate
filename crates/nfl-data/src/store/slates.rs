@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use sqlx::{Executor, Sqlite, SqliteConnection, SqlitePool};
 use time::{OffsetDateTime, UtcOffset};
 
-use crate::slates::{Slate, SlateId, SlateProposal};
+use crate::slates::{Slate, SlateId, SlateProposal, spans_multiple_days};
 use crate::store::Store;
 use crate::{Game, Season, SeasonWeek};
 
@@ -18,7 +18,7 @@ pub(crate) async fn for_season(
         return Ok(Vec::new());
     };
     sqlx::query_as::<_, Slate>(
-        r#"SELECT id, season_week, name, kickoff
+        r#"SELECT id, season_week, name, kickoff, multiday
                FROM slates
                WHERE season_week BETWEEN ? AND ?
                ORDER BY id"#,
@@ -76,7 +76,7 @@ where
     E: Executor<'e, Database = Sqlite>,
 {
     sqlx::query_as::<_, Slate>(
-        r#"SELECT id, season_week, name, kickoff
+        r#"SELECT id, season_week, name, kickoff, multiday
                FROM slates
                WHERE season_week = ?
                ORDER BY id"#,
@@ -88,7 +88,7 @@ where
 
 pub(crate) async fn by_id(pool: &SqlitePool, id: &SlateId) -> Result<Option<Slate>, sqlx::Error> {
     sqlx::query_as::<_, Slate>(
-        r#"SELECT id, season_week, name, kickoff
+        r#"SELECT id, season_week, name, kickoff, multiday
                FROM slates
                WHERE id = ?"#,
     )
@@ -201,13 +201,15 @@ async fn upsert_metadata(
     proposal: &SlateProposal,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
-        r#"INSERT INTO slates (id, season_week, name, kickoff) VALUES (?, ?, ?, ?)
-               ON CONFLICT (season_week, name) DO UPDATE SET kickoff = excluded.kickoff"#,
+        r#"INSERT INTO slates (id, season_week, name, kickoff, multiday) VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT (season_week, name) DO UPDATE
+                   SET kickoff = excluded.kickoff, multiday = excluded.multiday"#,
     )
     .bind(proposal.id)
     .bind(week)
     .bind(&proposal.name)
     .bind(proposal.kickoff)
+    .bind(proposal.multiday)
     .execute(&mut *conn)
     .await?;
     Ok(())
@@ -226,18 +228,20 @@ async fn clear_absent_kickoffs(
             .await?;
     for name in stored {
         if !proposals.iter().any(|proposal| proposal.name == name) {
-            sqlx::query("UPDATE slates SET kickoff = NULL WHERE season_week = ? AND name = ?")
-                .bind(week)
-                .bind(&name)
-                .execute(&mut *conn)
-                .await?;
+            sqlx::query(
+                "UPDATE slates SET kickoff = NULL, multiday = 0 WHERE season_week = ? AND name = ?",
+            )
+            .bind(week)
+            .bind(&name)
+            .execute(&mut *conn)
+            .await?;
         }
     }
     Ok(())
 }
 
-/// Refreshes each stored kickoff from its fixed members' earliest known
-/// kickoff in the supplied schedule; `None` when none is known.
+/// Refreshes each stored slate's earliest known kickoff and multiday from its
+/// fixed members in the supplied schedule; `None`/false when none is known.
 async fn refresh_fixed_kickoffs(
     conn: &mut SqliteConnection,
     week: SeasonWeek,
@@ -261,12 +265,15 @@ async fn refresh_fixed_kickoffs(
                 .bind(id)
                 .fetch_all(&mut *conn)
                 .await?;
-        let kickoff = members
+        let kickoffs: Vec<OffsetDateTime> = members
             .iter()
             .filter_map(|game_id| schedule.get(game_id.as_str()).copied())
-            .min();
-        sqlx::query("UPDATE slates SET kickoff = ? WHERE id = ?")
+            .collect();
+        let kickoff = kickoffs.iter().copied().min();
+        let multiday = spans_multiple_days(kickoffs);
+        sqlx::query("UPDATE slates SET kickoff = ?, multiday = ? WHERE id = ?")
             .bind(kickoff)
+            .bind(multiday)
             .bind(id)
             .execute(&mut *conn)
             .await?;
@@ -333,6 +340,7 @@ mod tests {
             id: SlateId(i64::from(week.encode()) * 10 + kind(name)),
             name: name.into(),
             kickoff,
+            multiday: false,
             game_ids: ids.iter().map(|id| id.to_string()).collect(),
         }
     }

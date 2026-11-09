@@ -4,7 +4,7 @@ use time::{Date, Month, OffsetDateTime, Time, UtcOffset, Weekday};
 
 use nfl_model::nfl_week_monday;
 
-use crate::slates::{SlateId, SlateProposal};
+use crate::slates::{SlateId, SlateProposal, spans_multiple_days};
 use crate::{Game, SeasonType, SeasonWeek};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,7 +97,7 @@ pub(crate) fn proposals(week: SeasonWeek, games: &[Game]) -> Vec<SlateProposal> 
 }
 
 /// The proposal for one rule, with the earliest known kickoff normalized to
-/// UTC.
+/// UTC and multiday decided from its members' Eastern dates.
 fn proposal(rule: Rule, week: &SeasonWeek, week_games: &[&Game]) -> SlateProposal {
     let season = week.season.0;
     let selected: Vec<&Game> = week_games
@@ -113,6 +113,7 @@ fn proposal(rule: Rule, week: &SeasonWeek, week_games: &[&Game]) -> SlateProposa
             .filter_map(|g| g.kickoff)
             .map(|k| k.to_offset(UtcOffset::UTC))
             .min(),
+        multiday: spans_multiple_days(selected.iter().filter_map(|g| g.kickoff)),
         game_ids: selected.iter().map(|g| g.game_id.clone()).collect(),
     }
 }
@@ -157,7 +158,7 @@ mod tests {
     use time::macros::{date, datetime};
 
     use super::{opening_monday, proposals};
-    use crate::slates::{Slate, SlateId, SlateProposal};
+    use crate::slates::{SlateId, SlateProposal};
     use crate::{Game, Season, SeasonType, SeasonWeek, Week};
 
     fn game(
@@ -324,6 +325,10 @@ mod tests {
         let holiday = proposal_named(&got, "Thanksgiving");
         assert_eq!(sorted_ids(holiday), ["tg_1", "tg_2", "tg_3"]);
         assert_eq!(holiday.kickoff, Some(datetime!(2025-11-27 18:00 UTC)));
+        assert!(
+            !holiday.multiday,
+            "Thursday ET games across UTC midnight are one Eastern day"
+        );
 
         let christmas = vec![
             game(
@@ -402,6 +407,7 @@ mod tests {
             assert_eq!(playoff.id, id, "the playoff slate stamps its main-kind id");
             assert_eq!(sorted_ids(playoff), ["sat", "sun"]);
             assert_eq!(playoff.kickoff, Some(saturday));
+            assert!(playoff.multiday, "Saturday and Sunday span two days");
         }
     }
 
@@ -567,6 +573,7 @@ mod tests {
         assert_eq!(main.name, "Week 5");
         assert!(main.game_ids.is_empty());
         assert_eq!(main.kickoff, None);
+        assert!(!main.multiday, "no known kickoff spans no dates");
 
         let got = proposals(post_week(2025, 19), &[]);
         assert_eq!(got.len(), 1);
@@ -603,20 +610,5 @@ mod tests {
             opening_monday(week, &[game("unknown", 2025, 1, SeasonType::Reg, None)]),
             None
         );
-    }
-
-    #[test]
-    fn slate_metadata_constructs_with_the_four_public_fields() {
-        let week = reg_week(2025, 1);
-        let slate = Slate {
-            id: SlateId(1),
-            season_week: week,
-            name: "Week 1".into(),
-            kickoff: None,
-        };
-        assert_eq!(slate.kickoff, None);
-        assert_eq!(slate.id, SlateId(1));
-        assert_eq!(slate.season_week, week);
-        assert_eq!(slate.name, "Week 1");
     }
 }

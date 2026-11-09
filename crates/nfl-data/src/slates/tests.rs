@@ -87,6 +87,16 @@ fn rescheduled_after_fix_games() -> Vec<Game> {
     games
 }
 
+fn fixed_members_without_kickoffs() -> Vec<Game> {
+    let mut games = week_13_games();
+    for game in games.iter_mut() {
+        if game.game_id == "sun_1" || game.game_id == "sun_2" {
+            game.kickoff = None;
+        }
+    }
+    games
+}
+
 fn week_1_games() -> Vec<Game> {
     vec![
         game("op", 1, Some(datetime!(2025-09-05 00:15 UTC))),
@@ -369,6 +379,23 @@ async fn disappearing_holiday_keeps_identity_and_clears_stale_kickoff() {
     assert_eq!(christmas.kickoff, Some(datetime!(2025-12-25 18:00 UTC)));
     let christmas_id = christmas.id;
 
+    fixture
+        .nfl
+        .store
+        .write_tx(async |conn| {
+            sqlx::query("UPDATE slates SET multiday = 1 WHERE id = ?")
+                .bind(christmas_id)
+                .execute(&mut *conn)
+                .await?;
+            Ok::<_, sqlx::Error>(())
+        })
+        .await
+        .expect("seed stale multiday");
+    assert!(
+        slate_named(&stored_week(&fixture.nfl, WEEK_16).await, "Christmas").multiday,
+        "the stale flag is stored before the holiday disappears"
+    );
+
     fixture.replace_games(&moved_off_christmas_games()).await;
 
     populate(&fixture.nfl, BEFORE_WEEK_16).await;
@@ -383,6 +410,10 @@ async fn disappearing_holiday_keeps_identity_and_clears_stale_kickoff() {
         leftover.kickoff, None,
         "the stale kickoff cleared before fixation"
     );
+    assert!(
+        !leftover.multiday,
+        "the stale multiday cleared before fixation"
+    );
     assert_eq!(
         slate_named(&after_move, "Week 16").kickoff,
         Some(datetime!(2025-12-28 17:00 UTC))
@@ -393,6 +424,7 @@ async fn disappearing_holiday_keeps_identity_and_clears_stale_kickoff() {
         .unwrap()
         .expect("stored slate");
     assert_eq!(found.kickoff, None);
+    assert!(!found.multiday, "by-id reads the cleared multiday");
 
     populate(&fixture.nfl, WEEK_16_MONDAY).await;
     let first_fixed = stored_week(&fixture.nfl, WEEK_16).await;
@@ -437,7 +469,10 @@ async fn rescheduling_after_fix_changes_details_not_membership() {
         .await
         .unwrap();
     let established = populate(&fixture.nfl, MONDAY).await;
-    let main_id = slate_named(&established, "Week 13").id;
+    let main = slate_named(&established, "Week 13");
+    let main_id = main.id;
+    assert_eq!(main.kickoff, Some(datetime!(2025-11-30 17:00 UTC)));
+    assert!(!main.multiday, "the initial fixed slate is one Sunday");
 
     fixture.replace_games(&rescheduled_after_fix_games()).await;
 
@@ -462,22 +497,59 @@ async fn rescheduling_after_fix_changes_details_not_membership() {
         Some(datetime!(2025-11-29 21:30 UTC)),
         "returned Game kickoffs follow the current schedule"
     );
+    let rescheduled = slates::by_id(&fixture.nfl, &main_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(
-        slates::by_id(&fixture.nfl, &main_id)
-            .await
-            .unwrap()
-            .unwrap()
-            .kickoff,
+        rescheduled.kickoff,
         Some(datetime!(2025-11-29 21:30 UTC)),
         "the stored kickoff refreshed from the fixed members"
     );
+    assert!(
+        rescheduled.multiday,
+        "Saturday and Sunday fixed members span two Eastern dates"
+    );
+    assert_eq!(rescheduled.id, main_id);
+
+    fixture.replace_games(&week_13_games()).await;
+    populate(&fixture.nfl, THURSDAY).await;
+    let reverted = slates::by_id(&fixture.nfl, &main_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(
-        slates::by_id(&fixture.nfl, &main_id)
+        reverted.kickoff,
+        Some(datetime!(2025-11-30 17:00 UTC)),
+        "moving back restores the Sunday kickoff"
+    );
+    assert!(!reverted.multiday, "moving back restores one Eastern date");
+    assert_eq!(
+        store::slates::game_ids(fixture.nfl.store.reader(), &main_id)
             .await
-            .unwrap()
-            .unwrap()
-            .id,
-        main_id
+            .unwrap(),
+        fixed_ids
+    );
+
+    fixture
+        .replace_games(&fixed_members_without_kickoffs())
+        .await;
+    populate(&fixture.nfl, THURSDAY).await;
+    let undated = slates::by_id(&fixture.nfl, &main_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        undated.kickoff, None,
+        "no known member kickoff clears the stored kickoff"
+    );
+    assert!(!undated.multiday, "no known member kickoff is one day");
+    assert_eq!(
+        store::slates::game_ids(fixture.nfl.store.reader(), &main_id)
+            .await
+            .unwrap(),
+        fixed_ids,
+        "unknown kickoffs keep the fixed membership"
     );
 }
 

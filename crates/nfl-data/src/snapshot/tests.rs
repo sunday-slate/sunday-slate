@@ -543,12 +543,85 @@ async fn a_failed_rebuild_keeps_the_published_snapshot() {
     assert!(!Arc::ptr_eq(&published, &nfl.snapshot()));
 }
 
+#[tokio::test]
+async fn published_snapshot_carries_multiday_and_eastern_status() {
+    let nfl = NflData::in_memory().await.expect("in-memory handle");
+    let week = SeasonWeek {
+        season: SEASON,
+        season_type: SeasonType::Post,
+        week: Week(19),
+    };
+    let games = vec![
+        Game {
+            game_id: "2026_19_BUF_KC".into(),
+            season_week: week,
+            kickoff: Some(datetime!(2027-01-09 21:00 UTC)),
+            home_team: TeamAbbr::KC,
+            away_team: TeamAbbr::BUF,
+            home_score: None,
+            away_score: None,
+        },
+        Game {
+            game_id: "2026_19_GB_DET".into(),
+            season_week: week,
+            kickoff: Some(datetime!(2027-01-10 18:00 UTC)),
+            home_team: TeamAbbr::DET,
+            away_team: TeamAbbr::GB,
+            home_score: None,
+            away_score: None,
+        },
+    ];
+    nfl.seed_for_test(&[], &games).await.expect("seed games");
+    let csv = "\
+Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,Injury Indicator,Injury Details,Tier,,,Roster Position
+9101-1,D,Kansas,Kansas City Chiefs,Chiefs,,0,4800,BUF@KC,KC,BUF,,,,,,DEF
+9102-2,D,Detroit,Detroit Lions,Lions,,0,4700,GB@DET,DET,GB,,,,,,DEF
+";
+    let rows = crate::salaries::parse_fanduel_csv(&nfl.fanduel, week, csv.as_bytes())
+        .expect("parse salaries");
+    crate::salaries::save_fanduel_salaries(&nfl.fanduel, &rows)
+        .await
+        .expect("save salaries");
+    slates::populate_at(
+        &nfl.provider,
+        &nfl.store,
+        SEASON,
+        datetime!(2027-01-01 12:00 UTC),
+    )
+    .await
+    .expect("populate slates");
+    nfl.rebuild_snapshot().await.expect("rebuild");
+
+    let main_id = SlateId(i64::from(week.encode()) * 10 + 1);
+    let snapshot = nfl.snapshot();
+    let slate = snapshot.slate(&main_id).expect("the salaried week's slate");
+    assert_eq!(slate.kickoff, Some(datetime!(2027-01-09 21:00 UTC)));
+    assert!(slate.multiday, "Saturday and Sunday span two Eastern dates");
+    assert!(
+        snapshot.slates().any(|candidate| candidate.id == main_id),
+        "the published slate set resolves the same id"
+    );
+    assert_eq!(
+        snapshot.current_slate().map(|candidate| candidate.id),
+        Some(main_id),
+        "the multiday slate is the current one"
+    );
+
+    assert!(slate.upcoming(datetime!(2027-01-09 20:00 UTC)));
+    assert!(!slate.locked(datetime!(2027-01-09 20:00 UTC)));
+    assert!(slate.live(datetime!(2027-01-10 20:00 UTC)));
+    assert!(!slate.finished(datetime!(2027-01-10 20:00 UTC)));
+    assert!(slate.finished(datetime!(2027-01-11 05:00 UTC)));
+    assert!(!slate.live(datetime!(2027-01-11 05:00 UTC)));
+}
+
 fn accessor_slate(id: i64, name: &str) -> Slate {
     Slate {
         id: SlateId(id),
         season_week: SEASON_WEEK_5,
         name: name.into(),
         kickoff: Some(datetime!(2026-10-04 17:00 UTC)),
+        multiday: false,
     }
 }
 

@@ -22,7 +22,7 @@ use crate::live::ContestScores;
 use crate::scoring::service as scoring_service;
 use crate::standings::service as standings_service;
 use crate::{AppError, AppState};
-use nfl_data::slates::SlateId;
+use nfl_data::slates::{SlateId, SlateStatus};
 
 #[derive(Template)]
 #[template(path = "contests/index.html")]
@@ -42,7 +42,7 @@ pub async fn index(
     let snapshot = state.nfl.snapshot();
     let now = state.now_eastern();
 
-    let contests = service::slate_contests(&snapshot);
+    let contests = snapshot.slates().cloned().collect::<Vec<_>>();
     let current = snapshot.current_slate().map(|slate| slate.id);
     let slate_contests = service::listed_contests(contests, current, now);
     let contest_weeks = service::contest_weeks(&snapshot);
@@ -55,7 +55,7 @@ pub async fn index(
     for row in &mut rows {
         match crate::live::load_contest_scores(&state, row.id).await? {
             ContestScores::Official(stats) => {
-                row.state = service::ContestState::Finished;
+                row.state = SlateStatus::Finished;
                 let entries =
                     entries_store::by_contest(state.db.reader(), row.id, league.id).await?;
                 row.winners =
@@ -79,9 +79,9 @@ pub async fn index(
                     .values()
                     .all(|game| game.phase == LiveGamePhase::Final);
                 if row.pending_official {
-                    row.state = service::ContestState::Finished;
+                    row.state = SlateStatus::Finished;
                 } else {
-                    row.state = service::ContestState::Live;
+                    row.state = SlateStatus::Live;
                 }
             }
             ContestScores::Upcoming => {}

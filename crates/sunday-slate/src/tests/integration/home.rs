@@ -115,6 +115,170 @@ async fn current_redirects_to_the_snapshot_maximum_slate(pool: sqlx::SqlitePool)
     );
 }
 
+/// A two-day postseason slate is live, locked, and range-formatted; at the
+/// next Eastern midnight the owner's open row disappears and the finished
+/// contest awaits official stats instead of inventing zeros.
+#[sqlx::test]
+async fn multiday_slate_status_drives_catalog_details_and_open_rows(pool: sqlx::SqlitePool) {
+    let nfl = std::sync::Arc::new(nfl_data::NflData::in_memory().await.unwrap());
+    let sunday = time::macros::datetime!(2027-01-10 20:00 UTC);
+    let app = TestApp::from_pool_with_nfl_at(pool.clone(), nfl.clone(), sunday).await;
+    let team = factories::team(&pool, TeamOptions::default()).await;
+    app.login_as(&team.owner).await;
+
+    let wild_card = nfl_data::SeasonWeek {
+        season: nfl_data::Season(2026),
+        season_type: nfl_data::SeasonType::Post,
+        week: nfl_data::Week(19),
+    };
+    let games = [
+        nfl_data::Game {
+            game_id: "2026_19_BUF_KC".into(),
+            season_week: wild_card,
+            kickoff: Some(time::macros::datetime!(2027-01-09 21:00 UTC)),
+            home_team: nfl_data::TeamAbbr::KC,
+            away_team: nfl_data::TeamAbbr::BUF,
+            home_score: None,
+            away_score: None,
+        },
+        nfl_data::Game {
+            game_id: "2026_19_GB_DET".into(),
+            season_week: wild_card,
+            kickoff: Some(time::macros::datetime!(2027-01-10 18:00 UTC)),
+            home_team: nfl_data::TeamAbbr::DET,
+            away_team: nfl_data::TeamAbbr::GB,
+            home_score: None,
+            away_score: None,
+        },
+    ];
+    let slate = publish_slate(&app, wild_card, &games, &[]).await;
+    assert_eq!(
+        slate,
+        nfl_data::slates::SlateId(i64::from(wild_card.encode()) * 10 + 1),
+        "the published main-kind slate"
+    );
+    let entry_id = factories::full_entry(&pool, slate, team.team.id, "00-A").await;
+
+    let persisted = app
+        .nfl
+        .snapshot()
+        .slate(&slate)
+        .expect("the published slate")
+        .clone();
+    assert!(persisted.multiday, "Saturday and Sunday span two days");
+    assert!(persisted.live(sunday));
+    assert!(persisted.locked(sunday));
+
+    let list = app.get("/contests").await;
+    list.assert_status_ok();
+    let body = list.text();
+    assert!(body.contains("Jan 9–10"), "the two-day range: {body}");
+    assert!(body.contains(&format!("/contests/{}", slate.0)), "{body}");
+
+    let team_page = app.get(&format!("/teams/{}", team.team.id)).await;
+    team_page.assert_status_ok();
+    let body = team_page.text();
+    assert!(
+        body.contains(&format!("href=\"/contests/{}\"", slate.0)),
+        "the owner's live row links to the contest: {body}"
+    );
+    assert!(
+        !body.contains("Enter lineup") && !body.contains("Resume lineup"),
+        "a live row offers no draft action: {body}"
+    );
+
+    let details = app.get(&format!("/contests/{}", slate.0)).await;
+    details.assert_status_ok();
+    let body = details.text();
+    assert!(
+        body.contains(&format!("contest-{}-entry-{entry_id}-score", slate.0)),
+        "the entry score region renders: {body}"
+    );
+    assert!(body.contains(&team.team.name), "{body}");
+    assert!(!body.contains("Kicks off"), "no upcoming header: {body}");
+    assert!(
+        !body.contains("Still to enter"),
+        "no waiting section: {body}"
+    );
+
+    let monday = TestApp::from_pool_with_nfl_at(
+        pool.clone(),
+        nfl,
+        time::macros::datetime!(2027-01-11 05:00 UTC),
+    )
+    .await;
+    monday.login_as(&team.owner).await;
+
+    let team_page = monday.get(&format!("/teams/{}", team.team.id)).await;
+    team_page.assert_status_ok();
+    let body = team_page.text();
+    assert!(
+        !body.contains("Open Contests"),
+        "the open row is gone: {body}"
+    );
+    assert!(
+        !body.contains(&format!("href=\"/contests/{}\"", slate.0)),
+        "no live or actionable row remains: {body}"
+    );
+
+    let list = monday.get("/contests").await;
+    list.assert_status_ok();
+    let body = list.text();
+    assert!(body.contains("Jan 9–10"), "{body}");
+    assert!(
+        body.contains("Final · awaiting official stats"),
+        "finished without official stats, not zero-scored: {body}"
+    );
+}
+
+/// An upcoming slate's stored UTC kickoff renders as its Eastern wall clock in
+/// both the details header and the owner's open-row countdown.
+#[sqlx::test]
+async fn upcoming_utc_kickoff_renders_eastern_header_and_countdown(pool: sqlx::SqlitePool) {
+    let nfl = std::sync::Arc::new(nfl_data::NflData::in_memory().await.unwrap());
+    let app = TestApp::from_pool_with_nfl_at(
+        pool.clone(),
+        nfl,
+        time::macros::datetime!(2026-09-10 12:00 UTC),
+    )
+    .await;
+    let team = factories::team(&pool, TeamOptions::default()).await;
+    app.login_as(&team.owner).await;
+
+    let week1 = week(1);
+    let slate = publish_slate(
+        &app,
+        week1,
+        &[game(
+            "2026_01_BUF_KC",
+            week1,
+            time::macros::datetime!(2026-09-13 17:00 UTC),
+        )],
+        &[],
+    )
+    .await;
+
+    let details = app.get(&format!("/contests/{}", slate.0)).await;
+    details.assert_status_ok();
+    let body = details.text();
+    assert!(
+        body.contains("Kicks off Sun, Sep 13 · 1:00 PM ET"),
+        "the header is Eastern, not 5:00 PM UTC: {body}"
+    );
+    assert!(
+        body.contains("Entries lock at kickoff — in 3 days"),
+        "{body}"
+    );
+
+    let team_page = app.get(&format!("/teams/{}", team.team.id)).await;
+    team_page.assert_status_ok();
+    let body = team_page.text();
+    assert!(
+        body.contains("Kicks off Sun, Sep 13 · 1:00 PM ET — locks in 3 days"),
+        "the open-row countdown is Eastern: {body}"
+    );
+}
+
 /// The catalog is every published snapshot slate: a holiday slate and a
 /// postseason slate appear alongside their week's main slate.
 #[sqlx::test]

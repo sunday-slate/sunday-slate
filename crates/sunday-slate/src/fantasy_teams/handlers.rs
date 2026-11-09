@@ -1,6 +1,5 @@
 use crate::chrome::{Chrome, Tab};
 use crate::contests::service as contests_service;
-use crate::contests::service::{ContestState, contest_state};
 use crate::draft_entry::store as draft_entry_store;
 use crate::entries::store as entries_store;
 use crate::fantasy_teams::contest_entries::{SeasonView, season_view};
@@ -318,18 +317,18 @@ pub async fn show(
     let open = match edit_team_id {
         Some(team_id) => {
             // A contest whose official stats have landed is no longer open.
-            let slate_contests = contests_service::slate_contests(&snapshot)
-                .into_iter()
-                .filter(|c| !results.contest_week.contains_key(&c.id))
+            let candidates = snapshot
+                .slates()
+                .filter(|slate| !results.contest_week.contains_key(&slate.id))
+                .cloned()
                 .collect::<Vec<_>>();
             let entry_ids =
                 entries_store::entry_ids_for_team(state.db.reader(), FantasyTeamId(team_id))
                     .await?;
             let mut resumable = HashSet::new();
-            for c in &slate_contests {
-                let enterable = c.first.is_some()
-                    && !entry_ids.contains_key(&c.id)
-                    && contest_state(c.first, c.last, now) == ContestState::Upcoming;
+            for c in &candidates {
+                let enterable =
+                    c.kickoff.is_some() && !entry_ids.contains_key(&c.id) && c.upcoming(now);
                 if enterable
                     && draft_entry_store::by_keys(state.db.reader(), c.id, FantasyTeamId(team_id))
                         .await?
@@ -338,7 +337,7 @@ pub async fn show(
                     resumable.insert(c.id);
                 }
             }
-            open_contests(&slate_contests, &entry_ids, &resumable, now)
+            open_contests(&candidates, &entry_ids, &resumable, now)
         }
         None => Vec::new(),
     };

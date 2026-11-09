@@ -84,6 +84,7 @@ mod tests {
             },
             name: name.to_string(),
             kickoff: None,
+            multiday: false,
         }
     }
 
