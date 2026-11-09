@@ -80,3 +80,78 @@ curl -fsSL http://127.0.0.1:3000/
 
 Adjust the URL if a different bind address is configured. Update the flake
 lock manually when needed; there is no scheduled update job.
+
+## Logging
+
+The service logs structured text to stdout, which systemd captures in the
+journal. ANSI escapes are disabled automatically when stdout is not a
+terminal, so `journalctl` output is plain text.
+
+`RUST_LOG` selects events. When it is unset or blank (empty or
+whitespace-only), the service uses:
+
+```text
+warn,sunday_slate=info,nfl_data=info,nflverse_data=info,tank01_data=info,fanduel_data=info,utils=info
+```
+
+A set `RUST_LOG` **replaces** that default; include the crate directives you
+still want. An invalid value stops startup with an error naming the filter,
+rather than silently dropping every event. `RUST_LOG` is read once at startup:
+change it in the systemd environment file and restart
+(`systemctl restart sunday-slate`). There is no runtime reload.
+
+### Request correlation
+
+Every HTTP request gets a generated UUID, an `http_request` span, and an
+`x-request-id` response header. When the filter suppresses INFO but still
+admits ERROR events, the span is recorded at ERROR level so surviving error
+events keep `request_id`, `method`, and `path`. The `request completed`
+summary is emitted as soon as response headers are ready — before the body
+streams — so `duration_ms`, `status`, `method`, and `path` describe time to
+headers, not time to the last body byte. Streaming (SSE) responses are
+summarized when they open. Body-stream failures are logged separately once
+they occur.
+
+Correlate a response with its server-side log:
+
+```sh
+journalctl -u sunday-slate -o cat --grep='<request UUID>'
+```
+
+Server errors return a generic `Internal server error` body; the cause stays
+in the correlated log event.
+
+### Input diagnostics (opt-in)
+
+Debugging a malformed submission can enable bounded input capture by appending
+to `RUST_LOG`:
+
+```text
+...,sunday_slate::http_input=debug
+```
+
+This logs the request query string and, for `application/json`,
+`application/x-www-form-urlencoded`, and `application/*+json` bodies, the first
+8192 raw bytes (lossily decoded and escaped, with `truncated`/`complete`
+flags). Bytes reach handlers unchanged; capture is passive and never drains or
+parses the body. Multipart uploads log only filename, content type, and size
+from the upload handlers.
+
+Never captured: headers, cookies, authorization values, response bodies, and
+the query/body of credential-bearing routes (`/login`, `/logout`,
+`/forgot-password`, `/reset-password`, `/setup`, `/invite`, `/invite/*`,
+`/__test/login/*`). The `/invites` commissioner view is not a credential route
+and remains eligible. Leave this target off in normal operation: form and JSON
+bodies can contain personal data.
+
+### Background jobs
+
+Detached jobs (`background_job` spans for avatar fetches and nflverse syncs)
+log start, outcome, and duration. Snapshot updates log `snapshot published`
+only after the new snapshot is atomically visible, and `snapshot update failed`
+with the prior snapshot retained on failure.
+
+Production verification requires host access: check the effective
+`RUST_LOG`, restart only as authorized for the deployment, request a page, and
+confirm the journal event carries the same UUID as the response header.
+

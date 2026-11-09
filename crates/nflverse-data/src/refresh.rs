@@ -5,6 +5,7 @@ use std::{
 };
 
 use tokio::{task::JoinHandle, time::MissedTickBehavior};
+use tracing::Instrument;
 use utils::background::{Runner, RunnerState};
 
 use crate::{DatasetFreshness, NflverseData, NflverseDataError};
@@ -42,13 +43,46 @@ impl NflverseData {
         }
         let freshness = self.freshness().await?;
         let provider = self.clone();
-        Ok(runner.try_start(freshness, move |_| async move {
-            match provider.sync().await {
-                Ok(report) if report.all_ok() => Ok(report.to_string()),
-                Ok(report) => Err(report.to_string()),
-                Err(error) => Err(error.to_string()),
+        let parent = tracing::Span::current();
+        let span = tracing::info_span!(parent: &parent, "background_job", job = "nflverse_sync");
+        let started = runner.try_start(freshness, move |_| {
+            async move {
+                tracing::info!("nflverse sync started");
+                let started = std::time::Instant::now();
+                match provider.sync().await {
+                    Ok(report) if report.all_ok() => {
+                        tracing::info!(
+                            duration_ms = started.elapsed().as_millis() as u64,
+                            report = %report,
+                            "nflverse sync completed"
+                        );
+                        Ok(report.to_string())
+                    }
+                    // Some datasets committed, others failed: not a success.
+                    Ok(report) => {
+                        tracing::warn!(
+                            duration_ms = started.elapsed().as_millis() as u64,
+                            report = %report,
+                            "nflverse sync incomplete"
+                        );
+                        Err(report.to_string())
+                    }
+                    Err(error) => {
+                        tracing::error!(
+                            duration_ms = started.elapsed().as_millis() as u64,
+                            error = %error,
+                            "nflverse sync failed"
+                        );
+                        Err(error.to_string())
+                    }
+                }
             }
-        }))
+            .instrument(span)
+        });
+        if !started {
+            tracing::debug!(job = "nflverse_sync", "nflverse sync already running");
+        }
+        Ok(started)
     }
 
     pub fn refresh_status(&self) -> RefreshStatus {
@@ -75,16 +109,21 @@ impl NflverseData {
             return false;
         }
         // A sleeping timer must not keep the provider alive or form an ownership cycle.
+        // Root the timer span so scheduled work never adopts a caller's span.
         let inner = Arc::downgrade(&self.inner);
-        *scheduler = Some(tokio::spawn(run_scheduler_with(interval, move || {
-            let inner = inner.clone();
-            async move {
-                match inner.upgrade() {
-                    Some(inner) => NflverseData { inner }.request_refresh().await,
-                    None => Ok(false),
+        let span = tracing::info_span!(parent: None, "nflverse_scheduler");
+        *scheduler = Some(tokio::spawn(
+            run_scheduler_with(interval, move || {
+                let inner = inner.clone();
+                async move {
+                    match inner.upgrade() {
+                        Some(inner) => NflverseData { inner }.request_refresh().await,
+                        None => Ok(false),
+                    }
                 }
-            }
-        })));
+            })
+            .instrument(span),
+        ));
         true
     }
 

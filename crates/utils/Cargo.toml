@@ -9,6 +9,7 @@ license.workspace = true
 serde.workspace = true
 time.workspace = true
 tokio.workspace = true
+tracing.workspace = true
 
 [features]
 # Runner fixtures for consumer tests; not enabled in production.

@@ -61,4 +61,8 @@ pub fn build(state: AppState, session_layer: sessions::Layer) -> Router {
         .merge(health::router())
         .merge(session_routes)
         .with_state(state)
+        // Outermost: fallbacks, assets, health, and auth failures included.
+        .layer(axum::middleware::from_fn(
+            crate::observability::request_logging,
+        ))
 }
