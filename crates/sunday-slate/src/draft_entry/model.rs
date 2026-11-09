@@ -1,7 +1,7 @@
 use nfl_data::TeamAbbr;
+use nfl_data::slates::SlateId;
 use strum::IntoEnumIterator;
 
-use crate::contests::ContestId;
 use crate::entries::{NflPlayerId, PlayerOrDefenseId, RosterSlot};
 use crate::fantasy_teams::FantasyTeamId;
 
@@ -13,7 +13,7 @@ pub struct DraftEntryId(pub i64);
 #[derive(Debug, Clone, PartialEq)]
 pub struct DraftEntry {
     pub id: DraftEntryId,
-    pub contest_id: ContestId,
+    pub slate_id: SlateId,
     pub fantasy_team_id: FantasyTeamId,
     pub qb: Option<NflPlayerId>,
     pub rb1: Option<NflPlayerId>,

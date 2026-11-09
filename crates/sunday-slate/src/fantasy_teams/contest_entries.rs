@@ -1,14 +1,15 @@
 //! Pure view assembly for the team detail page: a fantasy team's scored
 //! contests ordered best-first, top-10 flags, and the score to beat.
 
-use crate::contests::{Contest, ContestId};
+use nfl_data::slates::{Slate, SlateId};
+
 use crate::scoring::format_points;
 use crate::standings::standings::{COUNTING_SCORES, by_points_desc, top_n_sum_sorted};
 
 /// One scored contest on the team detail page.
 pub struct ContestRow {
     /// The `/contests/{id}` link target, and the tie-break in `season_view`.
-    pub contest: ContestId,
+    pub contest: SlateId,
     pub name: String,
     pub points: f64,
     /// In the top 10 — counts toward the season total.
@@ -48,9 +49,9 @@ impl SeasonView {
     }
 }
 
-/// Order scored contests best-first, ties by contest id, then flag the
+/// Order scored contests best-first, ties by slate id, then flag the
 /// counting rows. Only a team with ten or more scores gets a score to beat.
-pub fn season_view(scored: Vec<(Contest, f64)>) -> SeasonView {
+pub fn season_view(scored: Vec<(Slate, f64)>) -> SeasonView {
     let mut scored = scored;
     scored.sort_by(|a, b| by_points_desc(&a.1, &b.1).then_with(|| a.0.id.0.cmp(&b.0.id.0)));
     let total = (!scored.is_empty()).then(|| top_n_sum_sorted(scored.iter().map(|(_, p)| *p)));
@@ -58,9 +59,9 @@ pub fn season_view(scored: Vec<(Contest, f64)>) -> SeasonView {
     let rows = scored
         .into_iter()
         .enumerate()
-        .map(|(i, (contest, points))| ContestRow {
-            contest: contest.id,
-            name: contest.name,
+        .map(|(i, (slate, points))| ContestRow {
+            contest: slate.id,
+            name: slate.name,
             points,
             counts: i < COUNTING_SCORES,
             score_to_beat: displaceable && i == COUNTING_SCORES - 1,
@@ -73,15 +74,21 @@ pub fn season_view(scored: Vec<(Contest, f64)>) -> SeasonView {
 mod tests {
     use super::*;
 
-    fn contest(id: i64, name: &str) -> Contest {
-        Contest {
-            id: ContestId(id),
+    fn contest(id: i64, name: &str) -> Slate {
+        Slate {
+            id: SlateId(id),
+            season_week: nfl_data::SeasonWeek {
+                season: nfl_data::Season(2026),
+                season_type: nfl_data::SeasonType::Reg,
+                week: nfl_data::Week(1),
+            },
             name: name.to_string(),
+            kickoff: None,
         }
     }
 
     /// Contests 1..=n, contest i scoring i points.
-    fn scored(n: i64) -> Vec<(Contest, f64)> {
+    fn scored(n: i64) -> Vec<(Slate, f64)> {
         (1..=n)
             .map(|i| (contest(i, &format!("Week {i}")), i as f64))
             .collect()
@@ -168,8 +175,8 @@ mod tests {
             name: "Alpha".into(),
             owner_name: "Owner".into(),
             logo: None,
-            entered: raw.iter().map(|(c, _)| ContestId(*c)).collect(),
-            scores: raw.iter().map(|(c, p)| (ContestId(*c), *p)).collect(),
+            entered: raw.iter().map(|(c, _)| SlateId(*c)).collect(),
+            scores: raw.iter().map(|(c, p)| (SlateId(*c), *p)).collect(),
         }])[0]
             .total;
 

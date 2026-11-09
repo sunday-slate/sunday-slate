@@ -1,27 +1,27 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id AS \"id!: ContestId\", name AS \"name!: String\" FROM contests WHERE id = ?1",
+  "query": "SELECT id AS \"id!: EntryId\", slate_id AS \"slate_id!: SlateId\"\n           FROM entries\n           WHERE fantasy_team_id = ?1",
   "describe": {
     "columns": [
       {
-        "name": "id!: ContestId",
+        "name": "id!: EntryId",
         "ordinal": 0,
         "type_info": "Integer",
         "origin": {
           "Table": {
-            "table": "contests",
+            "table": "entries",
             "name": "id"
           }
         }
       },
       {
-        "name": "name!: String",
+        "name": "slate_id!: SlateId",
         "ordinal": 1,
-        "type_info": "Text",
+        "type_info": "Integer",
         "origin": {
           "Table": {
-            "table": "contests",
-            "name": "name"
+            "table": "entries",
+            "name": "slate_id"
           }
         }
       }
@@ -34,5 +34,5 @@
       false
     ]
   },
-  "hash": "47b98dd617f32c0d4f328253940aa11677b2013bd7215487623933d8e7528561"
+  "hash": "bb4c9d78aecb3c9d82d1f8dc3ebe9a3fc953219dce1974ad180a311aee281d1a"
 }

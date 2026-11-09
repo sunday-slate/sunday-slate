@@ -1,13 +1,13 @@
-use crate::contests::ContestId;
 use crate::draft_entry::model::{DraftEntry, DraftEntryId};
 use crate::entries::{EntrySlot, Lineup, NflPlayerId};
 use crate::fantasy_teams::FantasyTeamId;
+use nfl_data::slates::SlateId;
 use sqlx::{Sqlite, SqliteConnection};
 
 /// Load a row by its keys, or `None`.
 pub async fn by_keys<'e, E>(
     ex: E,
-    contest_id: ContestId,
+    slate_id: SlateId,
     fantasy_team_id: FantasyTeamId,
 ) -> Result<Option<DraftEntry>, sqlx::Error>
 where
@@ -15,7 +15,7 @@ where
 {
     let row = sqlx::query!(
         r#"SELECT id              AS "id!: DraftEntryId",
-                  contest_id      AS "contest_id!: ContestId",
+                  slate_id      AS "slate_id!: SlateId",
                   fantasy_team_id AS "fantasy_team_id!: FantasyTeamId",
                   qb_gsis_id      AS "qb_gsis_id?: NflPlayerId",
                   rb1_gsis_id     AS "rb1_gsis_id?: NflPlayerId",
@@ -27,8 +27,8 @@ where
                   flex_gsis_id    AS "flex_gsis_id?: NflPlayerId",
                   def_team_abbr   AS "def_team_abbr?: nfl_data::TeamAbbr"
            FROM draft_entries
-           WHERE contest_id = ?1 AND fantasy_team_id = ?2"#,
-        contest_id,
+           WHERE slate_id = ?1 AND fantasy_team_id = ?2"#,
+        slate_id,
         fantasy_team_id,
     )
     .fetch_optional(ex)
@@ -36,7 +36,7 @@ where
 
     Ok(row.map(|r| DraftEntry {
         id: r.id,
-        contest_id: r.contest_id,
+        slate_id: r.slate_id,
         fantasy_team_id: r.fantasy_team_id,
         qb: r.qb_gsis_id,
         rb1: r.rb1_gsis_id,
@@ -50,24 +50,24 @@ where
     }))
 }
 
-/// The resume/seed gate: the one draft row per (contest, fantasy team),
+/// The resume/seed gate: the one draft row per (slate, fantasy team),
 /// inserted when absent — seeded from `seed`, all-empty for `None`. Runs on
 /// the caller's write connection: the read-only reader rejects INSERTs.
 pub async fn get_or_create_tx(
     conn: &mut SqliteConnection,
-    contest_id: ContestId,
+    slate_id: SlateId,
     fantasy_team_id: FantasyTeamId,
     seed: Option<&Lineup>,
 ) -> Result<DraftEntry, sqlx::Error> {
-    if let Some(row) = by_keys(&mut *conn, contest_id, fantasy_team_id).await? {
+    if let Some(row) = by_keys(&mut *conn, slate_id, fantasy_team_id).await? {
         return Ok(row);
     }
-    insert_draft(&mut *conn, contest_id, fantasy_team_id, seed).await
+    insert_draft(&mut *conn, slate_id, fantasy_team_id, seed).await
 }
 
 async fn insert_draft<'e, E>(
     ex: E,
-    contest_id: ContestId,
+    slate_id: SlateId,
     fantasy_team_id: FantasyTeamId,
     seed: Option<&Lineup>,
 ) -> Result<DraftEntry, sqlx::Error>
@@ -76,7 +76,7 @@ where
 {
     let mut draft = DraftEntry {
         id: DraftEntryId(0),
-        contest_id,
+        slate_id,
         fantasy_team_id,
         qb: None,
         rb1: None,
@@ -95,12 +95,12 @@ where
     }
     let id: DraftEntryId = sqlx::query_scalar(
         r#"INSERT INTO draft_entries
-             (contest_id, fantasy_team_id, qb_gsis_id, rb1_gsis_id, rb2_gsis_id,
+             (slate_id, fantasy_team_id, qb_gsis_id, rb1_gsis_id, rb2_gsis_id,
               wr1_gsis_id, wr2_gsis_id, wr3_gsis_id, te_gsis_id, flex_gsis_id, def_team_abbr)
            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
            RETURNING id"#,
     )
-    .bind(contest_id)
+    .bind(slate_id)
     .bind(fantasy_team_id)
     .bind(&draft.qb)
     .bind(&draft.rb1)
@@ -157,15 +157,15 @@ where
 
 pub async fn delete_by_keys<'e, E>(
     ex: E,
-    contest_id: ContestId,
+    slate_id: SlateId,
     fantasy_team_id: FantasyTeamId,
 ) -> Result<(), sqlx::Error>
 where
     E: sqlx::Executor<'e, Database = Sqlite>,
 {
     sqlx::query!(
-        "DELETE FROM draft_entries WHERE contest_id = ?1 AND fantasy_team_id = ?2",
-        contest_id,
+        "DELETE FROM draft_entries WHERE slate_id = ?1 AND fantasy_team_id = ?2",
+        slate_id,
         fantasy_team_id,
     )
     .execute(ex)
@@ -176,11 +176,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contests::ContestId;
     use crate::entries::NflPlayerId;
     use crate::fantasy_teams::FantasyTeamId;
     use crate::tests::factories::{self, TeamOptions};
     use nfl_data::TeamAbbr;
+    use nfl_data::slates::SlateId;
     use sqlx::SqlitePool;
 
     fn seed_lineup() -> Lineup {
@@ -200,13 +200,13 @@ mod tests {
     #[sqlx::test]
     async fn get_or_create_seeds_on_first_call_and_resumes_after(pool: SqlitePool) {
         let fixture = factories::team(&pool, TeamOptions::default()).await;
-        let contest = factories::contest(&pool, "Week 1").await;
+        let slate = SlateId(20260011);
         let mut conn = pool.acquire().await.expect("conn");
 
         // First call: no row, seeds from the lineup.
         let d = get_or_create_tx(
             &mut conn,
-            ContestId(contest),
+            slate,
             FantasyTeamId(fixture.team.id),
             Some(&seed_lineup()),
         )
@@ -216,14 +216,9 @@ mod tests {
         assert_eq!(d.def, Some(TeamAbbr::KC));
 
         // Second call: returns the existing row, ignoring a new seed.
-        let d2 = get_or_create_tx(
-            &mut conn,
-            ContestId(contest),
-            FantasyTeamId(fixture.team.id),
-            None,
-        )
-        .await
-        .expect("resume");
+        let d2 = get_or_create_tx(&mut conn, slate, FantasyTeamId(fixture.team.id), None)
+            .await
+            .expect("resume");
         assert_eq!(d2.id, d.id);
         assert_eq!(d2.qb, Some(NflPlayerId("00-Q".into())));
     }
@@ -231,12 +226,12 @@ mod tests {
     #[sqlx::test]
     async fn duplicate_player_across_columns_violates_check(pool: SqlitePool) {
         let fixture = factories::team(&pool, TeamOptions::default()).await;
-        let contest = factories::contest(&pool, "Week 1").await;
+        let slate = SlateId(20260011);
         let inserted = sqlx::query(
-            "INSERT INTO draft_entries (contest_id, fantasy_team_id, qb_gsis_id, rb1_gsis_id)
+            "INSERT INTO draft_entries (slate_id, fantasy_team_id, qb_gsis_id, rb1_gsis_id)
              VALUES (?1, ?2, '00-X', '00-X')",
         )
-        .bind(contest)
+        .bind(slate)
         .bind(fixture.team.id)
         .execute(&pool)
         .await;

@@ -14,10 +14,10 @@ use tank01_data::{PollEvent, PollRequest};
 use time::OffsetDateTime;
 
 use crate::contests::service::slate_locked;
-use crate::contests::{ContestId, store};
 use crate::live::identity::LiveIdentityIndex;
 use crate::live::snapshot::live_game;
 use crate::{AppError, AppState};
+use nfl_data::slates::SlateId;
 
 const STARTUP_RECOVERY: ::time::Duration = ::time::Duration::hours(12);
 
@@ -295,12 +295,11 @@ pub(crate) async fn run(state: AppState) {
 async fn run_inner(state: &AppState) -> Result<(), AppError> {
     let now = state.now_eastern();
     let snapshot = state.nfl.snapshot();
-    let contests = store::all(state.db.reader()).await?;
 
-    let mut targets: Vec<(ContestId, Vec<Game>, Vec<LiveGame>)> = Vec::new();
+    let mut targets: Vec<(SlateId, Vec<Game>, Vec<LiveGame>)> = Vec::new();
     let mut distinct: BTreeMap<String, Game> = BTreeMap::new();
-    for contest in &contests {
-        let games = contest.games(&snapshot);
+    for slate in snapshot.slates() {
+        let games = snapshot.games_for_slate(&slate.id);
         if games.is_empty() {
             continue;
         }
@@ -325,7 +324,7 @@ async fn run_inner(state: &AppState) -> Result<(), AppError> {
                 .entry(game.game_id.clone())
                 .or_insert_with(|| game.clone());
         }
-        targets.push((contest.id, games.to_vec(), live_games));
+        targets.push((slate.id, games.to_vec(), live_games));
     }
 
     if targets.is_empty() {

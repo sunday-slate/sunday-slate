@@ -119,22 +119,16 @@ pub fn identity(name: &str, team: Option<&str>) -> PlayerIdentity {
     }
 }
 
-pub async fn contest(pool: &SqlitePool, name: &str) -> i64 {
-    sqlx::query_scalar("INSERT INTO contests (name) VALUES (?1) RETURNING id")
-        .bind(name)
-        .fetch_one(pool)
-        .await
-        .unwrap()
-}
-
-/// Insert a full nine-slot entry and return its id. Only `rb1` is the
-/// caller's; the other slots take the filler ids below, so an entry scores
-/// exactly its RB1's points.
-pub async fn full_entry(pool: &SqlitePool, contest_id: i64, team_id: i64, rb1: &str) -> i64 {
+pub async fn full_entry(
+    pool: &SqlitePool,
+    slate_id: nfl_data::slates::SlateId,
+    team_id: i64,
+    rb1: &str,
+) -> i64 {
     let entry_id: i64 = sqlx::query_scalar(
-        "INSERT INTO entries (contest_id, fantasy_team_id) VALUES (?1, ?2) RETURNING id",
+        "INSERT INTO entries (slate_id, fantasy_team_id) VALUES (?1, ?2) RETURNING id",
     )
-    .bind(contest_id)
+    .bind(slate_id)
     .bind(team_id)
     .fetch_one(pool)
     .await

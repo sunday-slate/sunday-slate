@@ -5,9 +5,9 @@ use std::collections::{HashMap, HashSet};
 
 use nfl_data::{NflData, NflDataError, Season, Week};
 
-use crate::contests::ContestId;
 use crate::entries::{FantasyTeamEntry, NflPlayerId};
 use crate::scoring::{self, WeekStats};
+use nfl_data::slates::SlateId;
 
 /// Load all fantasy stats for completed weeks.
 pub async fn week_stats(
@@ -45,14 +45,14 @@ pub async fn week_stats(
 /// with loaded stats gets a total; the rest are skipped.
 pub fn score_entries(
     entries: &[FantasyTeamEntry],
-    contest_week: &HashMap<ContestId, Week>,
+    contest_week: &HashMap<SlateId, Week>,
     stats: &HashMap<Week, WeekStats>,
-) -> Vec<(ContestId, f64)> {
+) -> Vec<(SlateId, f64)> {
     entries
         .iter()
         .filter_map(|e| {
-            let week_stats = stats.get(contest_week.get(&e.contest)?)?;
-            Some((e.contest, scoring::score_lineup(&e.lineup, week_stats)))
+            let week_stats = stats.get(contest_week.get(&e.slate_id)?)?;
+            Some((e.slate_id, scoring::score_lineup(&e.lineup, week_stats)))
         })
         .collect()
 }

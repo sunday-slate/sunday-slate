@@ -89,8 +89,7 @@ impl Snapshot {
     }
 
     /// All slates with salaried players in ascending order
-    #[cfg(test)]
-    pub(crate) fn slates(&self) -> impl Iterator<Item = &Slate> + '_ {
+    pub fn slates(&self) -> impl Iterator<Item = &Slate> + '_ {
         self.slates.values()
     }
 

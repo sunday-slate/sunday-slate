@@ -26,8 +26,7 @@ async fn contest_details_requires_login(pool: SqlitePool) {
     // A user must already exist, or the app's fresh-install gate redirects
     // everything to /setup instead of exercising `login_required`.
     factories::team(&pool, TeamOptions::default()).await;
-    let wk1 = factories::contest(&pool, "Week 1").await;
-    let resp = app.get(&format!("/contests/{wk1}")).await;
+    let resp = app.get("/contests/20260011").await;
     resp.assert_status(StatusCode::TEMPORARY_REDIRECT);
     assert!(
         resp.header("location")

@@ -78,7 +78,7 @@ pub async fn events(
     if !state.live.enabled() {
         return Err(AppError::NotFound);
     }
-    let revisions = state.live.subscribe(entry.contest.id);
+    let revisions = state.live.subscribe(entry.slate_id);
 
     let view = service::page(&state, &user, entry_id).await?;
     let EntryView::Scored(mut page) = view else {

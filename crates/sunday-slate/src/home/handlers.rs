@@ -8,7 +8,7 @@ use crate::{AppError, AppState};
 /// standings when the season has none. Onboarding (setup, league, team
 /// creation) is handled upstream by `auth::bootstrap`.
 pub async fn index(State(state): State<AppState>) -> Result<Redirect, AppError> {
-    let to = match service::current_contest_id(&state).await? {
+    let to = match service::current_contest_id(&state) {
         Some(id) => format!("/contests/{}", id.0),
         None => "/standings".to_string(),
     };

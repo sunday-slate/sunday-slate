@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT e.fantasy_team_id AS \"fantasy_team_id!: FantasyTeamId\",\n                  s.roster_slot     AS \"roster_slot!: RosterSlot\",\n                  s.gsis_player_id  AS \"gsis_player_id?: NflPlayerId\",\n                  s.team_abbr       AS \"team_abbr?: TeamAbbr\"\n           FROM entry_slots s\n           JOIN entries e ON e.id = s.entry_id\n           JOIN fantasy_teams ft ON ft.id = e.fantasy_team_id\n           WHERE e.contest_id = ?1 AND ft.league_id = ?2\n           ORDER BY e.fantasy_team_id",
+  "query": "SELECT e.fantasy_team_id AS \"fantasy_team_id!: FantasyTeamId\",\n                  s.roster_slot     AS \"roster_slot!: RosterSlot\",\n                  s.gsis_player_id  AS \"gsis_player_id?: NflPlayerId\",\n                  s.team_abbr       AS \"team_abbr?: TeamAbbr\"\n           FROM entry_slots s\n           JOIN entries e ON e.id = s.entry_id\n           JOIN fantasy_teams ft ON ft.id = e.fantasy_team_id\n           WHERE e.slate_id = ?1 AND ft.league_id = ?2\n           ORDER BY e.fantasy_team_id",
   "describe": {
     "columns": [
       {
@@ -58,5 +58,5 @@
       true
     ]
   },
-  "hash": "b0e665345d79739ad284b8826b116ab719d5d39531774eee7f30bdf0557f5960"
+  "hash": "bed2204191987f98a8261ee344b60e84224491944436ea9d68541fb0d7f31e44"
 }

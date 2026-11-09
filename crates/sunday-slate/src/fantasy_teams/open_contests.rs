@@ -5,11 +5,11 @@ use std::collections::{HashMap, HashSet};
 
 use time::OffsetDateTime;
 
-use crate::contests::ContestId;
 use crate::contests::service::{
     ContestState, SlateContest, contest_state, format_kickoff, time_until,
 };
 use crate::entries::EntryId;
+use nfl_data::slates::SlateId;
 
 /// What an open-contest row offers the owner.
 pub enum OpenAction {
@@ -24,7 +24,7 @@ pub enum OpenAction {
 
 /// One row in the open-contests section.
 pub struct OpenContestRow {
-    pub contest: ContestId,
+    pub contest: SlateId,
     pub name: String,
     /// Pre-kickoff: "Kicks off Sun, Sep 7 · 1:00 PM ET — locks in 3 days".
     /// `None` exactly when the contest is live.
@@ -38,8 +38,8 @@ pub struct OpenContestRow {
 /// kickoff first, ties by contest id.
 pub fn open_contests(
     contests: &[SlateContest],
-    entries: &HashMap<ContestId, EntryId>,
-    resumable: &HashSet<ContestId>,
+    entries: &HashMap<SlateId, EntryId>,
+    resumable: &HashSet<SlateId>,
     now: OffsetDateTime,
 ) -> Vec<OpenContestRow> {
     let mut rows: Vec<(OffsetDateTime, OpenContestRow)> = contests
@@ -88,7 +88,7 @@ mod tests {
 
     fn slate(id: i64, name: &str, first: OffsetDateTime, last: OffsetDateTime) -> SlateContest {
         SlateContest {
-            id: ContestId(id),
+            id: SlateId(id),
             name: name.to_string(),
             first: Some(first),
             last: Some(last),
@@ -104,13 +104,13 @@ mod tests {
     /// Three days before week1's kickoff.
     const NOW: OffsetDateTime = datetime!(2025 - 09 - 04 13:00 -4);
 
-    fn no_entries() -> HashMap<ContestId, EntryId> {
+    fn no_entries() -> HashMap<SlateId, EntryId> {
         HashMap::new()
     }
 
     #[test]
     fn upcoming_entered_links_to_the_entry() {
-        let entries = HashMap::from([(ContestId(1), EntryId(42))]);
+        let entries = HashMap::from([(SlateId(1), EntryId(42))]);
         let rows = open_contests(&[week1()], &entries, &HashSet::new(), NOW);
         assert_eq!(rows.len(), 1);
         assert!(matches!(rows[0].action, OpenAction::ViewEntry(EntryId(42))));
@@ -129,7 +129,7 @@ mod tests {
 
     #[test]
     fn a_partial_draft_flips_the_action_to_resume() {
-        let resumable = HashSet::from([ContestId(1)]);
+        let resumable = HashSet::from([SlateId(1)]);
         let rows = open_contests(&[week1()], &no_entries(), &resumable, NOW);
         assert!(matches!(rows[0].action, OpenAction::Draft(true)));
     }
@@ -137,7 +137,7 @@ mod tests {
     #[test]
     fn live_entered_watches_the_contest() {
         // Kickoff has passed but the slate's last day is today: live.
-        let entries = HashMap::from([(ContestId(1), EntryId(42))]);
+        let entries = HashMap::from([(SlateId(1), EntryId(42))]);
         let rows = open_contests(
             &[week1()],
             &entries,
@@ -165,7 +165,7 @@ mod tests {
 
     #[test]
     fn finished_contests_are_dropped_even_when_entered() {
-        let entries = HashMap::from([(ContestId(1), EntryId(42))]);
+        let entries = HashMap::from([(SlateId(1), EntryId(42))]);
         let rows = open_contests(
             &[week1()],
             &entries,
@@ -178,7 +178,7 @@ mod tests {
     #[test]
     fn unpublished_slates_are_dropped() {
         let undated = SlateContest {
-            id: ContestId(9),
+            id: SlateId(9),
             name: "Week 9".to_string(),
             first: None,
             last: None,

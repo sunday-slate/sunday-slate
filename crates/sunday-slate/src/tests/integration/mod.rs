@@ -3,6 +3,8 @@ mod auth;
 mod avatars;
 mod chrome;
 mod contest_details;
+mod contest_events;
+mod draft_entry;
 mod entries;
 mod first_user_setup;
 mod health;

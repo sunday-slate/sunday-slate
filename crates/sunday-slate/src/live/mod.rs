@@ -9,11 +9,11 @@ use std::sync::{Arc, Mutex};
 use nfl_data::{Game, LiveGamePhase, Season, SeasonType, TeamAbbr, Week};
 use tokio::sync::watch;
 
-use crate::contests::ContestId;
 use crate::contests::service::slate_locked;
 use crate::live::identity::LiveIdentityIndex;
 use crate::live::snapshot::SnapshotReducer;
 use crate::scoring::WeekStats;
+use nfl_data::slates::SlateId;
 
 pub(crate) use coordinator::run_coordinator;
 pub use snapshot::{
@@ -58,7 +58,7 @@ pub enum LiveError {
 
 #[derive(Debug, Clone)]
 pub struct LiveContestSnapshot {
-    pub contest: ContestId,
+    pub contest: SlateId,
     pub games: Vec<Game>,
     pub stats: WeekStats,
     pub game_states: std::collections::HashMap<String, LiveGameState>,
@@ -101,11 +101,11 @@ struct ContestRegistration {
 }
 
 struct HubState {
-    snapshots: std::collections::HashMap<ContestId, Arc<LiveContestSnapshot>>,
-    reducers: std::collections::HashMap<ContestId, SnapshotReducer>,
-    registrations: std::collections::HashMap<ContestId, ContestRegistration>,
-    senders: std::collections::HashMap<ContestId, watch::Sender<u64>>,
-    revisions: std::collections::HashMap<ContestId, u64>,
+    snapshots: std::collections::HashMap<SlateId, Arc<LiveContestSnapshot>>,
+    reducers: std::collections::HashMap<SlateId, SnapshotReducer>,
+    registrations: std::collections::HashMap<SlateId, ContestRegistration>,
+    senders: std::collections::HashMap<SlateId, watch::Sender<u64>>,
+    revisions: std::collections::HashMap<SlateId, u64>,
 }
 
 struct HubInner {
@@ -141,7 +141,7 @@ impl LiveContestHub {
         self.inner.enabled
     }
 
-    pub fn snapshot(&self, id: ContestId) -> Option<Arc<LiveContestSnapshot>> {
+    pub fn snapshot(&self, id: SlateId) -> Option<Arc<LiveContestSnapshot>> {
         self.inner
             .state
             .lock()
@@ -151,7 +151,7 @@ impl LiveContestHub {
             .cloned()
     }
 
-    pub fn subscribe(&self, id: ContestId) -> watch::Receiver<u64> {
+    pub fn subscribe(&self, id: SlateId) -> watch::Receiver<u64> {
         let mut state = self.inner.state.lock().expect("live hub mutex poisoned");
         let revision = *state.revisions.entry(id).or_insert(0);
         state
@@ -171,7 +171,7 @@ impl LiveContestHub {
 
     pub(crate) fn rebase_contest(
         &self,
-        id: ContestId,
+        id: SlateId,
         games: Vec<Game>,
         identity: Arc<LiveIdentityIndex>,
         feeds: &[coordinator::FeedReplay],
@@ -244,7 +244,7 @@ impl LiveContestHub {
 
     pub(crate) fn publish_event(
         &self,
-        id: ContestId,
+        id: SlateId,
         event: &tank01_data::PollEvent,
         feed_games: &[nfl_data::LiveGame],
     ) {
@@ -266,7 +266,7 @@ impl LiveContestHub {
         }
     }
 
-    pub(crate) fn publish_feed_failure(&self, id: ContestId, feed_games: &[nfl_data::LiveGame]) {
+    pub(crate) fn publish_feed_failure(&self, id: SlateId, feed_games: &[nfl_data::LiveGame]) {
         let mut state = self.inner.state.lock().expect("live hub mutex poisoned");
         let mut snapshot = {
             let Some(reducer) = state.reducers.get_mut(&id) else {
@@ -283,7 +283,7 @@ impl LiveContestHub {
         }
     }
 
-    pub(crate) fn notify(&self, id: ContestId) {
+    pub(crate) fn notify(&self, id: SlateId) {
         let mut state = self.inner.state.lock().expect("live hub mutex poisoned");
         let revision = next_revision(&mut state, id);
         state
@@ -294,7 +294,7 @@ impl LiveContestHub {
     }
 }
 
-fn next_revision(state: &mut HubState, id: ContestId) -> u64 {
+fn next_revision(state: &mut HubState, id: SlateId) -> u64 {
     let revision = state.revisions.entry(id).or_insert(0);
     *revision = revision.saturating_add(1);
     *revision
@@ -351,13 +351,13 @@ pub fn official_complete_for_slate(games: &[Game], stats: &WeekStats) -> bool {
 
 pub async fn load_contest_scores(
     state: &crate::AppState,
-    contest: ContestId,
+    contest: SlateId,
 ) -> Result<ContestScores, crate::AppError> {
-    let Some(row) = crate::contests::store::by_id(state.db.reader(), contest).await? else {
-        return Ok(ContestScores::Unavailable);
-    };
     let snapshot = state.nfl.snapshot();
-    let games = row.games(&snapshot);
+    if snapshot.slate(&contest).is_none() {
+        return Ok(ContestScores::Unavailable);
+    }
+    let games = snapshot.games_for_slate(&contest);
     if games.is_empty() {
         return Ok(ContestScores::Unavailable);
     }
@@ -449,17 +449,17 @@ pub async fn load_contest_scores(
 
 pub(crate) async fn stream_eligible(
     state: &crate::AppState,
-    contest: ContestId,
+    contest: SlateId,
     source: &ContestScores,
 ) -> Result<bool, crate::AppError> {
     if !state.live.enabled() || matches!(source, ContestScores::Official(_)) {
         return Ok(false);
     }
-    let Some(row) = crate::contests::store::by_id(state.db.reader(), contest).await? else {
-        return Ok(false);
-    };
     let snapshot = state.nfl.snapshot();
-    let games = row.games(&snapshot);
+    if snapshot.slate(&contest).is_none() {
+        return Ok(false);
+    }
+    let games = snapshot.games_for_slate(&contest);
     if games.is_empty() {
         return Ok(false);
     }
@@ -487,6 +487,46 @@ mod tests {
     use super::*;
     use crate::tests::factories;
     use nfl_data::{PlayerWeekStats, TeamAbbr, TeamWeekStats};
+
+    /// Registrations and revisions are keyed by SlateId: publishing one
+    /// slate's snapshot leaves another slate's subscriber untouched.
+    #[test]
+    fn hub_snapshots_and_revisions_are_isolated_by_slate_id() {
+        let hub = LiveContestHub::new(true);
+        let one = SlateId(20260011);
+        let two = SlateId(20260021);
+        let game = factories::game_at(
+            "2026_01_BUF_KC",
+            1,
+            time::macros::datetime!(2026-09-13 17:00 UTC),
+        );
+        let identity = Arc::new(LiveIdentityIndex::from_sources(&[], &[]));
+
+        let one_revisions = hub.subscribe(one);
+        let two_revisions = hub.subscribe(two);
+        hub.rebase_contest(
+            one,
+            vec![game],
+            identity,
+            &[],
+            time::macros::datetime!(2026-09-13 18:00 UTC),
+        );
+
+        assert!(hub.snapshot(one).is_some(), "the published slate registers");
+        assert!(hub.snapshot(two).is_none(), "the other slate is untouched");
+        assert!(one_revisions.has_changed().unwrap());
+        assert!(
+            !two_revisions.has_changed().unwrap(),
+            "subscriber isolation"
+        );
+
+        hub.notify(one);
+        assert!(one_revisions.has_changed().unwrap());
+        assert!(
+            !two_revisions.has_changed().unwrap(),
+            "a revision for one slate never wakes another"
+        );
+    }
 
     #[test]
     fn official_stats_require_every_slate_team_and_matching_game() {

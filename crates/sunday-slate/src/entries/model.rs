@@ -1,7 +1,7 @@
-use crate::contests::{Contest, ContestId};
 use crate::fantasy_teams::FantasyTeamId;
 use crate::media::Media;
 use nfl_data::TeamAbbr;
+use nfl_data::slates::SlateId;
 
 pub use nfl_model::NflPlayerId;
 
@@ -243,7 +243,7 @@ pub struct ContestEntry {
 /// carrying both ids.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FantasyTeamEntry {
-    pub contest: ContestId,
+    pub slate_id: SlateId,
     pub lineup: Lineup,
 }
 
@@ -264,12 +264,12 @@ pub struct FantasyTeamEntries {
 pub struct EntryId(pub i64);
 
 /// One entry loaded for display: its lineup plus the context the page needs —
-/// contest, league, and owning fantasy team.
+/// slate, league, and owning fantasy team.
 #[derive(Debug, Clone)]
 pub struct EntryDetails {
     pub id: EntryId,
     pub league_id: i64,
-    pub contest: Contest,
+    pub slate_id: SlateId,
     pub team: EntryTeam,
     pub lineup: Lineup,
 }

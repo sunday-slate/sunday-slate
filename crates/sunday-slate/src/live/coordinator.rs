@@ -12,11 +12,11 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio::time::{self, MissedTickBehavior};
 
-use crate::contests::{ContestId, store};
 use crate::live::LiveContestHub;
 use crate::live::identity::LiveIdentityIndex;
 use crate::live::snapshot::live_game;
 use crate::{AppError, AppState};
+use nfl_data::slates::SlateId;
 
 const RECONCILE_INTERVAL: Duration = Duration::from_secs(20);
 const STARTUP_RECOVERY: ::time::Duration = ::time::Duration::hours(12);
@@ -61,7 +61,7 @@ struct InjuryWindow {
 struct InjuryTarget {
     window: Option<InjuryWindow>,
     teams: Vec<TeamAbbr>,
-    contests: BTreeSet<ContestId>,
+    contests: BTreeSet<SlateId>,
 }
 
 impl FeedReplay {
@@ -175,7 +175,7 @@ fn event_sequence(event: &PollEvent) -> u64 {
 }
 struct FeedState {
     replay: FeedReplay,
-    contests: HashSet<ContestId>,
+    contests: HashSet<SlateId>,
 }
 
 struct FeedRunner {
@@ -187,7 +187,7 @@ struct FeedRunner {
 struct CoordinatorState {
     feeds: HashMap<FeedKey, FeedRunner>,
     replays: HashMap<FeedKey, FeedReplay>,
-    started: HashSet<ContestId>,
+    started: HashSet<SlateId>,
     identity: HashMap<(Season, Week, SeasonType, Vec<String>), Arc<LiveIdentityIndex>>,
     revision: Option<nfl_data::DataRevision>,
 }
@@ -261,27 +261,26 @@ where
         coordinator.revision = Some(revision);
     }
 
-    let contests = store::all(state.db.reader()).await?;
-    let mut discovered = BTreeMap::<FeedKey, (LiveSlate, BTreeSet<ContestId>)>::new();
+    let mut discovered = BTreeMap::<FeedKey, (LiveSlate, BTreeSet<SlateId>)>::new();
     let mut contest_updates =
-        BTreeMap::<ContestId, (Vec<Game>, Arc<LiveIdentityIndex>, Vec<FeedKey>)>::new();
+        BTreeMap::<SlateId, (Vec<Game>, Arc<LiveIdentityIndex>, Vec<FeedKey>)>::new();
     let mut targets = HashMap::<crate::injuries::SlateKey, InjuryTarget>::new();
 
-    for contest in &contests {
-        let games = contest.games(&snapshot);
+    for slate in snapshot.slates() {
+        let games = snapshot.games_for_slate(&slate.id);
         if games.is_empty() {
             continue;
         }
         let first = games.iter().filter_map(Game::kickoff_eastern).min();
         let last = games.iter().filter_map(Game::kickoff_eastern).max();
-        let started = coordinator.started.contains(&contest.id)
+        let started = coordinator.started.contains(&slate.id)
             || coordinator.feeds.values().any(|runner| {
                 runner
                     .state
                     .lock()
                     .expect("feed mutex poisoned")
                     .contests
-                    .contains(&contest.id)
+                    .contains(&slate.id)
             });
 
         let first_week = &games[0].season_week;
@@ -308,19 +307,19 @@ where
             if last.is_some_and(|last| last < now - STARTUP_RECOVERY) {
                 continue;
             }
-            capture_injury_target(&mut targets, games, &tuple, &teams, contest.id);
+            capture_injury_target(&mut targets, games, &tuple, &teams, slate.id);
             continue;
         }
 
         if matches!(
-            crate::live::load_contest_scores(state, contest.id).await?,
+            crate::live::load_contest_scores(state, slate.id).await?,
             crate::live::ContestScores::Official(_)
         ) {
-            state.live.notify(contest.id);
+            state.live.notify(slate.id);
             continue;
         }
 
-        capture_injury_target(&mut targets, games, &tuple, &teams, contest.id);
+        capture_injury_target(&mut targets, games, &tuple, &teams, slate.id);
 
         let identity_key = (
             tuple.0,
@@ -388,11 +387,11 @@ where
                     )
                 })
                 .1
-                .insert(contest.id);
+                .insert(slate.id);
             feed_keys.push(feed_key);
         }
         feed_keys.sort();
-        contest_updates.insert(contest.id, (games.to_vec(), identity, feed_keys));
+        contest_updates.insert(slate.id, (games.to_vec(), identity, feed_keys));
     }
 
     coordinator
@@ -497,9 +496,9 @@ where
             .rebase_contest(contest, games, identity, &replays, now);
     }
 
-    for contest in &contests {
-        if !contest.games(&snapshot).is_empty() {
-            state.live.notify(contest.id);
+    for slate in snapshot.slates() {
+        if !snapshot.games_for_slate(&slate.id).is_empty() {
+            state.live.notify(slate.id);
         }
     }
 
@@ -526,7 +525,7 @@ fn capture_injury_target(
     games: &[Game],
     tuple: &crate::injuries::SlateKey,
     teams: &[TeamAbbr],
-    contest: ContestId,
+    contest: SlateId,
 ) {
     let entry = targets.entry(*tuple).or_insert_with(|| InjuryTarget {
         window: None,
@@ -670,7 +669,7 @@ where
     Ok(())
 }
 
-fn notify_contests(state: &AppState, contests: &BTreeSet<ContestId>) {
+fn notify_contests(state: &AppState, contests: &BTreeSet<SlateId>) {
     for contest in contests {
         state.live.notify(*contest);
     }

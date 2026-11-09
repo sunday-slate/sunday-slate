@@ -1,10 +1,10 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT e.id            AS \"id!: EntryId\",\n                  ft.league_id    AS \"league_id!: i64\",\n                  c.id            AS \"contest_id!: ContestId\",\n                  c.name          AS \"contest_name!: String\",\n                  ft.id           AS \"team_id!: FantasyTeamId\",\n                  ft.user_id      AS \"user_id!: i64\",\n                  ft.name         AS \"team_name!: String\",\n                  ft.owner_name   AS \"owner_name!: String\",\n                  m.id            AS \"media_id?: MediaId\",\n                  m.path          AS \"media_path?: String\",\n                  m.content_type  AS \"media_content_type?: String\",\n                  m.byte_size     AS \"media_byte_size?: i64\",\n                  m.width         AS \"media_width?: i64\",\n                  m.height        AS \"media_height?: i64\",\n                  m.created_at    AS \"media_created_at?: PrimitiveDateTime\",\n                  m.updated_at    AS \"media_updated_at?: PrimitiveDateTime\"\n           FROM entries e\n           JOIN contests c ON c.id = e.contest_id\n           JOIN fantasy_teams ft ON ft.id = e.fantasy_team_id\n           LEFT JOIN media m ON m.id = ft.logo_media_id\n           WHERE e.id = ?1",
+  "query": "SELECT e.id           AS \"entry_id!: EntryId\",\n                  ft.id          AS \"id!: FantasyTeamId\",\n                  ft.name        AS \"name!: String\",\n                  ft.owner_name  AS \"owner_name!: String\",\n                  m.id           AS \"media_id?: MediaId\",\n                  m.path         AS \"media_path?: String\",\n                  m.content_type AS \"media_content_type?: String\",\n                  m.byte_size    AS \"media_byte_size?: i64\",\n                  m.width        AS \"media_width?: i64\",\n                  m.height       AS \"media_height?: i64\",\n                  m.created_at   AS \"media_created_at?: PrimitiveDateTime\",\n                  m.updated_at   AS \"media_updated_at?: PrimitiveDateTime\"\n           FROM entries e\n           JOIN fantasy_teams ft ON ft.id = e.fantasy_team_id\n           LEFT JOIN media m ON m.id = ft.logo_media_id\n           WHERE e.slate_id = ?1 AND ft.league_id = ?2\n           ORDER BY e.created_at, e.id",
   "describe": {
     "columns": [
       {
-        "name": "id!: EntryId",
+        "name": "entry_id!: EntryId",
         "ordinal": 0,
         "type_info": "Integer",
         "origin": {
@@ -15,63 +15,19 @@
         }
       },
       {
-        "name": "league_id!: i64",
+        "name": "id!: FantasyTeamId",
         "ordinal": 1,
         "type_info": "Integer",
         "origin": {
           "Table": {
             "table": "fantasy_teams",
-            "name": "league_id"
+            "name": "id"
           }
         }
       },
       {
-        "name": "contest_id!: ContestId",
+        "name": "name!: String",
         "ordinal": 2,
-        "type_info": "Integer",
-        "origin": {
-          "Table": {
-            "table": "contests",
-            "name": "id"
-          }
-        }
-      },
-      {
-        "name": "contest_name!: String",
-        "ordinal": 3,
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "contests",
-            "name": "name"
-          }
-        }
-      },
-      {
-        "name": "team_id!: FantasyTeamId",
-        "ordinal": 4,
-        "type_info": "Integer",
-        "origin": {
-          "Table": {
-            "table": "fantasy_teams",
-            "name": "id"
-          }
-        }
-      },
-      {
-        "name": "user_id!: i64",
-        "ordinal": 5,
-        "type_info": "Integer",
-        "origin": {
-          "Table": {
-            "table": "fantasy_teams",
-            "name": "user_id"
-          }
-        }
-      },
-      {
-        "name": "team_name!: String",
-        "ordinal": 6,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -82,7 +38,7 @@
       },
       {
         "name": "owner_name!: String",
-        "ordinal": 7,
+        "ordinal": 3,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -93,7 +49,7 @@
       },
       {
         "name": "media_id?: MediaId",
-        "ordinal": 8,
+        "ordinal": 4,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -104,7 +60,7 @@
       },
       {
         "name": "media_path?: String",
-        "ordinal": 9,
+        "ordinal": 5,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -115,7 +71,7 @@
       },
       {
         "name": "media_content_type?: String",
-        "ordinal": 10,
+        "ordinal": 6,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -126,7 +82,7 @@
       },
       {
         "name": "media_byte_size?: i64",
-        "ordinal": 11,
+        "ordinal": 7,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -137,7 +93,7 @@
       },
       {
         "name": "media_width?: i64",
-        "ordinal": 12,
+        "ordinal": 8,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -148,7 +104,7 @@
       },
       {
         "name": "media_height?: i64",
-        "ordinal": 13,
+        "ordinal": 9,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -159,7 +115,7 @@
       },
       {
         "name": "media_created_at?: PrimitiveDateTime",
-        "ordinal": 14,
+        "ordinal": 10,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -170,7 +126,7 @@
       },
       {
         "name": "media_updated_at?: PrimitiveDateTime",
-        "ordinal": 15,
+        "ordinal": 11,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -181,13 +137,9 @@
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 2
     },
     "nullable": [
-      false,
-      false,
-      false,
-      false,
       false,
       false,
       false,
@@ -202,5 +154,5 @@
       true
     ]
   },
-  "hash": "f93185f23c0e0697712f478a4f300c286885af7f18c229bdf44a692f87b437a8"
+  "hash": "5149253c34bcade4a43b2655b58fb56e719bd0790573372989113dd9774b9f6a"
 }

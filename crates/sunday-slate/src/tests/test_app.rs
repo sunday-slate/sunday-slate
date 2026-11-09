@@ -32,14 +32,19 @@ impl TestApp {
         Self::build(pool, mailer, None, false, None).await
     }
 
-    /// Like `from_pool` but with the config clock pinned to `now`.
-    pub async fn from_pool_at(pool: SqlitePool, now: time::OffsetDateTime) -> Self {
+    /// Like `from_pool_at`, with an explicit NFL-data handle (e.g. one whose
+    /// season differs from the in-memory default).
+    pub async fn from_pool_with_nfl_at(
+        pool: SqlitePool,
+        nfl: Arc<nfl_data::NflData>,
+        now: time::OffsetDateTime,
+    ) -> Self {
         Self::build(
             pool,
             Mailer::capture("Sunday Slate <no-reply@example.com>"),
             Some(now),
             false,
-            None,
+            Some(nfl),
         )
         .await
     }
@@ -52,6 +57,15 @@ impl TestApp {
         nfl_override: Option<Arc<nfl_data::NflData>>,
     ) -> Self {
         let media_dir = tempfile::tempdir().expect("temp media dir");
+
+        let nfl = match nfl_override {
+            Some(nfl) => nfl,
+            None => Arc::new(
+                nfl_data::NflData::in_memory()
+                    .await
+                    .expect("in-memory nfl-data"),
+            ),
+        };
 
         let config = Config {
             database_url: "sqlite://:memory:".to_string(),
@@ -66,7 +80,7 @@ impl TestApp {
             nflverse_database_url: "sqlite://./storage/nflverse-cache.db".to_string(),
             fanduel_database_url: "sqlite://:memory:".to_string(),
             nfl_data_database_url: "sqlite://:memory:".to_string(),
-            season: 2025,
+            season: nfl.season().0,
             media_dir: media_dir.path().to_path_buf(),
             smtp: None,
             now_override,
@@ -77,15 +91,6 @@ impl TestApp {
             .expect("build session layer");
 
         let db = Db::test(pool.clone());
-
-        let nfl = match nfl_override {
-            Some(nfl) => nfl,
-            None => Arc::new(
-                nfl_data::NflData::in_memory()
-                    .await
-                    .expect("in-memory nfl-data"),
-            ),
-        };
 
         let avatar_runner = Arc::new(crate::avatars::AvatarFetchRunner::new());
 
@@ -340,4 +345,133 @@ pub async fn publish_headshot_slate(app: &TestApp, week: u8, players: &[nfl_data
         },
         "the published maximum slate is the uploaded week"
     );
+}
+
+/// Publish one week's salaries for `players` and `games`, through the real
+/// admin upload, and return the week's main slate id.
+///
+/// The caller supplies the players and the week's games; this helper seeds
+/// them, derives each row's DFS position, team, opponent, and matchup, and
+/// uses unique deterministic provider ids. Defense rows (salary 3000) are
+/// generated for both teams of every supplied game.
+pub async fn publish_slate(
+    app: &TestApp,
+    week: nfl_data::SeasonWeek,
+    games: &[nfl_data::Game],
+    players: &[nfl_data::Player],
+) -> nfl_data::slates::SlateId {
+    app.nfl
+        .seed_for_test(players, games)
+        .await
+        .expect("seed the slate's players and games");
+
+    let mut csv = String::from(
+        r#""Id","Position","First Name","Nickname","Last Name","FPPG","Played","Salary","Game","Team","Opponent","Injury Indicator","Injury Details"
+"#,
+    );
+    for (index, player) in players.iter().enumerate() {
+        let team = player.latest_team.expect("fixture player has a team");
+        let game = games
+            .iter()
+            .find(|game| {
+                game.season_week == week && (game.home_team == team || game.away_team == team)
+            })
+            .expect("every fixture player's team plays this week");
+        let opponent = if game.home_team == team {
+            game.away_team
+        } else {
+            game.home_team
+        };
+        let position = match player.position.as_deref() {
+            Some("QB") => "QB",
+            Some("RB") => "RB",
+            Some("WR") => "WR",
+            Some("TE") => "TE",
+            other => panic!("fixture player {index} has no QB/RB/WR/TE position: {other:?}"),
+        };
+        let (first, last) = match (&player.first_name, &player.last_name) {
+            (Some(first), Some(last)) => (first.clone(), last.clone()),
+            _ => {
+                let mut parts = player.full_name.splitn(2, ' ');
+                (
+                    parts.next().unwrap_or_default().to_string(),
+                    parts.next().unwrap_or_default().to_string(),
+                )
+            }
+        };
+        csv.push_str(&format!(
+            r#""{}-{}","{position}","{first}","","{last}","0","0","5000","{}@{}","{}","{}","",""
+"#,
+            week.encode(),
+            index + 1,
+            game.away_team.as_str(),
+            game.home_team.as_str(),
+            team.as_str(),
+            opponent.as_str(),
+        ));
+    }
+    for (game_index, game) in games.iter().enumerate() {
+        for (side, team) in [game.away_team, game.home_team].into_iter().enumerate() {
+            let opponent = if team == game.home_team {
+                game.away_team
+            } else {
+                game.home_team
+            };
+            csv.push_str(&format!(
+                r#""{}-{game_index}-{side}-dst","D","{}","","Defense","0","0","3000","{}@{}","{}","{}","",""
+"#,
+                week.encode(),
+                team.as_str(),
+                game.away_team.as_str(),
+                game.home_team.as_str(),
+                team.as_str(),
+                opponent.as_str(),
+            ));
+        }
+    }
+
+    let clock = games
+        .iter()
+        .filter_map(|game| game.kickoff)
+        .min()
+        .map(|kickoff| kickoff - time::Duration::hours(1))
+        .unwrap_or_else(|| time::macros::datetime!(2026-01-01 00:00 UTC));
+    let server = TestServer::new(axum::Router::new().nest(
+        "/nfl-data-admin",
+        nfl_data::admin_router::<()>(
+            Arc::clone(&app.nfl),
+            nfl_data::AdminConfig {
+                season: week.season,
+                now_override: Some(clock),
+            },
+        ),
+    ));
+    let season_type = match week.season_type {
+        nfl_data::SeasonType::Reg => "REG",
+        nfl_data::SeasonType::Post => "POST",
+    };
+    let form = axum_test::multipart::MultipartForm::new()
+        .add_text("season", week.season.0.to_string())
+        .add_text("season_type", season_type)
+        .add_text("week", week.week.0.to_string())
+        .add_part(
+            "csv",
+            axum_test::multipart::Part::bytes(csv.into_bytes()).file_name("salary.csv"),
+        );
+    let response = server
+        .post("/nfl-data-admin/salary-imports")
+        .multipart(form)
+        .await;
+    response.assert_status(StatusCode::SEE_OTHER);
+    assert_eq!(
+        response.header("location").to_str().unwrap(),
+        format!("/nfl-data-admin/salary-imports/{}", week.encode())
+    );
+
+    let expected = nfl_data::slates::SlateId(i64::from(week.encode()) * 10 + 1);
+    assert!(
+        app.nfl.snapshot().slate(&expected).is_some(),
+        "the upload populates the week's main slate {expected:?}"
+    );
+    expected
 }
