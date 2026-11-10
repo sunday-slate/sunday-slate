@@ -15,9 +15,9 @@ impl DataRevision {
 }
 
 impl NflData {
-    /// Read an opaque hint for changes in the complete provider freshness snapshot.
+    /// Read an opaque hint for changes in the complete nflverse freshness snapshot.
     pub async fn data_revision(&self) -> Result<DataRevision, NflDataError> {
-        let snapshot = self.provider.freshness().await?;
+        let snapshot = self.nflverse.freshness().await?;
         Ok(DataRevision::from_snapshot(
             snapshot
                 .into_iter()
@@ -43,7 +43,7 @@ mod tests {
         let before = nfl.data_revision().await.unwrap();
         assert_eq!(before, nfl.data_revision().await.unwrap());
         assert!(
-            nfl.provider
+            nfl.nflverse
                 .sync()
                 .await
                 .unwrap()
@@ -105,7 +105,7 @@ mod tests {
         })
         .await
         .unwrap();
-        let report = nfl.provider.sync().await.unwrap();
+        let report = nfl.nflverse.sync().await.unwrap();
         assert!(!report.all_ok());
         assert!(matches!(
             report.datasets[0].status,
@@ -117,14 +117,14 @@ mod tests {
                 .all(|row| matches!(row.status, nflverse_data::DatasetStatus::Failed(_)))
         );
         assert_eq!(
-            crate::provider::games(&nfl.provider, crate::Season(2025))
+            crate::nflverse::games(&nfl.nflverse, crate::Season(2025))
                 .await
                 .unwrap()
                 .len(),
             1
         );
         assert!(
-            crate::provider::games(&nfl.provider, crate::Season(2024))
+            crate::nflverse::games(&nfl.nflverse, crate::Season(2024))
                 .await
                 .unwrap()
                 .is_empty()

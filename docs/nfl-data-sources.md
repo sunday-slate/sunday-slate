@@ -13,7 +13,7 @@ Not required for Sunday Slate, but useful on gameday. The app considers Nflverse
 
 ## Fresh Cache Setup
 
-The nflverse provider stores its rebuildable, disposable source cache in
+The nflverse stores its rebuildable, disposable source cache in
 `storage/nflverse-cache.db`. Sunday Slate's managed players, teams, contests,
 salaries, and identifier links remain in `storage/sunday-slate.db`. Original
 FanDuel salary uploads are retained separately in the durable
@@ -24,7 +24,7 @@ is created and migrated on startup or by `just db-migrate`, and rebuilding the
 nflverse cache never touches it. Back up `fanduel-data.db` and `nfl-data.db`
 alongside `sunday-slate.db`; only the nflverse cache is disposable.
 
-For Rust consumers, `nfl-data` retains canonical read operations and re-exports shared model types, live contracts, and time helpers from `nfl-model`. Provider synchronization operations and status types remain private to the crate; callers use its lifecycle methods and opaque `DataRevision` instead. Its distinct `NflDataConfig` takes default values from `NflverseDataConfig` so cache settings stay aligned.
+For Rust consumers, `nfl-data` retains canonical read operations and re-exports shared model types, live contracts, and time helpers from `nfl-model`. nflverse synchronization operations and status types remain private to the crate; callers use its lifecycle methods and opaque `DataRevision` instead. Its distinct `NflDataConfig` takes default values from `NflverseDataConfig` so cache settings stay aligned.
 
 From the workspace root, run:
 
@@ -35,7 +35,7 @@ just nfl-sync --earliest-season 2025
 ```
 
 The new cache uses a single baseline migration; no legacy-cache conversion is
-supported. Only the provider cache may be removed and recreated; never delete
+supported. Only the nflverse cache may be removed and recreated; never delete
 the application database to refresh NFL data. SQLx preparation and the database
 browser use `NFLVERSE_DATABASE_URL` and `storage/nflverse-cache.db`.
 
@@ -61,7 +61,7 @@ authorization middleware; Sunday Slate applies its existing login and admin
 checks to the entire subtree. Access does not require a league or team.
 
 `NflData::data_revision()` returns an opaque equality-comparable freshness hint
-for invalidating derived identity caches. It is not a provider status API or a
+for invalidating derived identity caches. It is not an nflverse status API or a
 monotonic version.
 
 The nflverse database is a rebuildable cache and may be recreated from source.
@@ -71,7 +71,7 @@ FanDuel archive when rebuilding the nflverse cache.
 
 ## Command-Line Refresh
 
-`just nfl-sync` runs the provider-owned `nfl-sync` binary. It performs one awaited
+`just nfl-sync` runs the nflverse-owned `nfl-sync` binary. It performs one awaited
 sync and exits, without starting a timer. Existing flags are unchanged:
 
 | Flag | Environment variable |

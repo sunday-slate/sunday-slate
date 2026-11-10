@@ -66,7 +66,7 @@ async fn salary_week_summaries(
 
 async fn current_week(state: &AdminState) -> Result<SeasonWeek, SalaryAdminError> {
     let season = state.config.season;
-    let games = crate::provider::games(&state.nfl.provider, season).await?;
+    let games = crate::nflverse::games(&state.nfl.nflverse, season).await?;
     let now = state
         .config
         .now_override

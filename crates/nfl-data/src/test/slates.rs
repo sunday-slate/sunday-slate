@@ -73,7 +73,7 @@ fn game_ids(games: &[Game]) -> Vec<String> {
 
 struct TempDatabases {
     config: NflDataConfig,
-    provider_url: String,
+    nflverse_url: String,
     _dir: TempDir,
 }
 
@@ -82,7 +82,7 @@ impl TempDatabases {
         let dir = tempfile::tempdir().expect("temp dir");
         let url = |name: &str| format!("sqlite:{}", dir.path().join(name).display());
         let config = NflDataConfig {
-            nflverse_database_url: url("provider.db"),
+            nflverse_database_url: url("nflverse.db"),
             fanduel_database_url: url("fanduel.db"),
             database_url: url("store.db"),
             refresh_interval: None,
@@ -91,7 +91,7 @@ impl TempDatabases {
         };
         Self {
             config,
-            provider_url: url("provider.db"),
+            nflverse_url: url("nflverse.db"),
             _dir: dir,
         }
     }
@@ -106,13 +106,13 @@ impl TempDatabases {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect_with(
-                SqliteConnectOptions::from_str(&self.provider_url)
-                    .expect("valid provider url")
+                SqliteConnectOptions::from_str(&self.nflverse_url)
+                    .expect("valid nflverse url")
                     .journal_mode(SqliteJournalMode::Wal)
                     .busy_timeout(Duration::from_secs(10)),
             )
             .await
-            .expect("independent provider connection");
+            .expect("independent nflverse connection");
         sqlx::query("UPDATE games SET kickoff = ? WHERE game_id = ?")
             .bind(kickoff)
             .bind(game_id)

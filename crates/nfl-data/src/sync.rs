@@ -39,7 +39,7 @@ impl NflData {
     /// notification task republishes the snapshot after each relevant sync.
     pub fn start_background_tasks(self: &Arc<Self>) {
         if let Some(interval) = self.refresh_interval {
-            self.provider.start_scheduler(interval);
+            self.nflverse.start_scheduler(interval);
         }
         self.start_update_worker();
     }
@@ -48,7 +48,7 @@ impl NflData {
     /// refresh. The notification task keeps running: aborting it here would
     /// make a later start unable to restore its receiver.
     pub fn stop_background_tasks(&self) {
-        self.provider.stop_scheduler();
+        self.nflverse.stop_scheduler();
     }
 
     /// Spawn the notification task; the receiver is taken on the first call, so

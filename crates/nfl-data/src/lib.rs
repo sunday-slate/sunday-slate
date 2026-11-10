@@ -2,7 +2,7 @@ mod config;
 mod data_revision;
 mod error;
 mod identity;
-mod provider;
+mod nflverse;
 pub mod salaried_players;
 mod salaries;
 pub mod scoring;
@@ -46,14 +46,14 @@ pub struct NflData {
     /// The published snapshot; the shared handle lets a rebuild swap it while
     /// readers keep the snapshot they took.
     pub(crate) snapshot: ArcSwap<Snapshot>,
-    pub(crate) provider: NflverseData,
+    pub(crate) nflverse: NflverseData,
     pub(crate) fanduel: fanduel_data::FanduelData,
     pub(crate) store: store::Store,
     pub(crate) refresh_interval: Option<Duration>,
     pub(crate) season: Season,
     /// Serializes slate reconciliation, builds, and publication.
     pub(crate) publication: tokio::sync::Mutex<()>,
-    /// Receive end of the provider's sync events, taken once by
+    /// Receive end of the nflverse source's sync events, taken once by
     /// [`Self::start_background_tasks`].
     pub(crate) sync_events: Mutex<Option<mpsc::UnboundedReceiver<SyncEvent>>>,
     /// The notification task; aborted on drop.
@@ -85,7 +85,7 @@ impl NflData {
             .refresh_interval
             .filter(|interval| !interval.is_zero());
         let (sync_events, sync_events_receiver) = mpsc::unbounded_channel();
-        let provider =
+        let nflverse =
             NflverseData::connect_with_sync_events(config.clone().into(), Some(sync_events))
                 .await?;
         let fanduel = if config.fanduel_database_url == "sqlite::memory:" {
@@ -96,7 +96,7 @@ impl NflData {
         let store = store::Store::open(&config.database_url).await?;
 
         let nfl_data = Self {
-            provider,
+            nflverse,
             fanduel,
             store,
             refresh_interval,
@@ -128,11 +128,11 @@ impl NflData {
     /// Nothing builds a snapshot behind the caller's back: seeding tests
     /// republish explicitly.
     pub async fn in_memory() -> Result<Self, NflDataError> {
-        let provider = NflverseData::in_memory().await?;
+        let nflverse = NflverseData::in_memory().await?;
         let fanduel = fanduel_data::FanduelData::in_memory().await?;
         let store = store::Store::in_memory().await?;
         Ok(Self {
-            provider,
+            nflverse,
             fanduel,
             store,
             refresh_interval: None,

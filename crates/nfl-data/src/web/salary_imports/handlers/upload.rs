@@ -133,13 +133,13 @@ async fn import_salary_csv(
     csv_data: &[u8],
 ) -> Result<SalaryWeekOverview, NflDataError> {
     let source = salaries::parse_fanduel_csv(&state.nfl.fanduel, season_week, csv_data)?;
-    let games = crate::provider::games(&state.nfl.provider, season_week.season).await?;
+    let games = crate::nflverse::games(&state.nfl.nflverse, season_week.season).await?;
     salaries::resolve_slate_games(&games, &season_week, &salaries::salary_matchups(&source))
         .map_err(|_| NflDataError::Schedule)?;
     salaries::save_fanduel_salaries(&state.nfl.fanduel, &source).await?;
     let linked = salaries::reconcile_salary_week(
         &state.nfl.fanduel,
-        &state.nfl.provider,
+        &state.nfl.nflverse,
         &state.nfl.store,
         season_week,
     )

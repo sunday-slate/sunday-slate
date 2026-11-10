@@ -8,7 +8,7 @@ pub struct NflDataConfig {
     pub fanduel_database_url: String,
     pub database_url: String,
     /// Application season carried by connected [`NflData`](crate::NflData) handles; the
-    /// provider's `earliest_season` fetch bound is separate.
+    /// nflverse source's `earliest_season` fetch bound is separate.
     pub season: nfl_model::Season,
     /// Datasets fetch seasons >= this.
     pub earliest_season: u16,
@@ -67,8 +67,8 @@ mod tests {
     }
 
     #[test]
-    fn provider_conversion_preserves_provider_configuration() {
-        let provider: nflverse_data::NflverseDataConfig = NflDataConfig {
+    fn nflverse_conversion_preserves_nflverse_configuration() {
+        let nflverse: nflverse_data::NflverseDataConfig = NflDataConfig {
             nflverse_database_url: "sqlite://cache.db".into(),
             fanduel_database_url: "sqlite://fanduel.db".into(),
             database_url: "sqlite://nfl-data.db".into(),
@@ -79,9 +79,9 @@ mod tests {
             refresh_interval: Some(std::time::Duration::from_secs(30)),
         }
         .into();
-        assert_eq!(provider.database_url, "sqlite://cache.db");
-        assert_eq!(provider.earliest_season, 2020);
-        assert_eq!(provider.github_token.unwrap().expose(), "sentinel");
-        assert_eq!(provider.github_api_base, "https://api.example.test");
+        assert_eq!(nflverse.database_url, "sqlite://cache.db");
+        assert_eq!(nflverse.earliest_season, 2020);
+        assert_eq!(nflverse.github_token.unwrap().expose(), "sentinel");
+        assert_eq!(nflverse.github_api_base, "https://api.example.test");
     }
 }

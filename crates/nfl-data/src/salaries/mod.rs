@@ -87,13 +87,13 @@ pub(crate) async fn fanduel_weekly_summaries(
 /// match leaves the record unresolved.
 pub(crate) async fn reconcile_salary_week(
     fanduel: &FanduelData,
-    provider: &NflverseData,
+    nflverse: &NflverseData,
     store: &Store,
     season_week: SeasonWeek,
 ) -> Result<(), NflDataError> {
     let source = fanduel.salaried_players_for(season_week).await?;
     let matchups = salary_matchups(&source);
-    let games = crate::provider::games(provider, season_week.season).await?;
+    let games = crate::nflverse::games(nflverse, season_week.season).await?;
     let slate_games =
         resolve_slate_games(&games, &season_week, &matchups).map_err(|_| NflDataError::Schedule)?;
     let game_of: HashMap<(String, String), String> = slate_games
@@ -108,7 +108,7 @@ pub(crate) async fn reconcile_salary_week(
             )
         })
         .collect();
-    let players = provider.players().await.map_err(NflDataError::Nflverse)?;
+    let players = nflverse.players().await.map_err(NflDataError::Nflverse)?;
     let player_index = PlayerIndex::build(&players);
     let mut roster_entries = Vec::new();
     let mut teams = BTreeSet::new();
@@ -118,7 +118,7 @@ pub(crate) async fn reconcile_salary_week(
     }
     for team in teams {
         roster_entries.extend(
-            provider
+            nflverse
                 .weekly_roster(season_week.season, season_week.week, &team)
                 .await
                 .map_err(NflDataError::Nflverse)?,

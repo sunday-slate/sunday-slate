@@ -195,13 +195,13 @@ fn buf_week_stats(week: u8) -> TeamWeekStats {
     }
 }
 
-/// Seeds provider players and both seasons' games, the week-5 salaries, the
+/// Seeds nflverse players and both seasons' games, the week-5 salaries, the
 /// player links, and the preceding week's stats, then stores both seasons'
 /// slates at the pinned clock.
 async fn seed_sources(nfl: &NflData) {
     nfl.seed_for_test(&seeded_players(), &seeded_games())
         .await
-        .expect("seed provider");
+        .expect("seed nflverse");
     for (week, csv) in [
         (SEASON_WEEK_5, SALARIES_CSV),
         (PREVIOUS_WEEK_5, PREVIOUS_SEASON_SALARIES_CSV),
@@ -223,7 +223,7 @@ async fn seed_sources(nfl: &NflData) {
     .await
     .expect("seed week stats");
     for season in [SEASON, PREVIOUS_SEASON] {
-        slates::populate_at(&nfl.provider, &nfl.store, season, PINNED_NOW)
+        slates::populate_at(&nfl.nflverse, &nfl.store, season, PINNED_NOW)
             .await
             .expect("populate slates");
     }
@@ -252,7 +252,7 @@ impl TempDatabases {
         let url = |name: &str| format!("sqlite:{}", dir.path().join(name).display());
         TempDatabases {
             config: NflDataConfig {
-                nflverse_database_url: url("provider.db"),
+                nflverse_database_url: url("nflverse.db"),
                 fanduel_database_url: url("fanduel.db"),
                 database_url: url("store.db"),
                 refresh_interval: None,
@@ -267,8 +267,8 @@ impl TempDatabases {
         format!("sqlite:{}", self._dir.path().join("store.db").display())
     }
 
-    fn provider_url(&self) -> String {
-        format!("sqlite:{}", self._dir.path().join("provider.db").display())
+    fn nflverse_url(&self) -> String {
+        format!("sqlite:{}", self._dir.path().join("nflverse.db").display())
     }
 }
 
@@ -380,7 +380,7 @@ async fn games_for_slate_does_not_require_salaries() {
     nfl.seed_for_test(&[], &seeded_games())
         .await
         .expect("seed games");
-    slates::populate_at(&nfl.provider, &nfl.store, SEASON, PINNED_NOW)
+    slates::populate_at(&nfl.nflverse, &nfl.store, SEASON, PINNED_NOW)
         .await
         .expect("populate slates");
 
@@ -476,7 +476,7 @@ async fn connect_populates_slates_before_the_initial_snapshot() {
     );
     assert!(
         matches!(
-            nfl.provider.refresh_status(),
+            nfl.nflverse.refresh_status(),
             RunnerState::Idle { last: None }
         ),
         "construction started no background refresh"
@@ -503,13 +503,13 @@ async fn connect_propagates_population_and_build_errors() {
         let nfl = NflData::connect(dbs.config.clone()).await.expect("connect");
         seed_sources(&nfl).await;
     }
-    drop_table(&dbs.provider_url(), "players").await;
+    drop_table(&dbs.nflverse_url(), "players").await;
     let Err(error) = NflData::connect(dbs.config.clone()).await else {
         panic!("build failure must be a connection error");
     };
     assert!(
         error.to_string().contains("players"),
-        "the failure is the broken provider source: {error}"
+        "the failure is the broken nflverse source: {error}"
     );
 }
 
@@ -529,8 +529,8 @@ async fn a_failed_rebuild_keeps_the_published_snapshot() {
 
     // Break a source the build reads: the rebuild fails and readers keep the
     // snapshot they already hold.
-    let definition = table_definition(&dbs.provider_url(), "players").await;
-    drop_table(&dbs.provider_url(), "players").await;
+    let definition = table_definition(&dbs.nflverse_url(), "players").await;
+    drop_table(&dbs.nflverse_url(), "players").await;
     assert!(nfl.rebuild_snapshot().await.is_err());
     assert!(
         Arc::ptr_eq(&published, &nfl.snapshot()),
@@ -538,7 +538,7 @@ async fn a_failed_rebuild_keeps_the_published_snapshot() {
     );
 
     // Repairing the source lets the next request publish again.
-    recreate_table(&dbs.provider_url(), &definition).await;
+    recreate_table(&dbs.nflverse_url(), &definition).await;
     nfl.rebuild_snapshot().await.expect("the next build");
     assert!(!Arc::ptr_eq(&published, &nfl.snapshot()));
 }
@@ -583,7 +583,7 @@ Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,
         .await
         .expect("save salaries");
     slates::populate_at(
-        &nfl.provider,
+        &nfl.nflverse,
         &nfl.store,
         SEASON,
         datetime!(2027-01-01 12:00 UTC),

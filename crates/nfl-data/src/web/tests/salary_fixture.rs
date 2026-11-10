@@ -38,7 +38,7 @@ pub(crate) async fn admin_state_in_season(handle_season: Season) -> AdminFixture
     admin_fixture(nfl, handle_season)
 }
 
-/// Both admin fixtures' provider seeding: two players, the BUF@NYJ week-1
+/// Both admin fixtures' nflverse seeding: two players, the BUF@NYJ week-1
 /// game, and the roster-only receiver, all in 2025. The seeded rows land after
 /// construction, so the slates are reconciled explicitly.
 async fn seed_admin_slate(nfl: &NflData) {

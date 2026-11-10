@@ -46,9 +46,9 @@ mod tests {
     #[tokio::test]
     async fn stopping_services_does_not_cancel_running_refresh() {
         let (nfl, _server) = mock_nfl_delayed(Duration::from_millis(200)).await;
-        assert!(nfl.provider.request_refresh().await.unwrap());
+        assert!(nfl.nflverse.request_refresh().await.unwrap());
         tokio::time::timeout(Duration::from_secs(1), async {
-            while !matches!(nfl.provider.refresh_status(), RunnerState::Running { .. }) {
+            while !matches!(nfl.nflverse.refresh_status(), RunnerState::Running { .. }) {
                 tokio::time::sleep(Duration::from_millis(5)).await;
             }
         })
@@ -57,18 +57,18 @@ mod tests {
         nfl.stop_background_tasks();
         tokio::time::sleep(Duration::from_millis(30)).await;
         assert!(matches!(
-            nfl.provider.refresh_status(),
+            nfl.nflverse.refresh_status(),
             RunnerState::Running { .. }
         ));
         tokio::time::timeout(Duration::from_secs(3), async {
-            while matches!(nfl.provider.refresh_status(), RunnerState::Running { .. }) {
+            while matches!(nfl.nflverse.refresh_status(), RunnerState::Running { .. }) {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
         })
         .await
         .unwrap();
         assert!(matches!(
-            nfl.provider.refresh_status(),
+            nfl.nflverse.refresh_status(),
             RunnerState::Idle { last: Some(_) }
         ));
     }
@@ -224,7 +224,7 @@ Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,
     async fn seed_sources(nfl: &NflData) {
         nfl.seed_for_test(&[mack()], &[])
             .await
-            .expect("seed provider");
+            .expect("seed nflverse");
         let rows = crate::salaries::parse_fanduel_csv(
             &nfl.fanduel,
             salaried_week(),
@@ -273,7 +273,7 @@ Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,
     /// The nflverse stats_player_week columns the ingest maps.
     const MOCK_STATS_HEADER: &str = "player_id,season,week,season_type,team,opponent_team,completions,attempts,passing_yards,passing_tds,passing_interceptions,passing_2pt_conversions,carries,rushing_yards,rushing_tds,rushing_fumbles_lost,rushing_2pt_conversions,receptions,targets,receiving_yards,receiving_tds,receiving_fumbles_lost,receiving_2pt_conversions,sack_fumbles_lost,special_teams_tds,fumble_recovery_tds";
 
-    /// The provider's week-14 schedule row with a fixed kickoff. `gametime` is
+    /// The nflverse week-14 schedule row with a fixed kickoff. `gametime` is
     /// US Eastern, so the fixture kickoff sits in the Sunday slate window.
     fn mock_games_csv(gametime: &str) -> String {
         format!(
@@ -315,13 +315,13 @@ Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,
         .expect(what);
     }
 
-    /// Wait until the provider's refresh runner is idle with a fully
+    /// Wait until nflverse's refresh runner is idle with a fully
     /// successful last run. A partially failed sync also parks the runner in
     /// `Idle`, so this distinguishes committed syncs from failed ones.
     async fn wait_for_successful_sync(nfl: &NflData, what: &'static str) {
         poll_until(what, || async {
             matches!(
-                nfl.provider.refresh_status(),
+                nfl.nflverse.refresh_status(),
                 RunnerState::Idle {
                     last: Some(LastRun { outcome: Ok(_), .. }),
                 }
@@ -374,7 +374,7 @@ Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,
         // A partial refresh still publishes the committed 2026 schedules,
         // players, and stats assets.
         assert!(
-            nfl.provider
+            nfl.nflverse
                 .request_refresh()
                 .await
                 .expect("request refresh"),
@@ -412,7 +412,7 @@ Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,
             ],
         );
         assert!(
-            nfl.provider
+            nfl.nflverse
                 .request_refresh()
                 .await
                 .expect("request refresh"),
@@ -463,7 +463,7 @@ Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,
         seed_sources(&nfl).await;
         nfl.start_background_tasks();
         assert!(
-            nfl.provider
+            nfl.nflverse
                 .request_refresh()
                 .await
                 .expect("request refresh"),
@@ -486,7 +486,7 @@ Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,
             vec![MockAsset::failing("players.csv", RELEASE_AT_2, 500)],
         );
         assert!(
-            nfl.provider
+            nfl.nflverse
                 .request_refresh()
                 .await
                 .expect("request refresh"),
@@ -494,7 +494,7 @@ Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,
         );
         poll_until("the failed sync settled", || async {
             matches!(
-                nfl.provider.refresh_status(),
+                nfl.nflverse.refresh_status(),
                 RunnerState::Idle {
                     last: Some(LastRun {
                         outcome: Err(_),
