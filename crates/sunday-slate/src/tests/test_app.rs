@@ -313,7 +313,6 @@ pub async fn publish_headshot_slate(app: &TestApp, week: u8, players: &[nfl_data
     ));
     let form = axum_test::multipart::MultipartForm::new()
         .add_text("season", "2026")
-        .add_text("season_type", "REG")
         .add_text("week", week.to_string())
         .add_part(
             "csv",
@@ -444,10 +443,8 @@ pub async fn publish_slate(
             },
         ),
     ));
-    let season_type = if week.postseason() { "POST" } else { "REG" };
     let form = axum_test::multipart::MultipartForm::new()
         .add_text("season", week.season.0.to_string())
-        .add_text("season_type", season_type)
         .add_text("week", week.week.0.to_string())
         .add_part(
             "csv",

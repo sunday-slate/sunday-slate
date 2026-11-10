@@ -36,9 +36,14 @@ pub async fn upload(
     )))
 }
 
+/// Parse the import form into a season week and the FanDuel CSV body.
+///
+/// The form posts `season`, `week`, and `csv`; `week` is the absolute week number, so 1–18 are
+/// regular season and 19–22 are postseason. Unknown fields are ignored, which keeps a stale
+/// page that still posts the retired `season_type` field working. Every other input is either
+/// accepted as a valid [`SeasonWeek`] or rejected with a 400.
 async fn read_upload(mut mp: Multipart) -> Result<SalaryUpload, SalaryAdminError> {
     let mut season = None;
-    let mut season_type = None;
     let mut week = None;
     let mut csv = None;
     while let Some(field) = mp
@@ -49,14 +54,6 @@ async fn read_upload(mut mp: Multipart) -> Result<SalaryUpload, SalaryAdminError
         match field.name().unwrap_or_default() {
             "season" => {
                 season = Some(
-                    field
-                        .text()
-                        .await
-                        .map_err(|e| SalaryAdminError::BadRequest(e.to_string()))?,
-                )
-            }
-            "season_type" => {
-                season_type = Some(
                     field
                         .text()
                         .await
@@ -95,34 +92,13 @@ async fn read_upload(mut mp: Multipart) -> Result<SalaryUpload, SalaryAdminError
         .and_then(|v| v.parse().ok())
         .filter(|v| (1900..=2200).contains(v))
         .ok_or_else(|| SalaryAdminError::BadRequest("invalid or missing season".into()))?;
-    let season_type = match season_type.as_deref() {
-        Some("REG") => crate::SeasonType::Reg,
-        Some("POST") => crate::SeasonType::Post,
-        _ => {
-            return Err(SalaryAdminError::BadRequest(
-                "invalid or missing season_type".into(),
-            ));
-        }
-    };
-    let week: u8 = week
-        .and_then(|v| v.parse().ok())
-        .filter(|v| {
-            *v > 0
-                && *v
-                    <= if season_type == crate::SeasonType::Reg {
-                        18
-                    } else {
-                        22
-                    }
-        })
+    let season_week = week
+        .and_then(|v| v.parse::<u8>().ok())
+        .and_then(|week| SeasonWeek::new(crate::Season(season), crate::Week(week)))
         .ok_or_else(|| SalaryAdminError::BadRequest("invalid or missing week".into()))?;
     let csv = csv
         .filter(|bytes| !bytes.is_empty())
         .ok_or_else(|| SalaryAdminError::BadRequest("missing csv file".into()))?;
-    let season_week = crate::SeasonWeek {
-        season: crate::Season(season),
-        week: crate::Week(week),
-    };
     Ok(SalaryUpload { season_week, csv })
 }
 
@@ -172,7 +148,6 @@ mod tests {
 "#;
         let form = MultipartForm::new()
             .add_text("season", "2025")
-            .add_text("season_type", "REG")
             .add_text("week", "1")
             .add_part(
                 "csv",
@@ -191,34 +166,35 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn upload_rejects_invalid_season_type() {
+    async fn upload_ignores_a_retired_season_type_field() {
         let state = admin_state().await;
+        let csv = r#""Id","Position","First Name","Nickname","Last Name","FPPG","Played","Salary","Game","Team","Opponent","Injury Indicator","Injury Details"
+"1-100","QB","Josh","","Allen","0","0","8000","BUF@NYJ","BUF","NYJ","",""
+"#;
         let form = MultipartForm::new()
             .add_text("season", "2025")
-            .add_text("season_type", "PLAYOFF")
+            .add_text("season_type", "POST")
             .add_text("week", "1")
-            .add_part("csv", Part::bytes(b"csv".to_vec()).file_name("salary.csv"));
-        state
+            .add_part(
+                "csv",
+                Part::bytes(csv.as_bytes().to_vec()).file_name("salary.csv"),
+            );
+        let response = state
             .server
             .post("/nfl-data-admin/salary-imports")
             .multipart(form)
-            .await
-            .assert_status(StatusCode::BAD_REQUEST);
-    }
-
-    #[tokio::test]
-    async fn upload_rejects_missing_season_type() {
-        let state = admin_state().await;
-        let form = MultipartForm::new()
-            .add_text("season", "2025")
-            .add_text("week", "1")
-            .add_part("csv", Part::bytes(b"csv".to_vec()).file_name("salary.csv"));
-        state
+            .await;
+        response.assert_status(StatusCode::SEE_OTHER);
+        assert_eq!(
+            response.header("location").to_str().unwrap(),
+            "/nfl-data-admin/salary-imports/2025001",
+            "the absolute week decides the season week, not the retired field"
+        );
+        let page = state
             .server
-            .post("/nfl-data-admin/salary-imports")
-            .multipart(form)
-            .await
-            .assert_status(StatusCode::BAD_REQUEST);
+            .get("/nfl-data-admin/salary-imports/2025001")
+            .await;
+        page.assert_text_contains("REG");
     }
 
     #[tokio::test]
@@ -245,7 +221,6 @@ mod tests {
             .unwrap();
         let form = MultipartForm::new()
             .add_text("season", "2025")
-            .add_text("season_type", "POST")
             .add_text("week", "21")
             .add_part(
                 "csv",
@@ -280,22 +255,16 @@ mod tests {
             ("season", None),
             ("season", Some("x")),
             ("season", Some("1899")),
-            ("season_type", None),
-            ("season_type", Some("PRE")),
             ("week", None),
             ("week", Some("x")),
             ("week", Some("0")),
-            ("week", Some("19")),
+            ("week", Some("23")),
+            ("week", Some("255")),
             ("csv", None),
             ("csv", Some("")),
         ] {
             let mut form = MultipartForm::new();
-            for (name, default) in [
-                ("season", "2025"),
-                ("season_type", "REG"),
-                ("week", "1"),
-                ("csv", "invalid csv"),
-            ] {
+            for (name, default) in [("season", "2025"), ("week", "1"), ("csv", "invalid csv")] {
                 if let Some(v) = if name == field { value } else { Some(default) } {
                     form = if name == "csv" {
                         form.add_part(
