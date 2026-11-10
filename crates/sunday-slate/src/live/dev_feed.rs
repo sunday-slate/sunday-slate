@@ -326,22 +326,15 @@ async fn run_inner(state: &AppState) -> Result<(), AppError> {
     }
 
     for (contest, season_week, games, _) in &targets {
-        let season = season_week.season;
-        let week = season_week.week;
         let mut teams = games
             .iter()
             .flat_map(|game| [game.home_team, game.away_team])
             .collect::<Vec<_>>();
         teams.sort_by(|a, b| a.as_str().cmp(b.as_str()));
         teams.dedup_by(|a, b| a == b);
-        let identity = Arc::new(LiveIdentityIndex::build(&state.nfl, season, week, &teams).await?);
-        let key = (
-            season_week.season,
-            season_week.week,
-            crate::season_type_of(*season_week),
-        );
+        let identity = Arc::new(LiveIdentityIndex::build(&state.nfl, *season_week, &teams).await?);
         state.injuries.publish(
-            key,
+            *season_week,
             crate::injuries::SlateInjuries {
                 by_gsis: crate::injuries::synthetic_dev(identity.player_ids()),
                 report_date: None,
@@ -410,15 +403,13 @@ async fn plan_ramp(state: &AppState, game: &Game) -> Result<Option<Ramp>, AppErr
         tracing::warn!(game = %game.game_id, "live dev feed: game has no Tank01 game id");
         return Ok(None);
     };
-    let season = game.season_week.season;
-    let week = game.season_week.week;
-    let season_type = crate::season_type_of(game.season_week);
+    let season_week = game.season_week;
     let home = game.home_team;
     let away = game.away_team;
 
     let mut rosters = HashMap::new();
     for team in [&home, &away] {
-        for entry in state.nfl.weekly_roster(season, week, team).await? {
+        for entry in state.nfl.weekly_roster(season_week, team).await? {
             if let Some(gsis_id) = entry.gsis_id.as_deref().filter(|id| !id.is_empty()) {
                 rosters.insert(gsis_id.to_owned(), entry);
             }
@@ -426,10 +417,7 @@ async fn plan_ramp(state: &AppState, game: &Game) -> Result<Option<Ramp>, AppErr
     }
 
     let mut players = Vec::new();
-    for row in state.nfl.player_week_stats(season, week).await? {
-        if row.season_type != season_type {
-            continue;
-        }
+    for row in state.nfl.player_week_stats(season_week).await? {
         let matches_home = row.team == home && row.opponent.as_ref() == Some(&away);
         let matches_away = row.team == away && row.opponent.as_ref() == Some(&home);
         if !matches_home && !matches_away {
@@ -468,8 +456,8 @@ async fn plan_ramp(state: &AppState, game: &Game) -> Result<Option<Ramp>, AppErr
     }
 
     let mut defenses = Vec::new();
-    for row in state.nfl.team_week_stats(season, week).await? {
-        if row.game_id != game.game_id || row.season_type != season_type {
+    for row in state.nfl.team_week_stats(season_week).await? {
+        if row.game_id != game.game_id {
             continue;
         }
         defenses.push(LiveTeamStats {

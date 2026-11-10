@@ -5,7 +5,7 @@ use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 
 use nfl_data::slates::{Slate, SlateId, SlateStatus};
-use nfl_data::{Game, Season, Week};
+use nfl_data::{Game, SeasonWeek};
 use time::OffsetDateTime;
 
 use crate::entries::store as entries_store;
@@ -20,15 +20,15 @@ use crate::{AppError, AppState};
 /// Contests whose slates' official stats have fully arrived, plus those stats.
 #[derive(Default)]
 pub struct OfficialResults {
-    pub contest_week: HashMap<SlateId, Week>,
-    pub stats: HashMap<Week, WeekStats>,
+    pub contest_week: HashMap<SlateId, SeasonWeek>,
+    pub stats: HashMap<SeasonWeek, WeekStats>,
 }
 
 /// Each published slate's NFL week, from its authoritative metadata.
-pub fn contest_weeks(snapshot: &nfl_data::Snapshot) -> HashMap<SlateId, Week> {
+pub fn contest_weeks(snapshot: &nfl_data::Snapshot) -> HashMap<SlateId, SeasonWeek> {
     snapshot
         .slates()
-        .map(|slate| (slate.id, slate.season_week.week))
+        .map(|slate| (slate.id, slate.season_week))
         .collect()
 }
 
@@ -57,18 +57,17 @@ pub async fn official_contest_weeks(
 
     let weeks = candidates
         .iter()
-        .map(|(_, season_week, _)| season_week.week)
+        .map(|(_, season_week, _)| *season_week)
         .collect::<HashSet<_>>();
-    let mut stats =
-        crate::scoring::service::week_stats(&state.nfl, Season(state.config.season), weeks).await?;
+    let mut stats = crate::scoring::service::week_stats(&state.nfl, weeks).await?;
 
     let mut contest_week = HashMap::new();
     for (slate_id, season_week, games) in candidates {
-        let Some(week_stats) = stats.get(&season_week.week) else {
+        let Some(week_stats) = stats.get(&season_week) else {
             continue;
         };
         if live::official_complete_for_slate(season_week, games, week_stats) {
-            contest_week.insert(slate_id, season_week.week);
+            contest_week.insert(slate_id, season_week);
         }
     }
     stats.retain(|week, _| contest_week.values().any(|w| w == week));
@@ -252,7 +251,7 @@ fn format_dates(first: time::Date, last: time::Date) -> String {
 #[cfg(test)]
 mod contest_list_tests {
     use super::*;
-    use nfl_data::SeasonWeek;
+    use nfl_data::{Season, SeasonWeek, Week};
     use time::macros::{date, datetime};
 
     /// A fixed "now" late enough that every Sept 2025 contest is finished.

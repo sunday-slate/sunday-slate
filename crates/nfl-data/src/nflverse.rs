@@ -3,8 +3,8 @@
 use nflverse_data::NflverseData;
 
 use crate::{
-    Game, NflData, NflDataError, Player, PlayerWeekStats, Season, TeamAbbr, TeamWeekStats, Week,
-    WeeklyRosterEntry,
+    Game, NflData, NflDataError, Player, PlayerWeekStats, Season, SeasonWeek, TeamAbbr,
+    TeamWeekStats, WeeklyRosterEntry,
 };
 
 /// All cached games for a season, ordered by week.
@@ -27,12 +27,11 @@ impl NflData {
     /// A team's cached roster for one week, ordered by player name.
     pub async fn weekly_roster(
         &self,
-        season: Season,
-        week: Week,
+        season_week: SeasonWeek,
         team: &TeamAbbr,
     ) -> Result<Vec<WeeklyRosterEntry>, NflDataError> {
         self.nflverse
-            .weekly_roster(season, week, team)
+            .weekly_roster(season_week, team)
             .await
             .map_err(NflDataError::Nflverse)
     }
@@ -40,11 +39,10 @@ impl NflData {
     /// All players' cached stat lines for one week, ordered by player GSIS id.
     pub async fn player_week_stats(
         &self,
-        season: Season,
-        week: Week,
+        season_week: SeasonWeek,
     ) -> Result<Vec<PlayerWeekStats>, NflDataError> {
         self.nflverse
-            .player_week_stats(season, week)
+            .player_week_stats(season_week)
             .await
             .map_err(NflDataError::Nflverse)
     }
@@ -54,11 +52,10 @@ impl NflData {
     /// offensive points). Ordered by team.
     pub async fn team_week_stats(
         &self,
-        season: Season,
-        week: Week,
+        season_week: SeasonWeek,
     ) -> Result<Vec<TeamWeekStats>, NflDataError> {
         self.nflverse
-            .team_week_stats(season, week)
+            .team_week_stats(season_week)
             .await
             .map_err(NflDataError::Nflverse)
     }
@@ -107,15 +104,13 @@ impl NflData {
 
 #[cfg(test)]
 mod tests {
-    use crate::{NflData, Season, Week};
+    use crate::{NflData, Season, SeasonWeek, Week};
 
     #[tokio::test]
     async fn seeds_player_and_team_week_stats() {
         let nfl = NflData::in_memory().await.unwrap();
         let mut p = crate::PlayerWeekStats {
-            season: Season(2025),
-            week: Week(1),
-            season_type: crate::SeasonType::Reg,
+            season_week: SeasonWeek::new(Season(2025), Week(1)).unwrap(),
             gsis_id: "00-RB".into(),
             team: crate::TeamAbbr::KC,
             opponent: None,
@@ -139,9 +134,7 @@ mod tests {
         p.rushing_yards = 42;
 
         let team = crate::TeamWeekStats {
-            season: Season(2025),
-            week: Week(1),
-            season_type: crate::SeasonType::Reg,
+            season_week: SeasonWeek::new(Season(2025), Week(1)).unwrap(),
             team: crate::TeamAbbr::KC,
             opponent: crate::TeamAbbr::BUF,
             game_id: "2025_01_BUF_KC".into(),
@@ -158,14 +151,12 @@ mod tests {
         nfl.seed_week_stats_for_test(Season(2025), &[p], std::slice::from_ref(&team))
             .await
             .unwrap();
-        let got = nfl.player_week_stats(Season(2025), Week(1)).await.unwrap();
+        let week = SeasonWeek::new(Season(2025), Week(1)).unwrap();
+        let got = nfl.player_week_stats(week).await.unwrap();
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].gsis_id, "00-RB");
         assert_eq!(got[0].rushing_yards, 42);
-        assert_eq!(
-            nfl.team_week_stats(Season(2025), Week(1)).await.unwrap(),
-            [team]
-        );
+        assert_eq!(nfl.team_week_stats(week).await.unwrap(), [team]);
         assert_eq!(got[0].rushing_tds, 1);
         assert!(
             nfl.nflverse

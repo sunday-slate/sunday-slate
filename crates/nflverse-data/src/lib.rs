@@ -29,8 +29,8 @@ pub use live::{
 };
 pub use model::{
     AssetUpdate, Dataset, DatasetFreshness, DatasetReport, DatasetStatus, Game, Player,
-    PlayerWeekStats, Season, SeasonType, SyncEvent, SyncReport, TeamAbbr, TeamWeekStats, Week,
-    WeeklyRosterEntry,
+    PlayerWeekStats, Season, SeasonType, SeasonWeek, SyncEvent, SyncReport, TeamAbbr,
+    TeamWeekStats, Week, WeeklyRosterEntry,
 };
 
 #[derive(Clone)]
@@ -223,20 +223,18 @@ impl NflverseData {
     /// A team's cached roster for one week, ordered by player name.
     pub async fn weekly_roster(
         &self,
-        season: Season,
-        week: Week,
+        season_week: SeasonWeek,
         team: &TeamAbbr,
     ) -> Result<Vec<WeeklyRosterEntry>, NflverseDataError> {
-        store::weekly_rosters::for_team_week(self.inner.store.reader(), season, week, team).await
+        store::weekly_rosters::for_team_week(self.inner.store.reader(), season_week, team).await
     }
 
     /// All players' cached stat lines for one week, ordered by player GSIS id.
     pub async fn player_week_stats(
         &self,
-        season: Season,
-        week: Week,
+        season_week: SeasonWeek,
     ) -> Result<Vec<PlayerWeekStats>, NflverseDataError> {
-        store::player_stats::for_week(self.inner.store.reader(), season, week).await
+        store::player_stats::for_week(self.inner.store.reader(), season_week).await
     }
 
     /// All teams' pbp-derived DST lines for one week (sacks, takeaways, TDs,
@@ -244,10 +242,9 @@ impl NflverseData {
     /// offensive points). Ordered by team.
     pub async fn team_week_stats(
         &self,
-        season: Season,
-        week: Week,
+        season_week: SeasonWeek,
     ) -> Result<Vec<TeamWeekStats>, NflverseDataError> {
-        store::team_stats::for_week(self.inner.store.reader(), season, week).await
+        store::team_stats::for_week(self.inner.store.reader(), season_week).await
     }
     /// Freshness for every dataset, in sync order.
     pub async fn freshness(&self) -> Result<Vec<DatasetFreshness>, NflverseDataError> {

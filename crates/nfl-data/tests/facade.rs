@@ -1,4 +1,6 @@
-use nfl_data::{NflData, NflDataConfig, Player, Season, TeamAbbr, Week, WeeklyRosterEntry};
+use nfl_data::{
+    NflData, NflDataConfig, Player, Season, SeasonWeek, TeamAbbr, Week, WeeklyRosterEntry,
+};
 
 fn player() -> Player {
     Player {
@@ -24,24 +26,10 @@ async fn empty_nflverse_reads_preserve_missing_result_behavior() {
             .is_empty()
     );
     let team = TeamAbbr::KC;
-    assert!(
-        nfl.weekly_roster(Season(2025), Week(1), &team)
-            .await
-            .unwrap()
-            .is_empty()
-    );
-    assert!(
-        nfl.player_week_stats(Season(2025), Week(1))
-            .await
-            .unwrap()
-            .is_empty()
-    );
-    assert!(
-        nfl.team_week_stats(Season(2025), Week(1))
-            .await
-            .unwrap()
-            .is_empty()
-    );
+    let week = SeasonWeek::new(Season(2025), Week(1)).unwrap();
+    assert!(nfl.weekly_roster(week, &team).await.unwrap().is_empty());
+    assert!(nfl.player_week_stats(week).await.unwrap().is_empty());
+    assert!(nfl.team_week_stats(week).await.unwrap().is_empty());
     assert_eq!(
         nfl.data_revision().await.unwrap(),
         nfl.data_revision().await.unwrap()
@@ -59,8 +47,7 @@ async fn seeded_records_preserve_identity_and_prefer_players() {
     let nfl = NflData::connect(config).await.unwrap();
     nfl.seed_for_test(&[player()], &[]).await.unwrap();
     let roster = |id: &str| WeeklyRosterEntry {
-        season: Season(2025),
-        week: Week(1),
+        season_week: SeasonWeek::new(Season(2025), Week(1)).unwrap(),
         team: TeamAbbr::BUF,
         gsis_id: Some(id.into()),
         espn_id: None,
@@ -73,10 +60,13 @@ async fn seeded_records_preserve_identity_and_prefer_players() {
         .unwrap();
     assert_eq!(nfl.players().await.unwrap(), [player()]);
     assert_eq!(
-        nfl.weekly_roster(Season(2025), Week(1), &TeamAbbr::BUF)
-            .await
-            .unwrap()
-            .len(),
+        nfl.weekly_roster(
+            SeasonWeek::new(Season(2025), Week(1)).unwrap(),
+            &TeamAbbr::BUF
+        )
+        .await
+        .unwrap()
+        .len(),
         2
     );
     let identities = nfl

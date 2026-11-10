@@ -81,9 +81,8 @@ mod tests {
 
     fn roster_entry(gsis: &str, name: &str) -> WeeklyRosterEntry {
         WeeklyRosterEntry {
-            season: Season(2025),
+            season_week: crate::SeasonWeek::new(Season(2025), Week(1)).unwrap(),
             espn_id: None,
-            week: Week(1),
             team: TeamAbbr::BUF,
             gsis_id: Some(gsis.into()),
             full_name: name.into(),

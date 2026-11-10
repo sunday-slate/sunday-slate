@@ -218,7 +218,7 @@ fn group_digits(digits: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nfl_data::{Season, SeasonType, TeamAbbr, Week};
+    use nfl_data::{Season, TeamAbbr, Week};
 
     #[test]
     fn winning_score_is_the_maximum_above_zero() {
@@ -273,9 +273,7 @@ mod tests {
 
     fn zero_player() -> NflPlayerWeekStats {
         NflPlayerWeekStats {
-            season: Season(2025),
-            week: Week(5),
-            season_type: SeasonType::Reg,
+            season_week: nfl_data::SeasonWeek::new(Season(2025), Week(5)).expect("valid fixture"),
             gsis_id: "00-1".into(),
             team: TeamAbbr::SF,
             opponent: None,
@@ -343,9 +341,7 @@ mod tests {
 
     fn zero_defense() -> NflTeamWeekStats {
         NflTeamWeekStats {
-            season: Season(2025),
-            week: Week(5),
-            season_type: SeasonType::Reg,
+            season_week: nfl_data::SeasonWeek::new(Season(2025), Week(5)).expect("valid fixture"),
             team: TeamAbbr::SF,
             opponent: TeamAbbr::LA,
             game_id: "2025_05_SF_LA".into(),

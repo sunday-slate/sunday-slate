@@ -313,9 +313,6 @@ pub fn official_complete_for_slate(
     games: &[Game],
     stats: &WeekStats,
 ) -> bool {
-    let season = season_week.season;
-    let week = season_week.week;
-    let season_type = crate::season_type_of(season_week);
     let mut player_teams = HashSet::new();
     let mut defense_coverage = HashSet::new();
     for game in games {
@@ -325,9 +322,7 @@ pub fn official_complete_for_slate(
         ];
         for (team, opponent) in expected {
             let defense = stats.defenses.values().filter(|row| {
-                row.season == season
-                    && row.week == week
-                    && row.season_type == season_type
+                row.season_week == season_week
                     && row.game_id == game.game_id
                     && row.team == *team
                     && row.opponent == *opponent
@@ -338,9 +333,7 @@ pub fn official_complete_for_slate(
             defense_coverage.insert((game.game_id.as_str(), team.as_str()));
 
             let players = stats.players.values().filter(|row| {
-                row.season == season
-                    && row.week == week
-                    && row.season_type == season_type
+                row.season_week == season_week
                     && row.team == *team
                     && row.opponent.as_ref() == Some(opponent)
             });
@@ -375,11 +368,9 @@ pub async fn load_contest_scores(
         return Ok(ContestScores::Provisional(snapshot));
     }
 
-    let season = slate.season_week.season;
-    let week = slate.season_week.week;
-    let season_type = crate::season_type_of(slate.season_week);
-    let players = state.nfl.player_week_stats(season, week).await?;
-    let defenses = state.nfl.team_week_stats(season, week).await?;
+    let season_week = slate.season_week;
+    let players = state.nfl.player_week_stats(season_week).await?;
+    let defenses = state.nfl.team_week_stats(season_week).await?;
     let expected_games = games
         .iter()
         .map(|game| game.game_id.as_str())
@@ -391,9 +382,7 @@ pub async fn load_contest_scores(
 
     let mut player_map = HashMap::new();
     for player in players {
-        if player.season != season
-            || player.week != week
-            || player.season_type != season_type
+        if player.season_week != season_week
             || !expected_teams.contains(player.team.as_str())
             || player
                 .opponent
@@ -419,9 +408,7 @@ pub async fn load_contest_scores(
     let mut defense_map = HashMap::new();
     let mut defense_keys = HashSet::new();
     for defense in defenses {
-        if defense.season != season
-            || defense.week != week
-            || defense.season_type != season_type
+        if defense.season_week != season_week
             || !expected_games.contains(defense.game_id.as_str())
             || !expected_teams.contains(defense.team.as_str())
         {
@@ -553,5 +540,61 @@ mod tests {
             std::slice::from_ref(&game),
             &missing
         ));
+    }
+
+    /// Otherwise-matching stats from another season or another week are not
+    /// this slate's stats.
+    #[test]
+    fn season_week_official_stats_reject_another_season_or_week() {
+        let game = factories::game("live", 1);
+        let season_week = game.season_week;
+        let elsewhere = |season_week: nfl_data::SeasonWeek| {
+            let kc = PlayerWeekStats {
+                season_week,
+                team: TeamAbbr::KC,
+                opponent: Some(TeamAbbr::BUF),
+                ..factories::player_stats("kc", 1)
+            };
+            let buf = PlayerWeekStats {
+                season_week,
+                gsis_id: "buf".into(),
+                team: TeamAbbr::BUF,
+                opponent: Some(TeamAbbr::KC),
+                ..factories::player_stats("buf", 1)
+            };
+            let mut kc_def = factories::defense_stats("KC", "BUF", 1);
+            kc_def.season_week = season_week;
+            kc_def.game_id = "live".into();
+            let mut buf_def = factories::defense_stats("BUF", "KC", 1);
+            buf_def.season_week = season_week;
+            buf_def.game_id = "live".into();
+            WeekStats {
+                players: HashMap::from([
+                    (crate::entries::NflPlayerId("kc".into()), kc),
+                    (crate::entries::NflPlayerId("buf".into()), buf),
+                ]),
+                defenses: HashMap::from([(TeamAbbr::KC, kc_def), (TeamAbbr::BUF, buf_def)]),
+            }
+        };
+
+        for season_week_elsewhere in [
+            nfl_data::SeasonWeek {
+                season: nfl_data::Season(season_week.season.0 + 1),
+                week: season_week.week,
+            },
+            nfl_data::SeasonWeek {
+                season: season_week.season,
+                week: nfl_data::Week(season_week.week.0 + 1),
+            },
+        ] {
+            assert!(
+                !official_complete_for_slate(
+                    season_week,
+                    std::slice::from_ref(&game),
+                    &elsewhere(season_week_elsewhere)
+                ),
+                "{season_week_elsewhere:?} stats are not {season_week:?}'s"
+            );
+        }
     }
 }

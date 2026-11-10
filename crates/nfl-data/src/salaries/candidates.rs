@@ -1,5 +1,5 @@
 use crate::NflDataError;
-use crate::{Player, Season, SeasonWeek, TeamAbbr, Week, WeeklyRosterEntry};
+use crate::{Player, SeasonWeek, TeamAbbr, WeeklyRosterEntry};
 use fanduel_data::SalariedPlayer;
 
 pub struct Candidate {
@@ -68,11 +68,10 @@ fn roster_candidate(e: &WeeklyRosterEntry) -> Option<Candidate> {
 /// Candidates from the exact week's roster — the trade-correct scope.
 async fn roster_candidates(
     nfl: &crate::NflData,
-    season: Season,
-    week: Week,
+    season_week: SeasonWeek,
     team: &TeamAbbr,
 ) -> Result<Vec<Candidate>, NflDataError> {
-    let entries = nfl.weekly_roster(season, week, team).await?;
+    let entries = nfl.weekly_roster(season_week, team).await?;
     Ok(entries.iter().filter_map(roster_candidate).collect())
 }
 
@@ -85,9 +84,7 @@ pub(crate) async fn suggestion_for(
     let Some(player) = &salary.player else {
         return Ok(None);
     };
-    let entries = nfl
-        .weekly_roster(season_week.season, season_week.week, &salary.team)
-        .await?;
+    let entries = nfl.weekly_roster(*season_week, &salary.team).await?;
     let index = super::matcher::RosterIndex::build(&entries);
     let name = format!("{} {}", player.first_name, player.last_name);
 
@@ -133,7 +130,7 @@ pub(crate) async fn search(
             .collect();
         (hits, "across all teams".to_owned())
     } else {
-        let roster = roster_candidates(nfl, season_week.season, season_week.week, team).await?;
+        let roster = roster_candidates(nfl, *season_week, team).await?;
         let (base, label) = if roster.is_empty() {
             let players = nfl.players().await?;
             (

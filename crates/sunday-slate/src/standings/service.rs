@@ -8,7 +8,7 @@ use crate::entries::store as entries;
 use crate::scoring::WeekStats;
 use crate::standings::standings::{self, ScoredFantasyTeam, StandingRow};
 use crate::{AppError, AppState};
-use nfl_data::Week;
+use nfl_data::SeasonWeek;
 use nfl_data::slates::SlateId;
 
 /// Every fantasy team in a league, scored against the supplied contest weeks
@@ -16,8 +16,8 @@ use nfl_data::slates::SlateId;
 pub async fn scored_teams(
     state: &AppState,
     league_id: i64,
-    contest_week: &HashMap<SlateId, Week>,
-    stats: &HashMap<Week, WeekStats>,
+    contest_week: &HashMap<SlateId, SeasonWeek>,
+    stats: &HashMap<SeasonWeek, WeekStats>,
 ) -> Result<Vec<ScoredFantasyTeam>, AppError> {
     let teams = entries::by_fantasy_team(state.db.reader(), league_id).await?;
 

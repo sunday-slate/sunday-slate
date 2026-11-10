@@ -2,7 +2,7 @@ use serde::Deserialize;
 
 use crate::error::NflDataError;
 use crate::ingest::{count, parse_csv, parse_season_type, yards};
-use crate::model::{PlayerWeekStats, Season, TeamAbbr, Week};
+use crate::model::{PlayerWeekStats, Season, SeasonType, SeasonWeek, TeamAbbr, Week};
 
 /// nflverse stats_player_week_{season}.csv columns (subset we map). Counting
 /// stats are Option<f64>: upstream writes NA as an empty cell, meaning 0.
@@ -38,11 +38,22 @@ struct RawPlayerWeek {
 
 pub(crate) fn parse(asset: &str, bytes: &[u8]) -> Result<Vec<PlayerWeekStats>, NflDataError> {
     parse_csv(asset, bytes, |raw: RawPlayerWeek| {
+        let season_week = SeasonWeek::new(Season(raw.season), Week(raw.week))
+            .ok_or_else(|| format!("invalid absolute week {}", raw.week))?;
         let season_type = parse_season_type(&raw.season_type)?;
+        let implied = if season_week.postseason() {
+            SeasonType::Post
+        } else {
+            SeasonType::Reg
+        };
+        if season_type != implied {
+            return Err(format!(
+                "season type {season_type:?} conflicts with absolute week {}",
+                season_week.week.0
+            ));
+        }
         Ok(Some(PlayerWeekStats {
-            season: Season(raw.season),
-            week: Week(raw.week),
-            season_type,
+            season_week,
             gsis_id: raw.player_id,
             team: raw
                 .team
@@ -84,7 +95,6 @@ pub(crate) fn parse(asset: &str, bytes: &[u8]) -> Result<Vec<PlayerWeekStats>, N
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::SeasonType;
 
     // Header + rows verbatim from nflverse stats_player_week_2025.csv (2026-07-01):
     // Aaron Rodgers week 1 (passing) and Matt Prater week 1 (kicking).
@@ -95,9 +105,9 @@ mod tests {
         let stats = parse("stats_player_week_2025.csv", STATS_CSV.as_bytes()).unwrap();
         let rodgers = stats.iter().find(|s| s.gsis_id == "00-0023459").unwrap();
 
-        assert_eq!(rodgers.season, Season(2025));
-        assert_eq!(rodgers.week, Week(1));
-        assert_eq!(rodgers.season_type, SeasonType::Reg);
+        assert_eq!(rodgers.season_week.season, Season(2025));
+        assert_eq!(rodgers.season_week.week, Week(1));
+        assert!(!rodgers.season_week.postseason());
         assert_eq!(rodgers.team, TeamAbbr::PIT);
         assert_eq!(rodgers.opponent, Some(TeamAbbr::NYJ));
         assert_eq!(rodgers.completions, 22);
@@ -146,5 +156,58 @@ passing_2pt_conversions,rushing_2pt_conversions,receiving_2pt_conversions\n\
         assert_eq!(stats.len(), 1);
         assert_eq!(stats[0].fumbles_lost, u32::MAX);
         assert_eq!(stats[0].two_point_conversions, u32::MAX);
+    }
+
+    fn one_row(week: u8, season_type: &str) -> String {
+        format!(
+            "player_id,season,week,season_type,team,opponent_team,passing_yards\n\
+00-0000001,2025,{week},{season_type},GB,CHI,244\n"
+        )
+    }
+
+    #[test]
+    fn season_week_rejects_weeks_outside_one_through_twenty_two() {
+        for week in [0, 23, 30] {
+            let err = parse(
+                "stats_player_week_2025.csv",
+                one_row(week, "REG").as_bytes(),
+            )
+            .unwrap_err();
+            assert!(
+                matches!(err, NflDataError::Parse { .. }),
+                "expected a row parse error, got {err:?}"
+            );
+            assert!(err.to_string().contains("row 2"), "{err}");
+        }
+    }
+
+    #[test]
+    fn season_week_rejects_a_classification_conflicting_with_the_week() {
+        for (week, season_type) in [(18, "POST"), (19, "REG")] {
+            let err = parse(
+                "stats_player_week_2025.csv",
+                one_row(week, season_type).as_bytes(),
+            )
+            .unwrap_err();
+            assert!(
+                matches!(err, NflDataError::Parse { .. }),
+                "expected a row parse error, got {err:?}"
+            );
+            assert!(err.to_string().contains("row 2"), "{err}");
+        }
+    }
+
+    #[test]
+    fn season_week_keeps_the_season_for_postseason_aliases() {
+        for (week, season_type) in [(19, "POST"), (22, "SB")] {
+            let stats = parse(
+                "stats_player_week_2025.csv",
+                one_row(week, season_type).as_bytes(),
+            )
+            .unwrap();
+            assert_eq!(stats[0].season_week.season, Season(2025));
+            assert_eq!(stats[0].season_week.week, Week(week));
+            assert!(stats[0].season_week.postseason());
+        }
     }
 }

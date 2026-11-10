@@ -2,7 +2,7 @@ use serde::Deserialize;
 
 use crate::error::NflDataError;
 use crate::ingest::{optional_espn_id, parse_csv};
-use crate::model::{Season, TeamAbbr, Week, WeeklyRosterEntry};
+use crate::model::{Season, SeasonWeek, TeamAbbr, Week, WeeklyRosterEntry};
 
 /// nflverse roster_weekly_{season}.csv columns (subset we map). Same shape as
 /// the season roster feed plus a per-row `week`.
@@ -20,9 +20,10 @@ struct RawWeeklyRosterRow {
 
 pub(crate) fn parse(asset: &str, bytes: &[u8]) -> Result<Vec<WeeklyRosterEntry>, NflDataError> {
     parse_csv(asset, bytes, |raw: RawWeeklyRosterRow| {
+        let season_week = SeasonWeek::new(Season(raw.season), Week(raw.week))
+            .ok_or_else(|| format!("invalid absolute week {}", raw.week))?;
         Ok(Some(WeeklyRosterEntry {
-            season: Season(raw.season),
-            week: Week(raw.week),
+            season_week,
             team: raw
                 .team
                 .parse::<TeamAbbr>()
@@ -57,7 +58,7 @@ mod tests {
         assert_eq!(entries.len(), 3);
 
         let pit = &entries[0];
-        assert_eq!(pit.week, Week(14));
+        assert_eq!(pit.season_week.week, Week(14));
         assert_eq!(pit.team, TeamAbbr::PIT);
         assert_eq!(pit.gsis_id.as_deref(), Some("00-0030035"));
         assert_eq!(pit.position.as_deref(), Some("WR"));
@@ -65,11 +66,11 @@ mod tests {
 
         // Same player, same season, earlier week, different team.
         let min = &entries[1];
-        assert_eq!(min.week, Week(13));
+        assert_eq!(min.season_week.week, Week(13));
         assert_eq!(min.team, TeamAbbr::MIN);
         assert_eq!(pit.espn_id.as_deref(), Some("16460"));
         assert_eq!(min.gsis_id.as_deref(), Some("00-0030035"));
-        assert_eq!(min.season, Season(2025));
+        assert_eq!(min.season_week.season, Season(2025));
     }
 
     #[test]
@@ -79,7 +80,24 @@ mod tests {
         assert_eq!(barnett.full_name, "Dante Barnett");
         assert_eq!(barnett.espn_id, None);
         assert_eq!(barnett.gsis_id, None);
-        assert_eq!(barnett.week, Week(16));
+        assert_eq!(barnett.season_week.week, Week(16));
+    }
+
+    #[test]
+    fn season_week_rejects_impossible_absolute_weeks() {
+        for week in ["0", "23"] {
+            let csv = format!("season,week,team,full_name,espn_id\n2025,{week},GB,Player,1\n");
+            let err = parse("roster_weekly_2025.csv", csv.as_bytes()).unwrap_err();
+            assert!(
+                matches!(err, NflDataError::Parse { .. }),
+                "expected a row parse error, got {err:?}"
+            );
+            let rendered = err.to_string();
+            assert!(
+                rendered.contains("roster_weekly_2025.csv") && rendered.contains("row 2"),
+                "{rendered}"
+            );
+        }
     }
 
     #[test]

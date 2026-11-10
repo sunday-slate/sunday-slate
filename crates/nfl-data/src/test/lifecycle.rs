@@ -8,8 +8,7 @@ mod tests {
     use crate::store::player_link::{self, PlayerLink};
     use crate::test::test_support::{MockAsset, NflverseMock, mock_nfl, mock_nfl_delayed};
     use crate::{
-        NflData, NflDataConfig, Player, PlayerWeekStats, Season, SeasonType, SeasonWeek, TeamAbbr,
-        Week,
+        NflData, NflDataConfig, Player, PlayerWeekStats, Season, SeasonWeek, TeamAbbr, Week,
     };
     use nfl_model::NflPlayerId;
     use time::OffsetDateTime;
@@ -193,9 +192,7 @@ Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,
 
     fn mack_stats(rushing_yards: i32) -> PlayerWeekStats {
         PlayerWeekStats {
-            season: Season(2026),
-            week: Week(WEEK_NUM - 1),
-            season_type: SeasonType::Reg,
+            season_week: SeasonWeek::new(Season(2026), Week(WEEK_NUM - 1)).unwrap(),
             gsis_id: "00-MACK".into(),
             team: TeamAbbr::KC,
             opponent: Some(TeamAbbr::BUF),
@@ -419,7 +416,7 @@ Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,
         );
         wait_for_successful_sync(&nfl, "the historical-only sync succeeded").await;
         let stats_2025 = nfl
-            .player_week_stats(PREVIOUS_SEASON, Week(1))
+            .player_week_stats(SeasonWeek::new(PREVIOUS_SEASON, Week(1)).unwrap())
             .await
             .expect("read 2025 stats");
         assert_eq!(

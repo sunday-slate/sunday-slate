@@ -119,7 +119,7 @@ pub(crate) async fn reconcile_salary_week(
     for team in teams {
         roster_entries.extend(
             nflverse
-                .weekly_roster(season_week.season, season_week.week, &team)
+                .weekly_roster(season_week, &team)
                 .await
                 .map_err(NflDataError::Nflverse)?,
         );

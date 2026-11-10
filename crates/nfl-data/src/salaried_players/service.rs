@@ -151,7 +151,7 @@ impl PlayerFacts {
                 .filter_map(|player| nfl_id_by_fd_id.get(&player.id))
                 .map(|id| id.0.clone())
                 .collect();
-            let averages = scoring::season_averages(nfl, week.season, &ids, week.week).await?;
+            let averages = scoring::season_averages(nfl, *week, &ids).await?;
             averages_by_week.insert(*week, averages);
         }
 

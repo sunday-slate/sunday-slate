@@ -4,7 +4,7 @@ use serde::Deserialize;
 
 use crate::error::NflDataError;
 use crate::ingest::{parse_csv, parse_season_type};
-use crate::model::{Season, SeasonType, TeamAbbr, TeamWeekStats, Week};
+use crate::model::{Season, SeasonType, SeasonWeek, TeamAbbr, TeamWeekStats, Week};
 
 /// pbp columns we read. serde-csv matches by header name and ignores the
 /// feed's other ~350 columns. Counting flags arrive as "1"/"0"/"" floats.
@@ -70,9 +70,7 @@ struct Accum {
 struct GameAccum {
     home: String,
     away: String,
-    week: u8,
-    season: u16,
-    season_type: SeasonType,
+    season_week: SeasonWeek,
     teams: BTreeMap<String, Accum>,
 }
 
@@ -81,24 +79,35 @@ pub(crate) fn parse(asset: &str, bytes: &[u8]) -> Result<Vec<TeamWeekStats>, Nfl
     // Keyed by game_id; each game accumulates both teams. parse_csv gives strict
     // row errors (a malformed play fails the asset, as with every other feed).
     let plays = parse_csv(asset, bytes, |raw: RawPlay| {
+        let season_week = SeasonWeek::new(Season(raw.season), Week(raw.week))
+            .ok_or_else(|| format!("invalid absolute week {}", raw.week))?;
         let season_type = parse_season_type(&raw.season_type)?;
+        let implied = if season_week.postseason() {
+            SeasonType::Post
+        } else {
+            SeasonType::Reg
+        };
+        if season_type != implied {
+            return Err(format!(
+                "season type {season_type:?} conflicts with absolute week {}",
+                season_week.week.0
+            ));
+        }
         raw.home_team
             .parse::<TeamAbbr>()
             .map_err(|error| error.to_string())?;
         raw.away_team
             .parse::<TeamAbbr>()
             .map_err(|error| error.to_string())?;
-        Ok(Some((raw, season_type)))
+        Ok(Some((raw, season_week)))
     })?;
 
     let mut games: BTreeMap<String, GameAccum> = BTreeMap::new();
-    for (p, season_type) in plays {
+    for (p, season_week) in plays {
         let game = games.entry(p.game_id).or_insert_with(|| GameAccum {
             home: p.home_team.clone(),
             away: p.away_team.clone(),
-            week: p.week,
-            season: p.season,
-            season_type,
+            season_week,
             teams: BTreeMap::from([
                 (p.home_team.clone(), Accum::default()),
                 (p.away_team.clone(), Accum::default()),
@@ -209,9 +218,7 @@ pub(crate) fn parse(asset: &str, bytes: &[u8]) -> Result<Vec<TeamWeekStats>, Nfl
             let a = &g.teams[team];
             let opp = &g.teams[opponent];
             out.push(TeamWeekStats {
-                season: Season(g.season),
-                week: Week(g.week),
-                season_type: g.season_type,
+                season_week: g.season_week,
                 team: team.parse().expect("validated team abbreviation"),
                 opponent: opponent.parse().expect("validated team abbreviation"),
                 game_id: game_id.clone(),
@@ -286,5 +293,57 @@ mod tests {
         assert_eq!(ccc.sacks, 1);
         let ddd = find(&rows, "LA");
         assert_eq!(ddd.fumble_recoveries, 0); // own-fumble re-grab; onside is not an FR
+    }
+
+    fn one_play(week: u8, season_type: &str) -> String {
+        format!(
+            "game_id,season,week,season_type,home_team,away_team\n\
+2025_01_BUF_KC,2025,{week},{season_type},BUF,KC\n"
+        )
+    }
+
+    #[test]
+    fn season_week_rejects_weeks_outside_one_through_twenty_two() {
+        for week in [0, 23] {
+            let err = parse("play_by_play_2025.csv", one_play(week, "REG").as_bytes()).unwrap_err();
+            assert!(
+                matches!(err, NflDataError::Parse { .. }),
+                "expected a row parse error, got {err:?}"
+            );
+            assert!(err.to_string().contains("row 2"), "{err}");
+        }
+    }
+
+    #[test]
+    fn season_week_rejects_a_classification_conflicting_with_the_week() {
+        for (week, season_type) in [(18, "POST"), (19, "REG")] {
+            let err = parse(
+                "play_by_play_2025.csv",
+                one_play(week, season_type).as_bytes(),
+            )
+            .unwrap_err();
+            assert!(
+                matches!(err, NflDataError::Parse { .. }),
+                "expected a row parse error, got {err:?}"
+            );
+            assert!(err.to_string().contains("row 2"), "{err}");
+        }
+    }
+
+    #[test]
+    fn season_week_keeps_the_season_for_postseason_aliases() {
+        for (week, season_type) in [(19, "POST"), (22, "SB")] {
+            let rows = parse(
+                "play_by_play_2025.csv",
+                one_play(week, season_type).as_bytes(),
+            )
+            .unwrap();
+            assert_eq!(rows.len(), 2);
+            for row in rows {
+                assert_eq!(row.season_week.season, Season(2025));
+                assert_eq!(row.season_week.week, Week(week));
+                assert!(row.season_week.postseason());
+            }
+        }
     }
 }
