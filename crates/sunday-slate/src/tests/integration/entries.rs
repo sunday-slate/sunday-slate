@@ -40,7 +40,7 @@ fn week1() -> nfl_data::SeasonWeek {
 }
 
 /// A 2025-season test app around mocked nfl-data. The returned mock keeps the
-/// provider's mocks alive for the test's lifetime.
+/// nflverse mocks alive for the test's lifetime.
 async fn app_at(pool: &SqlitePool, now: OffsetDateTime) -> (TestApp, wiremock::MockServer) {
     let (nfl, server) = mocked_nfl(Season(2025)).await;
     let app = TestApp::from_pool_with_nfl_at(pool.clone(), nfl, now).await;

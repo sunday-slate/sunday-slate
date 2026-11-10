@@ -42,14 +42,14 @@ impl NflverseData {
             return Ok(false);
         }
         let freshness = self.freshness().await?;
-        let provider = self.clone();
+        let nflverse = self.clone();
         let parent = tracing::Span::current();
         let span = tracing::info_span!(parent: &parent, "background_job", job = "nflverse_sync");
         let started = runner.try_start(freshness, move |_| {
             async move {
                 tracing::info!("nflverse sync started");
                 let started = std::time::Instant::now();
-                match provider.sync().await {
+                match nflverse.sync().await {
                     Ok(report) if report.all_ok() => {
                         tracing::info!(
                             duration_ms = started.elapsed().as_millis() as u64,
@@ -108,7 +108,7 @@ impl NflverseData {
         if scheduler.as_ref().is_some_and(|task| !task.is_finished()) {
             return false;
         }
-        // A sleeping timer must not keep the provider alive or form an ownership cycle.
+        // A sleeping timer must not keep the nflverse alive or form an ownership cycle.
         // Root the timer span so scheduled work never adopts a caller's span.
         let inner = Arc::downgrade(&self.inner);
         let span = tracing::info_span!(parent: None, "nflverse_scheduler");
@@ -183,7 +183,7 @@ mod tests {
         matchers::{method, path},
     };
 
-    async fn mock_provider(fail: bool, delay: Duration) -> (NflverseData, MockServer) {
+    async fn mock_nflverse(fail: bool, delay: Duration) -> (NflverseData, MockServer) {
         let server = MockServer::start().await;
         for tag in [
             "schedules",
@@ -233,14 +233,14 @@ mod tests {
                 .mount(&server)
                 .await;
         }
-        let provider = NflverseData::in_memory().await.unwrap();
+        let nflverse = NflverseData::in_memory().await.unwrap();
         // Configure before any handle is cloned or timer started.
-        let mut provider = provider;
-        Arc::get_mut(&mut provider.inner).unwrap().config = NflverseDataConfig {
+        let mut nflverse = nflverse;
+        Arc::get_mut(&mut nflverse.inner).unwrap().config = NflverseDataConfig {
             github_api_base: server.uri(),
             ..Default::default()
         };
-        (provider, server)
+        (nflverse, server)
     }
 
     #[tokio::test]
@@ -290,80 +290,80 @@ mod tests {
 
     #[tokio::test]
     async fn zero_disables_one_timer_is_shared_by_clones_and_drop_releases_it() {
-        let provider = NflverseData::in_memory().await.unwrap();
-        assert!(provider.inner.refresh.scheduler.lock().unwrap().is_none());
-        assert!(!provider.start_scheduler(Duration::ZERO));
-        assert!(!provider.stop_scheduler());
-        assert!(provider.start_scheduler(Duration::from_secs(60)));
-        let cloned = provider.clone();
+        let nflverse = NflverseData::in_memory().await.unwrap();
+        assert!(nflverse.inner.refresh.scheduler.lock().unwrap().is_none());
+        assert!(!nflverse.start_scheduler(Duration::ZERO));
+        assert!(!nflverse.stop_scheduler());
+        assert!(nflverse.start_scheduler(Duration::from_secs(60)));
+        let cloned = nflverse.clone();
         assert!(!cloned.start_scheduler(Duration::from_secs(30)));
         assert!(!cloned.start_scheduler(Duration::ZERO));
-        assert!(!provider.stop_scheduler());
+        assert!(!nflverse.stop_scheduler());
         assert!(cloned.start_scheduler(Duration::from_secs(60)));
-        assert!(provider.stop_scheduler());
+        assert!(nflverse.stop_scheduler());
         assert!(!cloned.stop_scheduler());
-        assert!(provider.start_scheduler(Duration::from_secs(60)));
-        let weak = Arc::downgrade(&provider.inner);
+        assert!(nflverse.start_scheduler(Duration::from_secs(60)));
+        let weak = Arc::downgrade(&nflverse.inner);
         drop(cloned);
-        drop(provider);
+        drop(nflverse);
         assert!(weak.upgrade().is_none());
     }
 
     #[tokio::test]
     async fn manual_refresh_blocks_scheduled_refresh_and_stop_does_not_cancel_it() {
-        let (provider, _server) = mock_provider(false, Duration::from_millis(30)).await;
-        let cloned = provider.clone();
-        let (first, second) = tokio::join!(provider.request_refresh(), cloned.request_refresh());
+        let (nflverse, _server) = mock_nflverse(false, Duration::from_millis(30)).await;
+        let cloned = nflverse.clone();
+        let (first, second) = tokio::join!(nflverse.request_refresh(), cloned.request_refresh());
         assert_ne!(first.unwrap(), second.unwrap());
-        match provider.refresh_status() {
+        match nflverse.refresh_status() {
             RunnerState::Running { progress, .. } => {
                 assert_eq!(progress.len(), 5);
                 assert!(progress.iter().all(|row| row.assets == 0));
             }
             other => panic!("expected running, got {other:?}"),
         }
-        assert!(provider.start_scheduler(Duration::from_millis(10)));
+        assert!(nflverse.start_scheduler(Duration::from_millis(10)));
         tokio::time::sleep(Duration::from_millis(25)).await;
-        assert!(!provider.request_refresh().await.unwrap());
-        assert!(provider.stop_scheduler());
-        assert!(provider.inner.refresh.runner.is_running());
-        let last = provider.inner.refresh.runner.wait_idle().await.unwrap();
+        assert!(!nflverse.request_refresh().await.unwrap());
+        assert!(nflverse.stop_scheduler());
+        assert!(nflverse.inner.refresh.runner.is_running());
+        let last = nflverse.inner.refresh.runner.wait_idle().await.unwrap();
         assert!(last.outcome.is_ok());
         assert!(matches!(
-            provider.refresh_status(),
+            nflverse.refresh_status(),
             RunnerState::Idle { last: Some(_) }
         ));
     }
 
     #[tokio::test]
     async fn scheduled_refresh_blocks_manual_refresh_and_publishes_failed_report() {
-        let (provider, _server) = mock_provider(true, Duration::from_millis(30)).await;
-        assert!(provider.start_scheduler(Duration::from_millis(10)));
+        let (nflverse, _server) = mock_nflverse(true, Duration::from_millis(30)).await;
+        assert!(nflverse.start_scheduler(Duration::from_millis(10)));
         tokio::time::timeout(Duration::from_secs(2), async {
-            while !provider.inner.refresh.runner.is_running() {
+            while !nflverse.inner.refresh.runner.is_running() {
                 tokio::time::sleep(Duration::from_millis(1)).await;
             }
         })
         .await
         .unwrap();
-        assert!(!provider.request_refresh().await.unwrap());
-        provider.stop_scheduler();
-        let last = provider.inner.refresh.runner.wait_idle().await.unwrap();
+        assert!(!nflverse.request_refresh().await.unwrap());
+        nflverse.stop_scheduler();
+        let last = nflverse.inner.refresh.runner.wait_idle().await.unwrap();
         assert!(last.outcome.unwrap_err().contains("FAILED"));
         assert!(matches!(
-            provider.refresh_status(),
+            nflverse.refresh_status(),
             RunnerState::Idle { last: Some(_) }
         ));
     }
 
     #[tokio::test]
     async fn awaited_sync_is_one_shot_and_does_not_publish_background_status() {
-        let (provider, _server) = mock_provider(false, Duration::ZERO).await;
-        assert!(provider.sync().await.unwrap().all_ok());
+        let (nflverse, _server) = mock_nflverse(false, Duration::ZERO).await;
+        assert!(nflverse.sync().await.unwrap().all_ok());
         assert!(matches!(
-            provider.refresh_status(),
+            nflverse.refresh_status(),
             RunnerState::Idle { last: None }
         ));
-        assert!(!provider.stop_scheduler());
+        assert!(!nflverse.stop_scheduler());
     }
 }

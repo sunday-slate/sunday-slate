@@ -1,6 +1,6 @@
 //! Dev-only live feed: ramps each slate game's nflverse final line from zero to
 //! the real box score so a personal dev-data projection can render live
-//! feedback without a provider key, network, or database writes.
+//! feedback without a Tank01 API key, network, or database writes.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -407,7 +407,7 @@ async fn run_inner(state: &AppState) -> Result<(), AppError> {
 
 async fn plan_ramp(state: &AppState, game: &Game) -> Result<Option<Ramp>, AppError> {
     let Some(live) = live_game(game) else {
-        tracing::warn!(game = %game.game_id, "live dev feed: game has no provider id");
+        tracing::warn!(game = %game.game_id, "live dev feed: game has no Tank01 game id");
         return Ok(None);
     };
     let season = game.season_week.season;
@@ -572,7 +572,7 @@ mod tests {
 
     fn ramp() -> Ramp {
         let game = factories::game_at("2025_01_BUF_KC", 1, OffsetDateTime::UNIX_EPOCH);
-        let game = live_game(&game).expect("provider id");
+        let game = live_game(&game).expect("Tank01 game id");
         let home = finals("KC", "BUF", 300, 40);
         let away = finals("BUF", "KC", 250, 60);
         let players = vec![

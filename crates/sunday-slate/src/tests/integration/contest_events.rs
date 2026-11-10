@@ -188,7 +188,7 @@ async fn score_region_updates_for_one_slate_and_not_another(pool: sqlx::SqlitePo
     )
     .await;
 
-    let live = crate::live::live_game(&game1).expect("fixture game has a provider id");
+    let live = crate::live::live_game(&game1).expect("fixture game has a Tank01 game id");
     let observed = state.now_eastern();
     let stats = LivePlayerStats {
         espn_id: None,

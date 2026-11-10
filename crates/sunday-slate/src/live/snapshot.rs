@@ -10,7 +10,7 @@ use time::OffsetDateTime;
 use crate::entries::{Lineup, NflPlayerId, RosterSlot};
 use crate::live::identity::{IdentityMatch, LiveIdentityIndex};
 use crate::live::{Coverage, LiveContestSnapshot, LiveError, LiveSlotStatus, LiveTotal};
-use crate::player_identity::{canonical_team, provider_team};
+use crate::player_identity::{canonical_team, tank01_team};
 use crate::scoring::{self, WeekStats};
 use nfl_data::slates::SlateId;
 use tank01_data::PollEvent;
@@ -103,7 +103,7 @@ pub struct SnapshotReducer {
     games: Vec<Game>,
     identity: Arc<LiveIdentityIndex>,
     game_states: HashMap<String, LiveGameState>,
-    by_provider_id: HashMap<String, String>,
+    by_tank01_game_id: HashMap<String, String>,
     revision: u64,
     latest_error: Option<LiveError>,
     identity_outcomes: BTreeMap<String, IdentityMatch>,
@@ -117,15 +117,15 @@ impl SnapshotReducer {
         now: OffsetDateTime,
     ) -> Self {
         let mut game_states = HashMap::with_capacity(games.len());
-        let mut by_provider_id = HashMap::with_capacity(games.len());
+        let mut by_tank01_game_id = HashMap::with_capacity(games.len());
         for game in &games {
-            let provider_id = tank01_game_id(game);
-            if let Some(provider_id) = &provider_id {
-                by_provider_id.insert(provider_id.clone(), game.game_id.clone());
+            let tank01_game_id = tank01_game_id(game);
+            if let Some(tank01_game_id) = &tank01_game_id {
+                by_tank01_game_id.insert(tank01_game_id.clone(), game.game_id.clone());
             }
             game_states.insert(
                 game.game_id.clone(),
-                LiveGameState::new(game.clone(), provider_id, now),
+                LiveGameState::new(game.clone(), tank01_game_id, now),
             );
         }
         Self {
@@ -133,7 +133,7 @@ impl SnapshotReducer {
             games,
             identity,
             game_states,
-            by_provider_id,
+            by_tank01_game_id,
             revision: 0,
             latest_error: None,
             identity_outcomes: BTreeMap::new(),
@@ -164,7 +164,7 @@ impl SnapshotReducer {
     }
 
     pub fn fail(&mut self, feed_games: &[LiveGame]) {
-        let error = Some(LiveError::Provider);
+        let error = Some(LiveError::Feed);
         self.latest_error = error;
         for game in feed_games {
             let Some(state) = self.game_states.get_mut(&game.game_id) else {
@@ -216,7 +216,7 @@ impl SnapshotReducer {
                     {
                         continue;
                     }
-                    let Some(gsis_id) = self.by_provider_id.get(&update.tank01_game_id).cloned()
+                    let Some(gsis_id) = self.by_tank01_game_id.get(&update.tank01_game_id).cloned()
                     else {
                         continue;
                     };
@@ -233,10 +233,10 @@ impl SnapshotReducer {
                 }
             }
             ProviderOutcome::Pregame { .. } | ProviderOutcome::Error(_) => {
-                let error = Some(LiveError::Provider);
+                let error = Some(LiveError::Feed);
                 self.latest_error = error;
                 for game in feed_games {
-                    let Some(gsis_id) = self.by_provider_id.get(&game.tank01_game_id).cloned()
+                    let Some(gsis_id) = self.by_tank01_game_id.get(&game.tank01_game_id).cloned()
                     else {
                         continue;
                     };
@@ -273,7 +273,7 @@ impl SnapshotReducer {
                             other => {
                                 identity_incomplete = true;
                                 self.identity_outcomes
-                                    .insert(provider_identity_key(player), other);
+                                    .insert(live_player_identity_key(player), other);
                                 None
                             }
                         }) else {
@@ -329,7 +329,7 @@ impl SnapshotReducer {
                 }
             }
             ProviderOutcome::Pregame { .. } | ProviderOutcome::Error(_) => {
-                let error = Some(LiveError::Provider);
+                let error = Some(LiveError::Feed);
                 self.latest_error = error;
                 let state = self
                     .game_states
@@ -434,12 +434,12 @@ pub fn tank01_game_id(game: &Game) -> Option<String> {
     Some(format!(
         "{}_{}@{}",
         date,
-        provider_team(game.away_team.as_str()),
-        provider_team(game.home_team.as_str())
+        tank01_team(game.away_team.as_str()),
+        tank01_team(game.home_team.as_str())
     ))
 }
 
-/// The game in the provider id space it polls; `None` without a kickoff date.
+/// The game in the Tank01 id space it polls; `None` without a kickoff date.
 pub fn live_game(game: &Game) -> Option<LiveGame> {
     Some(LiveGame {
         game_id: game.game_id.clone(),
@@ -451,7 +451,7 @@ pub fn live_game(game: &Game) -> Option<LiveGame> {
     })
 }
 
-fn provider_identity_key(player: &LivePlayerStats) -> String {
+fn live_player_identity_key(player: &LivePlayerStats) -> String {
     player
         .espn_id
         .as_ref()
@@ -987,7 +987,7 @@ mod tests {
         let mut snapshot = reducer.snapshot();
         let state = snapshot.game_states.get_mut("live").expect("live game");
         state.phase = LiveGamePhase::Final;
-        state.last_error = Some(LiveError::Provider);
+        state.last_error = Some(LiveError::Feed);
         state.player_stale = true;
         state.player_observed_at = Some(datetime!(2025 - 09 - 07 18:00 UTC));
         state

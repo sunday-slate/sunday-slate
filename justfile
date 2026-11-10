@@ -78,7 +78,7 @@ sqlx-cache:
     cargo sqlx prepare --workspace
 
 
-# Run migrations for the application and both providers; create DBs if missing.
+# Run migrations for the application, nflverse, FanDuel, and NFL data stores; create DBs if missing.
 [group('db')]
 db-migrate:
     mkdir -p storage
@@ -91,7 +91,7 @@ db-migrate:
     touch $NFL_DATA_DATABASE_FILE
     DATABASE_URL="$NFL_DATA_DATABASE_URL" cargo sqlx migrate run --source crates/nfl-data/migrations
 
-# Browse app + provider DBs in a Datasette web UI (read-only).
+# Browse application, nflverse, FanDuel, and NFL data DBs in Datasette (read-only).
 [group('db')]
 db-browser:
     uvx datasette serve --crossdb $DATABASE_FILE $NFLVERSE_DATABASE_FILE $FANDUEL_DATABASE_FILE $NFL_DATA_DATABASE_FILE

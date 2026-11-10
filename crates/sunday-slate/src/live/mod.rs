@@ -51,7 +51,7 @@ pub struct LiveSlotStatus {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LiveError {
-    Provider,
+    Feed,
     Identity,
 }
 

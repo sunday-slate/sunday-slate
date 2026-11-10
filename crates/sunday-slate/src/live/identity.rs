@@ -277,7 +277,7 @@ mod tests {
     }
 
     #[test]
-    fn exact_provider_id_wins_and_conflicts_stay_ambiguous() {
+    fn exact_espn_id_wins_and_conflicts_stay_ambiguous() {
         let index = LiveIdentityIndex::from_sources(
             &[player("a", Some("e1"), "A Player", "BUF", "RB")],
             &[],

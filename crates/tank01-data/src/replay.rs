@@ -84,7 +84,7 @@ impl Replay {
             .flat_map(|stream| stream.events)
             .collect::<Vec<_>>();
         ordered.sort_by_key(|event| event.sequence());
-        let game_by_provider = manifest
+        let game_by_tank01_id = manifest
             .games
             .iter()
             .map(|game| (game.tank01_game_id.as_str(), game))
@@ -123,7 +123,7 @@ impl Replay {
                         box_score_query(game, *play_by_play),
                         &mut mismatches,
                     );
-                    match game_by_provider.get(game.tank01_game_id.as_str()) {
+                    match game_by_tank01_id.get(game.tank01_game_id.as_str()) {
                         Some(manifest_game) => {
                             if manifest_game.game_id != game.game_id {
                                 mismatch(
@@ -153,7 +153,7 @@ impl Replay {
                             Some(stored.sequence()),
                             &stored.file,
                             format!(
-                                "box event references provider game {:?} absent from manifest",
+                                "box event references Tank01 game {:?} absent from manifest",
                                 game.tank01_game_id
                             ),
                         ),
@@ -294,7 +294,7 @@ fn validate_manifest(
         );
     }
     let mut gsis_ids = BTreeSet::new();
-    let mut provider_ids = BTreeSet::new();
+    let mut tank01_game_ids = BTreeSet::new();
     let mut file_names = BTreeSet::new();
     for game in &manifest.games {
         if game.game_id.is_empty() || game.tank01_game_id.is_empty() {
@@ -313,12 +313,12 @@ fn validate_manifest(
                 format!("duplicate GSIS game id {:?}", game.game_id),
             );
         }
-        if !provider_ids.insert(&game.tank01_game_id) {
+        if !tank01_game_ids.insert(&game.tank01_game_id) {
             mismatch(
                 mismatches,
                 None,
                 "manifest.json",
-                format!("duplicate provider game id {:?}", game.tank01_game_id),
+                format!("duplicate Tank01 game id {:?}", game.tank01_game_id),
             );
         }
         if !file_names.insert(&game.file_name) {
@@ -336,7 +336,7 @@ fn validate_manifest(
                 None,
                 "manifest.json",
                 format!(
-                    "game file {:?} does not match provider game id {:?}",
+                    "game file {:?} does not match Tank01 game id {:?}",
                     game.file_name, game.tank01_game_id
                 ),
             );

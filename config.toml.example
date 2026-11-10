@@ -39,7 +39,7 @@ season = 2026
 # (3600 = hourly). 0 or unset = manual only (admin button / `just nfl-sync`).
 # nflverse_sync_interval_secs = 0
 
-# Optional Tank01 live-score provider key. Without it, live score polling is
+# Optional Tank01 live-score API key. Without it, live score polling is
 # disabled and pages use official nflverse stats only.
 # Secret: prefer SUNDAY_SLATE__TANK01_API_KEY from deployment secret storage;
 # never commit a token.

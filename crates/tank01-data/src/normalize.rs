@@ -259,7 +259,7 @@ impl NormalizeError {
 }
 
 pub(crate) fn normalize_scoreboard(value: &Value) -> Result<LiveScoreboard, NormalizeError> {
-    reject_provider_errors(value)?;
+    reject_tank01_errors(value)?;
     let body = endpoint_body(value);
     let records = scoreboard_records(body)?;
 
@@ -393,7 +393,7 @@ fn normalize_scoreboard_game(
     }
     let tank01_game_id = explicit_tank01_game_id
         .or_else(|| hint.map(str::to_owned))
-        .ok_or_else(|| NormalizeError::Invalid("scoreboard game has no provider game id".into()))?;
+        .ok_or_else(|| NormalizeError::Invalid("scoreboard game has no Tank01 game id".into()))?;
     let home_team = scoreboard_team(object, HOME_TEAM_KEYS, "home")?;
     let away_team = scoreboard_team(object, AWAY_TEAM_KEYS, "away")?;
     if home_team == away_team {
@@ -563,7 +563,7 @@ fn looks_like_box_record(object: &Map<String, Value>) -> bool {
         || has_any_key(object, STATUS_KEYS)
         || has_any_key(object, STATUS_CODE_KEYS)
 }
-fn reject_provider_errors(value: &Value) -> Result<(), NormalizeError> {
+fn reject_tank01_errors(value: &Value) -> Result<(), NormalizeError> {
     let mut current = value;
     for _ in 0..=3 {
         let Some(object) = current.as_object() else {
@@ -592,7 +592,7 @@ fn reject_unknown_error(body: &Map<String, Value>) -> Result<(), NormalizeError>
         serde_json::to_string(error).unwrap_or_else(|_| String::from("<unprintable>"))
     });
     Err(NormalizeError::Invalid(format!(
-        "provider returned an unrecognized error: {message}"
+        "Tank01 returned an unrecognized error: {message}"
     )))
 }
 
@@ -1846,7 +1846,7 @@ mod tests {
     }
 
     #[test]
-    fn keeps_requested_game_team_spelling_across_provider_aliases() {
+    fn keeps_requested_game_team_spelling_across_tank01_aliases() {
         let mut game = game();
         game.home_team = TeamAbbr::LA;
         let value = json!({

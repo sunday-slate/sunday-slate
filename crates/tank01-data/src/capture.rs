@@ -103,7 +103,7 @@ impl CaptureWriter {
         fs::create_dir_all(&games_root)?;
 
         let mut gsis_ids = BTreeSet::new();
-        let mut provider_ids = BTreeSet::new();
+        let mut tank01_game_ids = BTreeSet::new();
         let mut safe_names = BTreeSet::new();
         let mut manifest_games = Vec::with_capacity(slate.games.len());
         for game in &slate.games {
@@ -118,9 +118,9 @@ impl CaptureWriter {
                     game.game_id
                 )));
             }
-            if !provider_ids.insert(&game.tank01_game_id) {
+            if !tank01_game_ids.insert(&game.tank01_game_id) {
                 return Err(CaptureError::Invalid(format!(
-                    "duplicate provider game id {:?}",
+                    "duplicate Tank01 game id {:?}",
                     game.tank01_game_id
                 )));
             }
@@ -128,7 +128,7 @@ impl CaptureWriter {
                 .map_err(|error| CaptureError::Invalid(error.to_string()))?;
             if !safe_names.insert(safe_name.clone()) {
                 return Err(CaptureError::Invalid(format!(
-                    "provider game id {:?} collides as {safe_name:?}",
+                    "Tank01 game id {:?} collides as {safe_name:?}",
                     game.tank01_game_id
                 )));
             }
@@ -204,7 +204,7 @@ impl CaptureWriter {
             PollEvent::BoxScore { game, .. } => {
                 let file = self.games.get_mut(&game.tank01_game_id).ok_or_else(|| {
                     CaptureError::Invalid(format!(
-                        "box event references unknown provider game {:?}",
+                        "box event references unknown Tank01 game {:?}",
                         game.tank01_game_id
                     ))
                 })?;

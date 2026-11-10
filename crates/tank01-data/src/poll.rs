@@ -302,15 +302,15 @@ fn scoreboard_updates(
     let ProviderOutcome::Value(scoreboard) = &response.outcome else {
         return Vec::new();
     };
-    let mut by_provider_id = BTreeMap::new();
+    let mut by_tank01_game_id = BTreeMap::new();
     for game in &scoreboard.games {
-        by_provider_id.insert(game.tank01_game_id.as_str(), game.phase);
+        by_tank01_game_id.insert(game.tank01_game_id.as_str(), game.phase);
     }
     games
         .iter()
         .enumerate()
         .filter_map(|(index, game)| {
-            by_provider_id
+            by_tank01_game_id
                 .get(game.tank01_game_id.as_str())
                 .copied()
                 .map(|phase| (index, ScoreboardUpdate { phase }))
@@ -532,7 +532,7 @@ fn validate_slate(slate: &LiveSlate) -> Result<(), PollerError> {
         return Err(PollerError::InvalidSlate("slate has no games".into()));
     }
     let mut gsis_ids = BTreeSet::new();
-    let mut provider_ids = BTreeSet::new();
+    let mut tank01_game_ids = BTreeSet::new();
     let mut safe_names = BTreeMap::new();
     for game in &slate.games {
         if game.game_id.is_empty() {
@@ -542,7 +542,7 @@ fn validate_slate(slate: &LiveSlate) -> Result<(), PollerError> {
         }
         if game.tank01_game_id.is_empty() {
             return Err(PollerError::InvalidSlate(
-                "game has an empty provider game id".into(),
+                "game has an empty Tank01 game id".into(),
             ));
         }
         if !gsis_ids.insert(&game.game_id) {
@@ -551,16 +551,16 @@ fn validate_slate(slate: &LiveSlate) -> Result<(), PollerError> {
                 game.game_id
             )));
         }
-        if !provider_ids.insert(&game.tank01_game_id) {
+        if !tank01_game_ids.insert(&game.tank01_game_id) {
             return Err(PollerError::InvalidSlate(format!(
-                "duplicate provider game id {:?}",
+                "duplicate Tank01 game id {:?}",
                 game.tank01_game_id
             )));
         }
         let safe_name = safe_tank01_game_id(&game.tank01_game_id)?;
         if let Some(previous) = safe_names.insert(safe_name.clone(), game.tank01_game_id.clone()) {
             return Err(PollerError::InvalidSlate(format!(
-                "provider game ids {:?} and {:?} collide as {safe_name:?}",
+                "Tank01 game ids {:?} and {:?} collide as {safe_name:?}",
                 previous, game.tank01_game_id
             )));
         }
@@ -576,7 +576,7 @@ pub(crate) fn safe_tank01_game_id(tank01_game_id: &str) -> Result<String, Poller
             .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
     {
         return Err(PollerError::InvalidSlate(format!(
-            "provider game id {tank01_game_id:?} cannot be used as a safe file name"
+            "Tank01 game id {tank01_game_id:?} cannot be used as a safe file name"
         )));
     }
     Ok(safe)
@@ -600,10 +600,10 @@ mod tests {
     };
     use serde_json::json;
 
-    fn game(id: &str, provider_id: &str, home: &str, away: &str) -> LiveGame {
+    fn game(id: &str, tank01_game_id: &str, home: &str, away: &str) -> LiveGame {
         LiveGame {
             game_id: id.into(),
-            tank01_game_id: provider_id.into(),
+            tank01_game_id: tank01_game_id.into(),
             season_week: nfl_model::SeasonWeek {
                 season: Season(2026),
                 week: Week(1),
