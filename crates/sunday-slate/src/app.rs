@@ -11,7 +11,7 @@ use crate::{AppState, Config, Db};
 pub struct App {
     pub router: Router,
     state: AppState,
-    provider: Option<Tank01Client>,
+    tank01: Option<Tank01Client>,
 }
 
 impl App {
@@ -21,12 +21,12 @@ impl App {
     }
 
     pub async fn build_with_mailer(config: Config, mailer: Mailer) -> anyhow::Result<Self> {
-        let provider = config
+        let tank01 = config
             .tank01_api_key
             .clone()
             .map(|key| Tank01Client::new(Tank01Config::new(key)))
             .transpose()
-            .context("creating the Tank01 provider")?;
+            .context("creating the Tank01 client")?;
         let db = Db::open(&config.database_url)
             .await
             .context("opening the application database")?;
@@ -71,7 +71,7 @@ impl App {
         Ok(Self {
             state: state.clone(),
             router: crate::router::build(state, session_layer),
-            provider,
+            tank01,
         })
     }
 
@@ -79,7 +79,7 @@ impl App {
         let App {
             router,
             state,
-            provider,
+            tank01,
         } = self;
         let listener = tokio::net::TcpListener::bind(bind_addr).await?;
         tracing::info!("listening on http://{bind_addr}");
@@ -107,11 +107,11 @@ impl App {
                 }
             }
         });
-        let live_task = match provider {
-            Some(provider) => Some(spawn_supervised(
+        let live_task = match tank01 {
+            Some(tank01) => Some(spawn_supervised(
                 "live_coordinator",
                 state.live.clone(),
-                crate::live::run_coordinator(coordinator_state.clone(), provider),
+                crate::live::run_coordinator(coordinator_state.clone(), tank01),
             )),
             None if coordinator_state.config.live_dev_feed => Some(spawn_supervised(
                 "live_dev_feed",

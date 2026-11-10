@@ -433,13 +433,13 @@ mod tests {
             .mount(&server)
             .await;
 
-        let provider = client(&server, "secret-key");
+        let tank01 = client(&server, "secret-key");
         assert!(matches!(
-            provider.box_score(&game(), false).await.outcome,
+            tank01.box_score(&game(), false).await.outcome,
             ProviderOutcome::Value(_)
         ));
         assert!(matches!(
-            provider.box_score(&game(), true).await.outcome,
+            tank01.box_score(&game(), true).await.outcome,
             ProviderOutcome::Value(_)
         ));
     }

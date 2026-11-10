@@ -192,8 +192,8 @@ struct CoordinatorState {
     revision: Option<nfl_data::DataRevision>,
 }
 
-pub async fn run_coordinator(state: AppState, provider: tank01_data::Tank01Client) {
-    run_coordinator_with_provider(state, provider).await;
+pub async fn run_coordinator(state: AppState, tank01: tank01_data::Tank01Client) {
+    run_coordinator_with_provider(state, tank01).await;
 }
 
 pub async fn run_coordinator_with_provider<P>(state: AppState, provider: P)
@@ -360,15 +360,15 @@ where
             if live_games.is_empty() {
                 continue;
             }
-            let mut provider_ids = live_games
+            let mut tank01_game_ids = live_games
                 .iter()
                 .map(|game| game.tank01_game_id.clone())
                 .collect::<Vec<_>>();
-            provider_ids.sort();
-            provider_ids.dedup();
+            tank01_game_ids.sort();
+            tank01_game_ids.dedup();
             let feed_key = FeedKey {
                 date,
-                tank01_game_ids: provider_ids,
+                tank01_game_ids,
             };
             discovered
                 .entry(feed_key.clone())
@@ -785,7 +785,7 @@ mod tests {
     const KICKOFF: OffsetDateTime = datetime!(2025-09-07 17:00 UTC);
 
     #[test]
-    fn feed_keys_include_sorted_provider_game_sets() {
+    fn feed_keys_include_sorted_tank01_game_sets() {
         let one = FeedKey {
             date: time::macros::date!(2026 - 09 - 10),
             tank01_game_ids: vec!["a".into(), "b".into()],

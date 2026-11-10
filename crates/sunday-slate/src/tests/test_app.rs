@@ -348,7 +348,7 @@ pub async fn publish_headshot_slate(app: &TestApp, week: u8, players: &[nfl_data
 ///
 /// The caller supplies the players and the week's games; this helper seeds
 /// them, derives each row's DFS position, team, opponent, and matchup, and
-/// uses unique deterministic provider ids. Defense rows (salary 3000) are
+/// uses unique deterministic FanDuel player IDs. Defense rows (salary 3000) are
 /// generated for both teams of every supplied game.
 pub async fn publish_slate(
     app: &TestApp,

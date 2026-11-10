@@ -611,7 +611,7 @@ mod tests {
         app.nfl
             .seed_for_test(&players, &headshot_salary_games())
             .await
-            .expect("seed provider");
+            .expect("seed nflverse");
         publish_headshot_slate(app, 1, &players[..1]).await;
         publish_headshot_slate(app, 2, &players[1..5]).await;
 
@@ -779,7 +779,7 @@ mod tests {
         app.nfl
             .seed_for_test(std::slice::from_ref(&player), &headshot_salary_games())
             .await
-            .expect("seed provider");
+            .expect("seed nflverse");
         publish_headshot_slate(&app, 1, std::slice::from_ref(&player)).await;
         link_teams(&app.pool, None).await;
 
@@ -828,7 +828,7 @@ mod tests {
         app.nfl
             .seed_for_test(std::slice::from_ref(&player), &headshot_salary_games())
             .await
-            .expect("seed provider");
+            .expect("seed nflverse");
         publish_headshot_slate(&app, 1, std::slice::from_ref(&player)).await;
         link_teams(&app.pool, None).await;
 

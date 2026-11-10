@@ -6,7 +6,7 @@ use nflverse_data::NflverseDataError;
 pub enum NflDataError {
     #[error("nflverse failed: {0}")]
     Nflverse(#[from] NflverseDataError),
-    #[error("FanDuel provider failed: {0}")]
+    #[error("FanDuel failed: {0}")]
     Fanduel(#[from] FanduelDataError),
     #[error("salary matchup does not exist in the requested season week")]
     Schedule,

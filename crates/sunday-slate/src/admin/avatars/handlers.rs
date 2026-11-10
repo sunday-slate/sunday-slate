@@ -107,7 +107,7 @@ mod tests {
         app.nfl
             .seed_for_test(&players, &headshot_salary_games())
             .await
-            .expect("seed provider");
+            .expect("seed nflverse");
         publish_headshot_slate(&app, 1, &players[..1]).await;
         publish_headshot_slate(&app, 2, &players[1..]).await;
         let media = media_store::insert(&app.pool, "admin-cached.png", "image/png", 1, 1, 1)

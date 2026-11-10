@@ -14,7 +14,7 @@ pub(crate) fn canonical_team(team: &TeamAbbr) -> TeamAbbr {
     *team
 }
 
-pub(crate) fn provider_team(team: &str) -> &str {
+pub(crate) fn tank01_team(team: &str) -> &str {
     match team {
         "JAX" => "JAX",
         "LA" => "LAR",
