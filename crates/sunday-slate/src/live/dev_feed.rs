@@ -412,6 +412,7 @@ async fn plan_ramp(state: &AppState, game: &Game) -> Result<Option<Ramp>, AppErr
     };
     let season = game.season_week.season;
     let week = game.season_week.week;
+    let season_type = crate::season_type_of(game.season_week);
     let home = game.home_team;
     let away = game.away_team;
 
@@ -426,7 +427,7 @@ async fn plan_ramp(state: &AppState, game: &Game) -> Result<Option<Ramp>, AppErr
 
     let mut players = Vec::new();
     for row in state.nfl.player_week_stats(season, week).await? {
-        if row.season_type != crate::season_type_of(game.season_week) {
+        if row.season_type != season_type {
             continue;
         }
         let matches_home = row.team == home && row.opponent.as_ref() == Some(&away);
@@ -468,8 +469,7 @@ async fn plan_ramp(state: &AppState, game: &Game) -> Result<Option<Ramp>, AppErr
 
     let mut defenses = Vec::new();
     for row in state.nfl.team_week_stats(season, week).await? {
-        if row.game_id != game.game_id || row.season_type != crate::season_type_of(game.season_week)
-        {
+        if row.game_id != game.game_id || row.season_type != season_type {
             continue;
         }
         defenses.push(LiveTeamStats {

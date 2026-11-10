@@ -292,7 +292,7 @@ mod tests {
     use crate::slates::{SlateId, SlateProposal};
     use crate::store::Store;
     use crate::store::player_link::{links, save_links};
-    use crate::{Game, PlayerLink, Season, SeasonType, SeasonWeek, Week};
+    use crate::{Game, PlayerLink, Season, SeasonWeek, Week};
 
     async fn store() -> Store {
         Store::in_memory().await.expect("in-memory store")
