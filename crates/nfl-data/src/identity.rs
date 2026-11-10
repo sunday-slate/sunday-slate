@@ -16,19 +16,19 @@ pub struct PlayerIdentity {
     pub headshot_url: Option<String>,
 }
 
-/// Display facts per gsis id from the provider: `players` first, weekly rosters
+/// Display facts per gsis id from nflverse: `players` first, weekly rosters
 /// for the misses; unknown ids are absent from the map.
 pub(crate) async fn identify(
-    provider: &NflverseData,
+    nflverse: &NflverseData,
     ids: &[NflPlayerId],
 ) -> Result<HashMap<NflPlayerId, PlayerIdentity>, NflDataError> {
-    let players = provider.players_by_gsis(ids).await?;
+    let players = nflverse.players_by_gsis(ids).await?;
     let unnamed: Vec<NflPlayerId> = ids
         .iter()
         .filter(|id| !players.contains_key(id.0.as_str()))
         .cloned()
         .collect();
-    let roster = provider.weekly_roster_entries_by_gsis(&unnamed).await?;
+    let roster = nflverse.weekly_roster_entries_by_gsis(&unnamed).await?;
     let named = players.into_iter().map(|(id, p)| {
         let identity = PlayerIdentity {
             name: p.full_name,
@@ -57,7 +57,7 @@ impl NflData {
         &self,
         ids: &[NflPlayerId],
     ) -> Result<HashMap<NflPlayerId, PlayerIdentity>, NflDataError> {
-        crate::identity::identify(&self.provider, ids).await
+        crate::identity::identify(&self.nflverse, ids).await
     }
 }
 

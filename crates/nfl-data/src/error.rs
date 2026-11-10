@@ -1,11 +1,10 @@
 use fanduel_data::FanduelDataError;
 use nflverse_data::NflverseDataError;
 
-/// Common error for NFL data operations across providers, slates, and the
-/// local store.
+/// Common error for nflverse, FanDuel, slate, and local-store operations.
 #[derive(Debug, thiserror::Error)]
 pub enum NflDataError {
-    #[error("nflverse provider failed: {0}")]
+    #[error("nflverse failed: {0}")]
     Nflverse(#[from] NflverseDataError),
     #[error("FanDuel provider failed: {0}")]
     Fanduel(#[from] FanduelDataError),

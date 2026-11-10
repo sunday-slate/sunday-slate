@@ -353,7 +353,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn metadata_roundtrips_without_provider_or_games() {
+    async fn metadata_roundtrips_without_nflverse_or_games() {
         let store = store().await;
         let week = reg_week(5);
 

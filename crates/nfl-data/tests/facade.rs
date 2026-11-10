@@ -14,7 +14,7 @@ fn player() -> Player {
 }
 
 #[tokio::test]
-async fn empty_provider_reads_preserve_missing_result_behavior() {
+async fn empty_nflverse_reads_preserve_missing_result_behavior() {
     let nfl = NflData::in_memory().await.unwrap();
     assert!(nfl.players().await.unwrap().is_empty());
     assert!(

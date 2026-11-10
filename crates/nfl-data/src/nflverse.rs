@@ -1,4 +1,4 @@
-//! Provider-backed reads and test seeding.
+//! nflverse-backed reads and test seeding.
 
 use nflverse_data::NflverseData;
 
@@ -9,16 +9,16 @@ use crate::{
 
 /// All cached games for a season, ordered by week.
 pub(crate) async fn games(
-    provider: &NflverseData,
+    nflverse: &NflverseData,
     season: Season,
 ) -> Result<Vec<Game>, NflDataError> {
-    provider.games(season).await.map_err(NflDataError::Nflverse)
+    nflverse.games(season).await.map_err(NflDataError::Nflverse)
 }
 
 impl NflData {
     /// All cached players, ordered by name.
     pub async fn players(&self) -> Result<Vec<Player>, NflDataError> {
-        self.provider
+        self.nflverse
             .players()
             .await
             .map_err(NflDataError::Nflverse)
@@ -31,7 +31,7 @@ impl NflData {
         week: Week,
         team: &TeamAbbr,
     ) -> Result<Vec<WeeklyRosterEntry>, NflDataError> {
-        self.provider
+        self.nflverse
             .weekly_roster(season, week, team)
             .await
             .map_err(NflDataError::Nflverse)
@@ -43,7 +43,7 @@ impl NflData {
         season: Season,
         week: Week,
     ) -> Result<Vec<PlayerWeekStats>, NflDataError> {
-        self.provider
+        self.nflverse
             .player_week_stats(season, week)
             .await
             .map_err(NflDataError::Nflverse)
@@ -57,7 +57,7 @@ impl NflData {
         season: Season,
         week: Week,
     ) -> Result<Vec<TeamWeekStats>, NflDataError> {
-        self.provider
+        self.nflverse
             .team_week_stats(season, week)
             .await
             .map_err(NflDataError::Nflverse)
@@ -69,7 +69,7 @@ impl NflData {
         &self,
         entries: &[WeeklyRosterEntry],
     ) -> Result<(), NflDataError> {
-        self.provider
+        self.nflverse
             .seed_weekly_roster_for_test(entries)
             .await
             .map_err(NflDataError::Nflverse)
@@ -82,7 +82,7 @@ impl NflData {
         players: &[Player],
         games: &[Game],
     ) -> Result<(), NflDataError> {
-        self.provider
+        self.nflverse
             .seed_for_test(players, games)
             .await
             .map_err(NflDataError::Nflverse)
@@ -98,7 +98,7 @@ impl NflData {
         players: &[PlayerWeekStats],
         teams: &[TeamWeekStats],
     ) -> Result<(), NflDataError> {
-        self.provider
+        self.nflverse
             .seed_week_stats_for_test(season, players, teams)
             .await
             .map_err(NflDataError::Nflverse)
@@ -168,7 +168,7 @@ mod tests {
         );
         assert_eq!(got[0].rushing_tds, 1);
         assert!(
-            nfl.provider
+            nfl.nflverse
                 .freshness()
                 .await
                 .unwrap()

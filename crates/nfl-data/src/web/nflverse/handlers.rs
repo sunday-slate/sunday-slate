@@ -21,7 +21,7 @@ pub(crate) async fn start(
     HxRequest(is_htmx): HxRequest,
     State(nfl): State<Arc<NflData>>,
 ) -> Result<Response, AdminError> {
-    nfl.provider
+    nfl.nflverse
         .request_refresh()
         .await
         .map_err(crate::NflDataError::Nflverse)?;

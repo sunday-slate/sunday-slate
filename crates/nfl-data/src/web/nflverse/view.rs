@@ -21,7 +21,7 @@ pub(crate) struct NflverseTemplate {
 
 impl NflverseTemplate {
     pub(crate) async fn load(nfl: &NflData) -> Result<Self, AdminError> {
-        let status = nfl.provider.refresh_status();
+        let status = nfl.nflverse.refresh_status();
         if let RunnerState::Running {
             started_at,
             progress,
@@ -33,11 +33,11 @@ impl NflverseTemplate {
         // Recheck state after freshness I/O so a newly-started refresh is not
         // knowingly rendered as idle.
         let freshness = nfl
-            .provider
+            .nflverse
             .freshness()
             .await
             .map_err(crate::NflDataError::Nflverse)?;
-        match nfl.provider.refresh_status() {
+        match nfl.nflverse.refresh_status() {
             RunnerState::Idle { last } => Ok(Self::idle(
                 freshness,
                 last,
@@ -179,8 +179,8 @@ mod tests {
     #[tokio::test]
     async fn nflverse_running_panel_polls_and_disables_submission() {
         let (nfl, _) = mock_nfl_delayed(Duration::from_millis(800)).await;
-        assert!(nfl.provider.request_refresh().await.unwrap());
-        assert!(!nfl.provider.request_refresh().await.unwrap());
+        assert!(nfl.nflverse.request_refresh().await.unwrap());
+        assert!(!nfl.nflverse.request_refresh().await.unwrap());
         let template = NflverseTemplate::load(&nfl).await.unwrap();
         let panel = template.as_panel().render().unwrap();
         assert!(panel.contains("hx-trigger=\"every 3s\""));
@@ -199,11 +199,11 @@ mod tests {
         for succeeds in [false, true] {
             let (nfl, _server) =
                 crate::test::test_support::mock_nfl_with_schedule(None, succeeds).await;
-            assert!(nfl.provider.request_refresh().await.unwrap());
+            assert!(nfl.nflverse.request_refresh().await.unwrap());
             let mut completed = false;
             for _ in 0..200 {
                 if matches!(
-                    nfl.provider.refresh_status(),
+                    nfl.nflverse.refresh_status(),
                     RunnerState::Idle { last: Some(_) }
                 ) {
                     completed = true;
@@ -220,7 +220,7 @@ mod tests {
             assert!(page.contains("Last sync failed"));
             if succeeds {
                 assert!(
-                    !nfl.provider
+                    !nfl.nflverse
                         .games(crate::Season(2025))
                         .await
                         .unwrap()
@@ -234,7 +234,7 @@ mod tests {
     async fn nflverse_report_text_is_escaped() {
         let (nfl, _) = mock_nfl(None).await;
         let template = NflverseTemplate::idle(
-            nfl.provider.freshness().await.unwrap(),
+            nfl.nflverse.freshness().await.unwrap(),
             Some(utils::background::LastRun {
                 finished_at: datetime!(2026-08-20 12:05:00 UTC),
                 outcome: Err("<script>alert(1)</script>".to_string()),

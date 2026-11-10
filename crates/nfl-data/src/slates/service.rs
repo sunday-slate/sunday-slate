@@ -43,7 +43,7 @@ pub(crate) async fn games(nfl: &NflData, id: &SlateId) -> Result<Vec<Game>, crat
     let Some(stored) = slates_store::by_id(nfl.store.reader(), id).await? else {
         return Ok(Vec::new());
     };
-    let schedule = nfl.provider.games(stored.season_week.season).await?;
+    let schedule = nfl.nflverse.games(stored.season_week.season).await?;
     let ids = slates_store::game_ids(nfl.store.reader(), id).await?;
     Ok(selected_games(&schedule, &ids))
 }
@@ -61,7 +61,7 @@ pub(crate) async fn counts(nfl: &NflData) -> Result<HashMap<SlateId, usize>, cra
 /// sync. It exists for a deliberate rebuild.
 pub(crate) async fn refresh(nfl: &NflData) -> Result<BTreeSet<Slate>, crate::NflDataError> {
     populate_at(
-        &nfl.provider,
+        &nfl.nflverse,
         &nfl.store,
         nfl.season(),
         OffsetDateTime::now_utc(),
@@ -73,12 +73,12 @@ pub(crate) async fn refresh(nfl: &NflData) -> Result<BTreeSet<Slate>, crate::Nfl
 /// worker, which cannot borrow the handle, and for tests that pin the fixation
 /// boundary.
 pub(crate) async fn populate_at(
-    provider: &NflverseData,
+    nflverse: &NflverseData,
     store: &Store,
     season: Season,
     now: OffsetDateTime,
 ) -> Result<BTreeSet<Slate>, crate::NflDataError> {
-    let schedule = provider.games(season).await?;
+    let schedule = nflverse.games(season).await?;
     let mut slates = BTreeSet::new();
     for week in SeasonWeek::for_season(season) {
         slates.extend(reconcile_week_at(store, week, &schedule, now).await?);

@@ -128,7 +128,7 @@ fn moved_off_christmas_games() -> Vec<Game> {
 /// Reconcile the whole season at an explicit clock, returning every stored
 /// slate. This is the only writer of slate rows; lookups below never populate.
 async fn populate(nfl: &NflData, now: OffsetDateTime) -> Vec<Slate> {
-    slates::populate_at(&nfl.provider, &nfl.store, nfl.season(), now)
+    slates::populate_at(&nfl.nflverse, &nfl.store, nfl.season(), now)
         .await
         .expect("populate")
         .into_iter()
