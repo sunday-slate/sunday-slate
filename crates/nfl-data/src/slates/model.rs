@@ -102,14 +102,13 @@ mod tests {
     use time::macros::datetime;
 
     use super::{Slate, SlateId, SlateStatus};
-    use crate::{Season, SeasonType, SeasonWeek, Week};
+    use crate::{Season, SeasonWeek, Week};
 
     fn slate(kickoff: Option<time::OffsetDateTime>, multiday: bool) -> Slate {
         Slate {
             id: SlateId(1),
             season_week: SeasonWeek {
                 season: Season(2026),
-                season_type: SeasonType::Reg,
                 week: Week(1),
             },
             name: "Week 1".into(),

@@ -315,7 +315,7 @@ pub fn official_complete_for_slate(
 ) -> bool {
     let season = season_week.season;
     let week = season_week.week;
-    let season_type = season_week.season_type;
+    let season_type = crate::season_type_of(season_week);
     let mut player_teams = HashSet::new();
     let mut defense_coverage = HashSet::new();
     for game in games {
@@ -377,7 +377,7 @@ pub async fn load_contest_scores(
 
     let season = slate.season_week.season;
     let week = slate.season_week.week;
-    let season_type = slate.season_week.season_type;
+    let season_type = crate::season_type_of(slate.season_week);
     let players = state.nfl.player_week_stats(season, week).await?;
     let defenses = state.nfl.team_week_stats(season, week).await?;
     let expected_games = games

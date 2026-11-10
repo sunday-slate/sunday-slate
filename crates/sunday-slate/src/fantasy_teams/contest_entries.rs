@@ -79,7 +79,6 @@ mod tests {
             id: SlateId(id),
             season_week: nfl_data::SeasonWeek {
                 season: nfl_data::Season(2026),
-                season_type: nfl_data::SeasonType::Reg,
                 week: nfl_data::Week(1),
             },
             name: name.to_string(),

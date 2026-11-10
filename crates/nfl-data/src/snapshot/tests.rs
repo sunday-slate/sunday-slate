@@ -24,12 +24,10 @@ const SEASON: Season = Season(2026);
 const PREVIOUS_SEASON: Season = Season(2025);
 const SEASON_WEEK_5: SeasonWeek = SeasonWeek {
     season: SEASON,
-    season_type: SeasonType::Reg,
     week: Week(5),
 };
 const PREVIOUS_WEEK_5: SeasonWeek = SeasonWeek {
     season: PREVIOUS_SEASON,
-    season_type: SeasonType::Reg,
     week: Week(5),
 };
 /// Before the season's opening Monday, so the seeded slates stay tentative.
@@ -54,7 +52,6 @@ Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,
 fn week_5(season: Season) -> SeasonWeek {
     SeasonWeek {
         season,
-        season_type: SeasonType::Reg,
         week: Week(5),
     }
 }
@@ -548,7 +545,6 @@ async fn published_snapshot_carries_multiday_and_eastern_status() {
     let nfl = NflData::in_memory().await.expect("in-memory handle");
     let week = SeasonWeek {
         season: SEASON,
-        season_type: SeasonType::Post,
         week: Week(19),
     };
     let games = vec![

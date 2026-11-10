@@ -480,7 +480,7 @@ impl SlateCtx {
     /// The injury report's cache key for this slate.
     fn slate_key(&self) -> crate::injuries::SlateKey {
         let week = self.slate.season_week;
-        (week.season, week.week, week.season_type)
+        (week.season, week.week, crate::season_type_of(week))
     }
 
     fn salaried_player(&self, value: &PlayerOrDefenseId) -> Option<&SalariedPlayer> {

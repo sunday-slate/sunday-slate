@@ -7,7 +7,7 @@ use time::macros::datetime;
 
 use crate::store::player_link;
 use crate::web::AdminConfig;
-use crate::{Game, NflData, NflDataConfig, Player, Season, SeasonType, SeasonWeek, Week};
+use crate::{Game, NflData, NflDataConfig, Player, Season, SeasonWeek, Week};
 
 pub(crate) struct AdminFixture {
     pub(crate) server: TestServer,
@@ -69,7 +69,6 @@ async fn seed_admin_slate(nfl: &NflData) {
             game_id: "2025_01_BUF_NYJ".into(),
             season_week: crate::SeasonWeek {
                 season: Season(2025),
-                season_type: crate::SeasonType::Reg,
                 week: crate::Week(1),
             },
             // Sunday 1pm Eastern: slate proposals cover only the Sunday
@@ -116,7 +115,6 @@ pub(crate) fn admin_slate_id() -> crate::slates::SlateId {
         i64::from(
             crate::SeasonWeek {
                 season: Season(2025),
-                season_type: SeasonType::Reg,
                 week: Week(1),
             }
             .encode(),
@@ -161,12 +159,10 @@ pub(crate) async fn seed_representative_slate(nfl: &NflData) {
     .unwrap();
 }
 
-/// Upload form for the representative slate: 2025 REG with an explicit week
-/// and CSV body.
+/// Upload form for the representative slate: an absolute week and CSV body,
+/// imported into the admin's configured season.
 pub(crate) fn salary_upload_form(week: u8, csv: &str) -> MultipartForm {
     MultipartForm::new()
-        .add_text("season", "2025")
-        .add_text("season_type", "REG")
         .add_text("week", week.to_string())
         .add_part(
             "csv",
@@ -179,7 +175,6 @@ fn game(id: &str, week: u8, away: &str, home: &str) -> Game {
         game_id: id.into(),
         season_week: SeasonWeek {
             season: Season(2025),
-            season_type: SeasonType::Reg,
             week: Week(week),
         },
         kickoff: None,
@@ -204,14 +199,10 @@ fn player(gsis: &str, name: &str, team: &str) -> Player {
 }
 
 pub(crate) fn upload_form() -> MultipartForm {
-    MultipartForm::new()
-        .add_text("season", "2025")
-        .add_text("season_type", "REG")
-        .add_text("week", "1")
-        .add_part(
-            "csv",
-            Part::bytes(DASHBOARD_CSV.as_bytes().to_vec()).file_name("salary.csv"),
-        )
+    MultipartForm::new().add_text("week", "1").add_part(
+        "csv",
+        Part::bytes(DASHBOARD_CSV.as_bytes().to_vec()).file_name("salary.csv"),
+    )
 }
 
 #[tokio::test]
@@ -285,17 +276,14 @@ async fn dashboard_groups_sources_by_season_type_and_week() {
     for season_week in [
         crate::SeasonWeek {
             season: Season(2025),
-            season_type: crate::SeasonType::Reg,
             week: crate::Week(1),
         },
         crate::SeasonWeek {
             season: Season(2025),
-            season_type: crate::SeasonType::Post,
             week: crate::Week(21),
         },
         crate::SeasonWeek {
             season: Season(2026),
-            season_type: crate::SeasonType::Reg,
             week: crate::Week(1),
         },
     ] {
@@ -330,7 +318,6 @@ async fn dashboard_form_uses_config_clock_at_the_monday_boundary() {
                     game_id: "monday".into(),
                     season_week: crate::SeasonWeek {
                         season: Season(2025),
-                        season_type: crate::SeasonType::Reg,
                         week: crate::Week(5),
                     },
                     kickoff: Some(datetime!(2025-10-06 23:15 UTC)),
@@ -343,7 +330,6 @@ async fn dashboard_form_uses_config_clock_at_the_monday_boundary() {
                     game_id: "upcoming".into(),
                     season_week: crate::SeasonWeek {
                         season: Season(2025),
-                        season_type: crate::SeasonType::Reg,
                         week: crate::Week(6),
                     },
                     kickoff: Some(datetime!(2025-10-12 17:00 UTC)),

@@ -280,10 +280,11 @@ where
                     .contains(&slate.id)
             });
 
+        let season_type = crate::season_type_of(slate.season_week);
         let tuple = (
             slate.season_week.season,
             slate.season_week.week,
-            slate.season_week.season_type,
+            season_type,
         );
 
         let mut teams = games

@@ -1,6 +1,6 @@
 use nflverse_data::{
     AssetUpdate, Dataset, DatasetReport, DatasetStatus, NflverseData, NflverseDataConfig, Season,
-    SeasonType, SyncEvent, TeamAbbr, Week,
+    SyncEvent, TeamAbbr, Week,
 };
 use time::macros::datetime;
 use tokio::sync::mpsc;
@@ -176,7 +176,9 @@ async fn fresh_sync_populates_every_dataset() {
         .iter()
         .find(|g| g.game_id == "2025_22_SEA_NE")
         .unwrap();
-    assert_eq!(sb.season_week.season_type, SeasonType::Post);
+    assert_eq!(sb.season_week.season, Season(2025));
+    assert_eq!(sb.season_week.week, Week(22));
+    assert!(sb.season_week.postseason());
 
     // Players.
     let players = nfl.players().await.unwrap();

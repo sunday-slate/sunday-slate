@@ -13,7 +13,6 @@ pub fn game(id: &str, week: u8) -> Game {
         game_id: id.into(),
         season_week: nfl_data::SeasonWeek {
             season: Season(2025),
-            season_type: SeasonType::Reg,
             week: Week(week),
         },
         kickoff: None,

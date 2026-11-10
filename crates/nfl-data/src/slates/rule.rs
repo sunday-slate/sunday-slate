@@ -5,7 +5,7 @@ use time::{Date, Month, OffsetDateTime, Time, UtcOffset, Weekday};
 use nfl_model::nfl_week_monday;
 
 use crate::slates::{SlateId, SlateProposal, spans_multiple_days};
-use crate::{Game, SeasonType, SeasonWeek};
+use crate::{Game, SeasonWeek};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Rule {
@@ -54,7 +54,7 @@ impl Rule {
         };
         match self {
             Rule::Main { week } => {
-                game.season_week.season_type == SeasonType::Reg
+                !game.season_week.postseason()
                     && game.season_week.week.0 == week
                     && et.weekday() == Weekday::Sunday
                     && et.time() >= noon
@@ -70,11 +70,11 @@ impl Rule {
 }
 
 fn primary_rule(week: &SeasonWeek) -> Option<Rule> {
-    match (week.season_type, week.week.0) {
-        (SeasonType::Reg, week @ 1..=18) => Some(Rule::Main { week }),
-        (SeasonType::Post, 19) => Some(Rule::WildCard),
-        (SeasonType::Post, 20) => Some(Rule::Divisional),
-        (SeasonType::Post, 21) => Some(Rule::Championship),
+    match week.week.0 {
+        week @ 1..=18 => Some(Rule::Main { week }),
+        19 => Some(Rule::WildCard),
+        20 => Some(Rule::Divisional),
+        21 => Some(Rule::Championship),
         _ => None,
     }
 }
@@ -133,7 +133,7 @@ fn in_week(game: &Game, week: &SeasonWeek) -> bool {
 }
 
 fn playoff_week_covers(game: &Game, et: OffsetDateTime, week: u8) -> bool {
-    game.season_week.season_type == SeasonType::Post
+    game.season_week.postseason()
         && game.season_week.week.0 == week
         && matches!(et.weekday(), Weekday::Saturday | Weekday::Sunday)
 }
@@ -159,20 +159,13 @@ mod tests {
 
     use super::{opening_monday, proposals};
     use crate::slates::{SlateId, SlateProposal};
-    use crate::{Game, Season, SeasonType, SeasonWeek, Week};
+    use crate::{Game, Season, SeasonWeek, Week};
 
-    fn game(
-        id: &str,
-        season: u16,
-        week: u8,
-        season_type: SeasonType,
-        kickoff: Option<OffsetDateTime>,
-    ) -> Game {
+    fn game(id: &str, season: u16, week: u8, kickoff: Option<OffsetDateTime>) -> Game {
         Game {
             game_id: id.into(),
             season_week: SeasonWeek {
                 season: Season(season),
-                season_type,
                 week: Week(week),
             },
             kickoff,
@@ -186,7 +179,6 @@ mod tests {
     fn reg_week(season: u16, week: u8) -> SeasonWeek {
         SeasonWeek {
             season: Season(season),
-            season_type: SeasonType::Reg,
             week: Week(week),
         }
     }
@@ -194,7 +186,6 @@ mod tests {
     fn post_week(season: u16, week: u8) -> SeasonWeek {
         SeasonWeek {
             season: Season(season),
-            season_type: SeasonType::Post,
             week: Week(week),
         }
     }
@@ -214,62 +205,14 @@ mod tests {
     #[test]
     fn main_rule_matches_existing_eastern_window() {
         let games = vec![
-            game(
-                "thu",
-                2025,
-                5,
-                SeasonType::Reg,
-                Some(datetime!(2025-10-03 00:15 UTC)),
-            ),
-            game(
-                "sun_1159",
-                2025,
-                5,
-                SeasonType::Reg,
-                Some(datetime!(2025-10-05 15:59 UTC)),
-            ),
-            game(
-                "sun_1200",
-                2025,
-                5,
-                SeasonType::Reg,
-                Some(datetime!(2025-10-05 12:00 -04)),
-            ),
-            game(
-                "sun_1625",
-                2025,
-                5,
-                SeasonType::Reg,
-                Some(datetime!(2025-10-05 20:25 UTC)),
-            ),
-            game(
-                "sun_1800",
-                2025,
-                5,
-                SeasonType::Reg,
-                Some(datetime!(2025-10-05 22:00 UTC)),
-            ),
-            game(
-                "sun_1801",
-                2025,
-                5,
-                SeasonType::Reg,
-                Some(datetime!(2025-10-05 22:01 UTC)),
-            ),
-            game(
-                "snf",
-                2025,
-                5,
-                SeasonType::Reg,
-                Some(datetime!(2025-10-06 00:20 UTC)),
-            ),
-            game(
-                "wk6",
-                2025,
-                6,
-                SeasonType::Reg,
-                Some(datetime!(2025-10-12 17:00 UTC)),
-            ),
+            game("thu", 2025, 5, Some(datetime!(2025-10-03 00:15 UTC))),
+            game("sun_1159", 2025, 5, Some(datetime!(2025-10-05 15:59 UTC))),
+            game("sun_1200", 2025, 5, Some(datetime!(2025-10-05 12:00 -04))),
+            game("sun_1625", 2025, 5, Some(datetime!(2025-10-05 20:25 UTC))),
+            game("sun_1800", 2025, 5, Some(datetime!(2025-10-05 22:00 UTC))),
+            game("sun_1801", 2025, 5, Some(datetime!(2025-10-05 22:01 UTC))),
+            game("snf", 2025, 5, Some(datetime!(2025-10-06 00:20 UTC))),
+            game("wk6", 2025, 6, Some(datetime!(2025-10-12 17:00 UTC))),
         ];
 
         let got = proposals(reg_week(2025, 5), &games);
@@ -287,34 +230,10 @@ mod tests {
     #[test]
     fn holiday_rules_use_eastern_dates() {
         let thanksgiving = vec![
-            game(
-                "tg_1",
-                2025,
-                13,
-                SeasonType::Reg,
-                Some(datetime!(2025-11-27 18:00 UTC)),
-            ),
-            game(
-                "tg_2",
-                2025,
-                13,
-                SeasonType::Reg,
-                Some(datetime!(2025-11-27 21:30 UTC)),
-            ),
-            game(
-                "tg_3",
-                2025,
-                13,
-                SeasonType::Reg,
-                Some(datetime!(2025-11-28 01:20 UTC)),
-            ),
-            game(
-                "sun",
-                2025,
-                13,
-                SeasonType::Reg,
-                Some(datetime!(2025-11-30 18:00 UTC)),
-            ),
+            game("tg_1", 2025, 13, Some(datetime!(2025-11-27 18:00 UTC))),
+            game("tg_2", 2025, 13, Some(datetime!(2025-11-27 21:30 UTC))),
+            game("tg_3", 2025, 13, Some(datetime!(2025-11-28 01:20 UTC))),
+            game("sun", 2025, 13, Some(datetime!(2025-11-30 18:00 UTC))),
         ];
         let got = proposals(reg_week(2025, 13), &thanksgiving);
         assert_eq!(
@@ -335,30 +254,11 @@ mod tests {
                 "xmas_early",
                 2025,
                 16,
-                SeasonType::Reg,
                 Some(datetime!(2025-12-25 18:00 UTC)),
             ),
-            game(
-                "xmas_late",
-                2025,
-                16,
-                SeasonType::Reg,
-                Some(datetime!(2025-12-26 01:15 UTC)),
-            ),
-            game(
-                "xmas_over",
-                2025,
-                16,
-                SeasonType::Reg,
-                Some(datetime!(2025-12-26 06:00 UTC)),
-            ),
-            game(
-                "sun",
-                2025,
-                16,
-                SeasonType::Reg,
-                Some(datetime!(2025-12-28 18:00 UTC)),
-            ),
+            game("xmas_late", 2025, 16, Some(datetime!(2025-12-26 01:15 UTC))),
+            game("xmas_over", 2025, 16, Some(datetime!(2025-12-26 06:00 UTC))),
+            game("sun", 2025, 16, Some(datetime!(2025-12-28 18:00 UTC))),
         ];
         let got = proposals(reg_week(2025, 16), &christmas);
         assert_eq!(
@@ -395,9 +295,9 @@ mod tests {
         ];
         for ((week, name, id), saturday, sunday, monday) in cases {
             let games = vec![
-                game("sat", 2025, week, SeasonType::Post, Some(saturday)),
-                game("sun", 2025, week, SeasonType::Post, Some(sunday)),
-                game("mon", 2025, week, SeasonType::Post, Some(monday)),
+                game("sat", 2025, week, Some(saturday)),
+                game("sun", 2025, week, Some(sunday)),
+                game("mon", 2025, week, Some(monday)),
             ];
 
             let got = proposals(post_week(2025, week), &games);
@@ -414,26 +314,18 @@ mod tests {
     #[test]
     fn proposals_are_scoped_to_exact_season_week() {
         let games = vec![
-            game(
-                "own_week",
-                2025,
-                13,
-                SeasonType::Reg,
-                Some(datetime!(2025-11-30 18:00 UTC)),
-            ),
+            game("own_week", 2025, 13, Some(datetime!(2025-11-30 18:00 UTC))),
             game(
                 "other_season",
                 2024,
                 13,
-                SeasonType::Reg,
                 Some(datetime!(2024-12-01 18:00 UTC)),
             ),
             game(
-                "other_type",
+                "other_week_postseason",
                 2025,
-                13,
-                SeasonType::Post,
-                Some(datetime!(2026-01-04 18:00 UTC)),
+                20,
+                Some(datetime!(2026-01-18 18:00 UTC)),
             ),
         ];
 
@@ -456,41 +348,11 @@ mod tests {
     #[test]
     fn holiday_and_main_share_a_week() {
         let games = vec![
-            game(
-                "tg_1",
-                2025,
-                13,
-                SeasonType::Reg,
-                Some(datetime!(2025-11-27 18:00 UTC)),
-            ),
-            game(
-                "tg_2",
-                2025,
-                13,
-                SeasonType::Reg,
-                Some(datetime!(2025-11-27 21:30 UTC)),
-            ),
-            game(
-                "tg_3",
-                2025,
-                13,
-                SeasonType::Reg,
-                Some(datetime!(2025-11-28 01:20 UTC)),
-            ),
-            game(
-                "sun_1200",
-                2025,
-                13,
-                SeasonType::Reg,
-                Some(datetime!(2025-11-30 17:00 UTC)),
-            ),
-            game(
-                "sun_425",
-                2025,
-                13,
-                SeasonType::Reg,
-                Some(datetime!(2025-11-30 20:25 UTC)),
-            ),
+            game("tg_1", 2025, 13, Some(datetime!(2025-11-27 18:00 UTC))),
+            game("tg_2", 2025, 13, Some(datetime!(2025-11-27 21:30 UTC))),
+            game("tg_3", 2025, 13, Some(datetime!(2025-11-28 01:20 UTC))),
+            game("sun_1200", 2025, 13, Some(datetime!(2025-11-30 17:00 UTC))),
+            game("sun_425", 2025, 13, Some(datetime!(2025-11-30 20:25 UTC))),
         ];
 
         let got = proposals(reg_week(2025, 13), &games);
@@ -521,33 +383,14 @@ mod tests {
     #[test]
     fn opening_monday_uses_game_dates_not_the_clock() {
         let week = reg_week(2025, 1);
-        let thursday = game(
-            "thu",
-            2025,
-            1,
-            SeasonType::Reg,
-            Some(datetime!(2025-09-05 00:15 UTC)),
-        );
-        let sunday = game(
-            "sun",
-            2025,
-            1,
-            SeasonType::Reg,
-            Some(datetime!(2025-09-07 17:00 UTC)),
-        );
-        let mnf = game(
-            "mnf",
-            2025,
-            1,
-            SeasonType::Reg,
-            Some(datetime!(2025-09-09 00:15 UTC)),
-        );
-        let unknown = game("unknown", 2025, 1, SeasonType::Reg, None);
+        let thursday = game("thu", 2025, 1, Some(datetime!(2025-09-05 00:15 UTC)));
+        let sunday = game("sun", 2025, 1, Some(datetime!(2025-09-07 17:00 UTC)));
+        let mnf = game("mnf", 2025, 1, Some(datetime!(2025-09-09 00:15 UTC)));
+        let unknown = game("unknown", 2025, 1, None);
         let other_season = game(
             "other_season",
             2024,
             1,
-            SeasonType::Reg,
             Some(datetime!(2024-09-09 17:00 UTC)),
         );
 
@@ -581,24 +424,38 @@ mod tests {
         assert!(got[0].game_ids.is_empty());
         assert_eq!(got[0].kickoff, None);
 
-        assert_eq!(proposals(post_week(2025, 22), &[]).len(), 0);
+        let super_bowl = [game("sb", 2025, 22, Some(datetime!(2026-02-08 23:30 UTC)))];
+        assert_eq!(
+            proposals(post_week(2025, 22), &super_bowl).len(),
+            0,
+            "week 22 is weekday-representable but has no default slate rule"
+        );
     }
 
     #[test]
-    fn reg_and_post_ids_do_not_collide_for_the_same_numeric_week() {
-        let post = proposals(post_week(2025, 19), &[]);
-        let wild_card = proposal_named(&post, "Wild Card");
-        assert_eq!(wild_card.id, SlateId(20251191));
-
-        let reg_family = i64::from(reg_week(2025, 19).encode()) * 10;
-        assert_ne!(
-            wild_card.id.0, reg_family,
-            "the POST id must not equal the REG family's holiday-kind value"
+    fn proposal_ids_are_unique_across_the_whole_season() {
+        let wild_card = proposals(post_week(2025, 19), &[]);
+        assert_eq!(
+            proposal_named(&wild_card, "Wild Card").id,
+            SlateId(20251191)
         );
-        assert_ne!(
-            wild_card.id.0,
-            reg_family + 1,
-            "the POST id must not equal the REG family's main-kind value"
+
+        let ids: std::collections::HashSet<i64> = (1..=22u8)
+            .flat_map(|week| {
+                let season_week = SeasonWeek {
+                    season: Season(2025),
+                    week: Week(week),
+                };
+                proposals(season_week, &[])
+                    .into_iter()
+                    .map(|proposal| proposal.id.0)
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        assert_eq!(
+            ids.len(),
+            21,
+            "weeks 1-18 yield main slates and 19-21 yield playoff slates"
         );
     }
 
@@ -607,7 +464,7 @@ mod tests {
         let week = reg_week(2025, 1);
         assert_eq!(opening_monday(week, &[]), None);
         assert_eq!(
-            opening_monday(week, &[game("unknown", 2025, 1, SeasonType::Reg, None)]),
+            opening_monday(week, &[game("unknown", 2025, 1, None)]),
             None
         );
     }

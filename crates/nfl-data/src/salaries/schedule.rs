@@ -10,7 +10,7 @@ pub enum ScheduleError {
 
 /// Resolve a slate's matchups to games. A directed matchup can recur across
 /// the season (playoff rematch), so lookup is restricted to the requested
-/// season, season type, and week.
+/// season and week.
 pub fn resolve_slate_games(
     season_games: &[Game],
     season_week: &SeasonWeek,
@@ -38,7 +38,7 @@ pub fn resolve_slate_games(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Season, SeasonType, SeasonWeek, Week};
+    use crate::{Season, SeasonWeek, Week};
     use time::OffsetDateTime;
     use time::macros::datetime;
 
@@ -47,7 +47,6 @@ mod tests {
             game_id: id.into(),
             season_week: SeasonWeek {
                 season: Season(2025),
-                season_type: SeasonType::Reg,
                 week: Week(week),
             },
             kickoff: Some(kickoff),
@@ -58,15 +57,9 @@ mod tests {
         }
     }
 
-    fn game_type(mut game: Game, season_type: SeasonType) -> Game {
-        game.season_week.season_type = season_type;
-        game
-    }
-
-    fn season_week(season_type: SeasonType, week: u8) -> SeasonWeek {
+    fn season_week(week: u8) -> SeasonWeek {
         SeasonWeek {
             season: Season(2025),
-            season_type,
             week: Week(week),
         }
     }
@@ -98,7 +91,7 @@ mod tests {
         ];
         let got = resolve_slate_games(
             &games,
-            &season_week(SeasonType::Reg, 5),
+            &season_week(5),
             &matchups(&[("LA", "SF"), ("BUF", "KC")]),
         )
         .expect("resolve");
@@ -126,12 +119,8 @@ mod tests {
                 datetime!(2025-10-05 20:00 UTC),
             ),
         ];
-        let got = resolve_slate_games(
-            &games,
-            &season_week(SeasonType::Reg, 5),
-            &matchups(&[("LA", "SF")]),
-        )
-        .expect("resolve");
+        let got = resolve_slate_games(&games, &season_week(5), &matchups(&[("LA", "SF")]))
+            .expect("resolve");
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].game_id, "2025_05_LA_SF");
     }
@@ -154,12 +143,8 @@ mod tests {
                 datetime!(2025-12-14 17:00 UTC),
             ),
         ];
-        let got = resolve_slate_games(
-            &games,
-            &season_week(SeasonType::Reg, 15),
-            &matchups(&[("SF", "LA")]),
-        )
-        .expect("resolve");
+        let got = resolve_slate_games(&games, &season_week(15), &matchups(&[("SF", "LA")]))
+            .expect("resolve");
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].game_id, "2025_15_SF_LA");
     }
@@ -191,7 +176,7 @@ mod tests {
         ];
         let got = resolve_slate_games(
             &games,
-            &season_week(SeasonType::Reg, 1),
+            &season_week(1),
             &matchups(&[("SF", "SEA"), ("BUF", "NYJ")]),
         )
         .expect("resolve");
@@ -199,37 +184,6 @@ mod tests {
         assert!(ids.contains("2025_01_SF_SEA"));
         assert!(ids.contains("2025_01_BUF_NYJ"));
         assert!(!ids.contains("2025_20_SF_SEA"));
-    }
-
-    #[test]
-    fn exact_season_week_disambiguates_regular_and_postseason_rematches() {
-        let regular = game(
-            "2025_01_SF_SEA",
-            1,
-            "SEA",
-            "SF",
-            datetime!(2025-09-07 20:00 UTC),
-        );
-        let postseason = game_type(
-            game(
-                "2025_01_SF_SEA_POST",
-                1,
-                "SEA",
-                "SF",
-                datetime!(2026-01-18 20:00 UTC),
-            ),
-            SeasonType::Post,
-        );
-        let games = vec![regular, postseason];
-        for (requested, expected) in [
-            (season_week(SeasonType::Reg, 1), "2025_01_SF_SEA"),
-            (season_week(SeasonType::Post, 1), "2025_01_SF_SEA_POST"),
-        ] {
-            let resolved = resolve_slate_games(&games, &requested, &matchups(&[("SF", "SEA")]))
-                .expect("exact season week resolves");
-            assert_eq!(resolved.len(), 1);
-            assert_eq!(resolved[0].game_id, expected);
-        }
     }
 
     #[test]
@@ -242,11 +196,7 @@ mod tests {
             datetime!(2025-09-07 20:00 UTC),
         )];
         assert_eq!(
-            resolve_slate_games(
-                &games,
-                &season_week(SeasonType::Reg, 2),
-                &matchups(&[("SF", "SEA")])
-            ),
+            resolve_slate_games(&games, &season_week(2), &matchups(&[("SF", "SEA")])),
             Err(ScheduleError::NoWeekContainsSlate)
         );
     }
@@ -261,11 +211,7 @@ mod tests {
             datetime!(2025-10-05 17:00 UTC),
         )];
         assert_eq!(
-            resolve_slate_games(
-                &games,
-                &season_week(SeasonType::Reg, 5),
-                &matchups(&[("KC", "BUF")])
-            ),
+            resolve_slate_games(&games, &season_week(5), &matchups(&[("KC", "BUF")])),
             Err(ScheduleError::NoWeekContainsSlate)
         );
     }

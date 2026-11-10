@@ -30,7 +30,7 @@ pub(crate) fn parse(
         if raw.season < earliest_season {
             return Ok(None);
         }
-        let season_type = parse_season_type(&raw.game_type)?;
+        parse_season_type(&raw.game_type)?;
         let gameday = Date::parse(&raw.gameday, format_description!("[year]-[month]-[day]"))
             .map_err(|e| format!("bad gameday {:?}: {e}", raw.gameday))?;
         let kickoff = match raw.gametime.as_deref() {
@@ -52,7 +52,6 @@ pub(crate) fn parse(
             game_id: raw.game_id,
             season_week: SeasonWeek {
                 season: Season(raw.season),
-                season_type,
                 week: Week(raw.week),
             },
             kickoff,
@@ -75,7 +74,7 @@ mod tests {
     use time::macros::{date, datetime};
 
     use super::*;
-    use crate::model::{Season, SeasonType, Week};
+    use crate::model::{Season, Week};
 
     // Header + rows verbatim from nflverse games.csv (2026-07-01).
     const GAMES_CSV: &str = "\
@@ -95,7 +94,7 @@ game_id,season,game_type,week,gameday,weekday,gametime,away_team,away_score,home
         assert_eq!(thursday.game_id, "2025_05_SF_LA");
         assert_eq!(thursday.season_week.season, Season(2025));
         assert_eq!(thursday.season_week.week, Week(5));
-        assert_eq!(thursday.season_week.season_type, SeasonType::Reg);
+        assert!(!thursday.season_week.postseason());
         // 2025-10-02 20:15 America/New_York (EDT, -4) == 00:15 UTC next day.
         assert_eq!(thursday.kickoff, Some(datetime!(2025-10-03 00:15 UTC)));
         assert_eq!(thursday.home_team, TeamAbbr::LA);
@@ -104,7 +103,9 @@ game_id,season,game_type,week,gameday,weekday,gametime,away_team,away_score,home
         assert_eq!(thursday.away_score, Some(26));
 
         let super_bowl = &games[1];
-        assert_eq!(super_bowl.season_week.season_type, SeasonType::Post);
+        assert!(super_bowl.season_week.postseason());
+        assert_eq!(super_bowl.season_week.season, Season(2025));
+        assert_eq!(super_bowl.season_week.week, Week(22));
         // 2026-02-08 18:30 America/New_York (EST, -5) == 23:30 UTC.
         assert_eq!(super_bowl.kickoff, Some(datetime!(2026-02-08 23:30 UTC)));
     }

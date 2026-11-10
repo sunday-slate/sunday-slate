@@ -35,7 +35,6 @@ fn scheduled_game() -> Game {
 fn week1() -> nfl_data::SeasonWeek {
     nfl_data::SeasonWeek {
         season: Season(2025),
-        season_type: nfl_data::SeasonType::Reg,
         week: nfl_data::Week(1),
     }
 }
@@ -452,7 +451,6 @@ async fn migrated_2026_entry_keeps_its_id_and_links_its_slate(pool: SqlitePool) 
 
     let week = nfl_data::SeasonWeek {
         season: Season(2026),
-        season_type: nfl_data::SeasonType::Reg,
         week: nfl_data::Week(1),
     };
     let game = Game {

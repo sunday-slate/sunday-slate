@@ -32,12 +32,7 @@ struct WeekTemplate {
 impl WeekTemplate {
     fn new(value: SalaryWeekOverview) -> Self {
         let sw = value.season_week;
-        let season_type = if sw.season_type == crate::SeasonType::Post {
-            "POST"
-        } else {
-            "REG"
-        }
-        .to_owned();
+        let season_type = if sw.postseason() { "POST" } else { "REG" }.to_owned();
         Self {
             overview: WeekView {
                 encoded: sw.encode(),

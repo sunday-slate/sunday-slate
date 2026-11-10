@@ -1018,7 +1018,7 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
         let slate_key = (
             slate.season_week.season,
             slate.season_week.week,
-            slate.season_week.season_type,
+            crate::season_type_of(slate.season_week),
         );
         let mut picks = build_picks(
             &entry.lineup,

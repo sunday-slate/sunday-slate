@@ -140,7 +140,6 @@ async fn contest_detail_lights_contests_tab_when_not_current() {
     app.login_as(&gen_team.owner).await;
     let week1 = nfl_data::SeasonWeek {
         season: nfl_data::Season(2026),
-        season_type: nfl_data::SeasonType::Reg,
         week: nfl_data::Week(1),
     };
     let week2 = nfl_data::SeasonWeek {

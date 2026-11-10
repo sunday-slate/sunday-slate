@@ -40,7 +40,7 @@ pub(crate) struct GameRow {
 
 /// `2025 · Week 7` or `2025 · Week 19 · Postseason`.
 fn week_label(week: SeasonWeek) -> String {
-    if week.season_type.is_reg() {
+    if !week.postseason() {
         format!("{} · Week {}", week.season, week.week)
     } else {
         format!("{} · Week {} · Postseason", week.season, week.week)

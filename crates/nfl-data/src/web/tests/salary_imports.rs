@@ -8,7 +8,6 @@ use crate::store::player_link;
 fn regular_week_2025(week: u8) -> crate::SeasonWeek {
     crate::SeasonWeek {
         season: crate::Season(2025),
-        season_type: crate::SeasonType::Reg,
         week: crate::Week(week),
     }
 }
