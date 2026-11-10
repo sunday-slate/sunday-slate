@@ -226,7 +226,7 @@ impl Store {
 mod tests {
     use super::*;
     use crate::{Game, Matchup, Player};
-    use nfl_model::{SeasonWeek, TeamAbbr};
+    use nfl_model::{Season, SeasonWeek, TeamAbbr, Week};
 
     fn salary(
         position: DfsPosition,
@@ -237,7 +237,8 @@ mod tests {
         SalariedPlayer {
             player,
             game: Game {
-                season_week: SeasonWeek::reg(1),
+                season_week: SeasonWeek::new(Season::default(), Week(1))
+                    .expect("valid season week"),
                 matchup: Matchup {
                     away: TeamAbbr::BUF,
                     home: TeamAbbr::NYJ,
@@ -264,9 +265,11 @@ mod tests {
         );
         let mut regular_dst = salary(DfsPosition::Dst, None, TeamAbbr::NYJ, 3500);
         let mut postseason = regular.clone();
-        postseason.game.season_week = SeasonWeek::post(1);
+        postseason.game.season_week =
+            SeasonWeek::new(Season::default(), Week(19)).expect("valid season week");
         postseason.salary = 7800;
-        regular_dst.game.season_week = SeasonWeek::reg(1);
+        regular_dst.game.season_week =
+            SeasonWeek::new(Season::default(), Week(1)).expect("valid season week");
         store
             .save_salaried_players(&[regular, regular_dst, postseason])
             .await
@@ -274,9 +277,18 @@ mod tests {
 
         assert_eq!(
             store.salary_counts_by_week().await.unwrap(),
-            vec![(SeasonWeek::post(1), 1), (SeasonWeek::reg(1), 2)]
-                .into_iter()
-                .collect()
+            vec![
+                (
+                    SeasonWeek::new(Season::default(), Week(19)).expect("valid season week"),
+                    1
+                ),
+                (
+                    SeasonWeek::new(Season::default(), Week(1)).expect("valid season week"),
+                    2
+                )
+            ]
+            .into_iter()
+            .collect()
         );
     }
 
@@ -320,11 +332,17 @@ mod tests {
 
         assert_eq!(
             store.unmatched_counts_by_week(&[]).await.unwrap(),
-            BTreeMap::from([(SeasonWeek::reg(1), 2)])
+            BTreeMap::from([(
+                SeasonWeek::new(Season::default(), Week(1)).expect("valid season week"),
+                2
+            )])
         );
         assert_eq!(
             store.unmatched_counts_by_week(&[62239]).await.unwrap(),
-            BTreeMap::from([(SeasonWeek::reg(1), 1)])
+            BTreeMap::from([(
+                SeasonWeek::new(Season::default(), Week(1)).expect("valid season week"),
+                1
+            )])
         );
         // Weeks with no unmatched players are omitted rather than returned with zero.
         assert!(
@@ -358,7 +376,8 @@ mod tests {
                 TeamAbbr::BUF,
                 8200,
             );
-            new_player.game.season_week = SeasonWeek::reg(2);
+            new_player.game.season_week =
+                SeasonWeek::new(Season::default(), Week(2)).expect("valid season week");
 
             assert!(
                 store
@@ -368,7 +387,9 @@ mod tests {
             );
             assert_eq!(
                 store
-                    .salaried_players_for(SeasonWeek::reg(1))
+                    .salaried_players_for(
+                        SeasonWeek::new(Season::default(), Week(1)).expect("valid season week")
+                    )
                     .await
                     .unwrap(),
                 vec![existing]
@@ -469,7 +490,9 @@ mod tests {
         store.save_salaried_players(&salaries).await.unwrap();
 
         let fetched = store
-            .salaried_players_for(SeasonWeek::reg(1))
+            .salaried_players_for(
+                SeasonWeek::new(Season::default(), Week(1)).expect("valid season week"),
+            )
             .await
             .unwrap();
         assert_eq!(fetched.len(), 2);
@@ -504,7 +527,8 @@ mod tests {
             8200,
         );
         let mut week_two = week_one.clone();
-        week_two.game.season_week = SeasonWeek::reg(2);
+        week_two.game.season_week =
+            SeasonWeek::new(Season::default(), Week(2)).expect("valid season week");
         week_two.salary = 8100;
         store
             .save_salaried_players(&[week_one.clone(), week_two])
@@ -512,13 +536,17 @@ mod tests {
             .unwrap();
 
         let fetched = store
-            .salaried_players_for(SeasonWeek::reg(1))
+            .salaried_players_for(
+                SeasonWeek::new(Season::default(), Week(1)).expect("valid season week"),
+            )
             .await
             .unwrap();
         assert_eq!(fetched, vec![week_one]);
         assert!(
             store
-                .salaried_players_for(SeasonWeek::reg(3))
+                .salaried_players_for(
+                    SeasonWeek::new(Season::default(), Week(3)).expect("valid season week")
+                )
                 .await
                 .unwrap()
                 .is_empty()

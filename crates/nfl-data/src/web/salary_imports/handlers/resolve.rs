@@ -129,7 +129,6 @@ mod tests {
             },
             crate::SeasonWeek {
                 season: crate::Season(2025),
-                season_type: crate::SeasonType::Reg,
                 week: crate::Week(1),
             },
         )

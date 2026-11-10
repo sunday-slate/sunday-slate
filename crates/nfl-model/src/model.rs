@@ -236,7 +236,6 @@ mod kickoff_eastern_tests {
             game_id: "x".into(),
             season_week: SeasonWeek {
                 season: Season(2025),
-                season_type: SeasonType::Reg,
                 week: Week(1),
             },
             kickoff,

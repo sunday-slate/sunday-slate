@@ -65,7 +65,11 @@ impl Fixture {
             .bind(&game.game_id)
             .bind(game.season_week.season)
             .bind(game.season_week.week)
-            .bind(game.season_week.season_type)
+            .bind(if game.season_week.postseason() {
+                crate::SeasonType::Post
+            } else {
+                crate::SeasonType::Reg
+            })
             .bind(game.kickoff)
             .bind(game.home_team)
             .bind(game.away_team)

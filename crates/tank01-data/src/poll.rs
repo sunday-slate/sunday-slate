@@ -596,7 +596,7 @@ mod tests {
     };
     use nfl_model::{
         EspnPlayerId, LiveGamePhase, LiveGameSnapshot, LivePlayerStats, LiveProviderError,
-        LiveScoreboardGame, LiveTeamStats, RawBody, Season, SeasonType, TeamAbbr, Week,
+        LiveScoreboardGame, LiveTeamStats, RawBody, Season, TeamAbbr, Week,
     };
     use serde_json::json;
 
@@ -606,7 +606,6 @@ mod tests {
             tank01_game_id: provider_id.into(),
             season_week: nfl_model::SeasonWeek {
                 season: Season(2026),
-                season_type: SeasonType::Reg,
                 week: Week(1),
             },
             kickoff: Some(datetime!(2026-09-10 20:35:00 -04:00)),

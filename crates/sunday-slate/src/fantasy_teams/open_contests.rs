@@ -82,7 +82,7 @@ pub fn open_contests(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nfl_data::{Season, SeasonType, SeasonWeek, Week};
+    use nfl_data::{Season, SeasonWeek, Week};
     use time::macros::datetime;
 
     fn slate(id: i64, name: &str, kickoff: OffsetDateTime, multiday: bool) -> Slate {
@@ -90,7 +90,6 @@ mod tests {
             id: SlateId(id),
             season_week: SeasonWeek {
                 season: Season(2026),
-                season_type: SeasonType::Reg,
                 week: Week(1),
             },
             name: name.to_string(),
@@ -201,7 +200,6 @@ mod tests {
             id: SlateId(9),
             season_week: SeasonWeek {
                 season: Season(2026),
-                season_type: SeasonType::Reg,
                 week: Week(9),
             },
             name: "Week 9".to_string(),

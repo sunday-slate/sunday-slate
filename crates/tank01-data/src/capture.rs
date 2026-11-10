@@ -284,8 +284,8 @@ mod tests {
     use super::*;
     use crate::poll::PollRequest;
     use nfl_model::{
-        LiveGame, LiveScoreboard, ProviderOutcome, ProviderResponse, RawBody, Season, SeasonType,
-        TeamAbbr, Week,
+        LiveGame, LiveScoreboard, ProviderOutcome, ProviderResponse, RawBody, Season, TeamAbbr,
+        Week,
     };
     use time::macros::{date, datetime};
 
@@ -295,7 +295,6 @@ mod tests {
             tank01_game_id: "20260910_SF@LAR".into(),
             season_week: nfl_model::SeasonWeek {
                 season: Season(2026),
-                season_type: SeasonType::Reg,
                 week: Week(1),
             },
             kickoff: Some(datetime!(2026-09-10 20:35:00 -04:00)),

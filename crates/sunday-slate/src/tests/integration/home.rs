@@ -9,7 +9,6 @@ use crate::tests::publish_slate;
 fn week(week: u8) -> nfl_data::SeasonWeek {
     nfl_data::SeasonWeek {
         season: nfl_data::Season(2026),
-        season_type: nfl_data::SeasonType::Reg,
         week: nfl_data::Week(week),
     }
 }
@@ -128,7 +127,6 @@ async fn multiday_slate_status_drives_catalog_details_and_open_rows(pool: sqlx::
 
     let wild_card = nfl_data::SeasonWeek {
         season: nfl_data::Season(2026),
-        season_type: nfl_data::SeasonType::Post,
         week: nfl_data::Week(19),
     };
     let games = [
@@ -312,7 +310,6 @@ async fn catalog_includes_holiday_and_postseason_slates(pool: sqlx::SqlitePool) 
 
     let wild_card = nfl_data::SeasonWeek {
         season: nfl_data::Season(2026),
-        season_type: nfl_data::SeasonType::Post,
         week: nfl_data::Week(19),
     };
     let saturday = nfl_data::Game {

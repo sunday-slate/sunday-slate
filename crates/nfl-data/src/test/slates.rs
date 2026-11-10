@@ -8,17 +8,15 @@ use time::macros::datetime;
 
 use crate::slates;
 use crate::slates::{Slate, SlateId};
-use crate::{Game, NflData, NflDataConfig, Season, SeasonType, SeasonWeek, Week};
+use crate::{Game, NflData, NflDataConfig, Season, SeasonWeek, Week};
 
 const WEEK_13: SeasonWeek = SeasonWeek {
     season: Season(2025),
-    season_type: SeasonType::Reg,
     week: Week(13),
 };
 
 const WEEK_16: SeasonWeek = SeasonWeek {
     season: Season(2025),
-    season_type: SeasonType::Reg,
     week: Week(16),
 };
 
@@ -27,7 +25,6 @@ fn game(id: &str, week: u8, kickoff: Option<OffsetDateTime>) -> Game {
         game_id: id.into(),
         season_week: SeasonWeek {
             season: Season(2025),
-            season_type: SeasonType::Reg,
             week: Week(week),
         },
         kickoff,

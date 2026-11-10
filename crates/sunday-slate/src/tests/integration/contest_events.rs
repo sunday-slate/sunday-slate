@@ -24,7 +24,6 @@ use crate::tests::publish_slate;
 fn week(number: u8) -> nfl_data::SeasonWeek {
     nfl_data::SeasonWeek {
         season: nfl_data::Season(2026),
-        season_type: nfl_data::SeasonType::Reg,
         week: nfl_data::Week(number),
     }
 }

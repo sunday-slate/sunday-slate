@@ -11,8 +11,8 @@
       </label>
       <label>Season type
         <select class="select select-bordered w-full" name="season_type">
-          <option value="REG" {% if cur_week.season_type.is_reg() %}selected{% endif %}>Regular</option>
-          <option value="POST" {% if !cur_week.season_type.is_reg() %}selected{% endif %}>Postseason</option>
+          <option value="REG" {% if !cur_week.postseason() %}selected{% endif %}>Regular</option>
+          <option value="POST" {% if cur_week.postseason() %}selected{% endif %}>Postseason</option>
         </select>
       </label>
       <label>Week
@@ -27,7 +27,7 @@
     {% for (week, counts) in weeks.iter().rev() %}
     <li>
       <a class="flex flex-wrap justify-between gap-2 rounded-box border border-base-300 p-4" href="/nfl-data-admin/salary-imports/{{ week.encode() }}">
-        <span>{{ week.season }} · {{ week.season_type }} · week {{ week.week }}</span>
+        <span>{{ week.season }} · {% if week.postseason() %}POST{% else %}REG{% endif %} · week {{ week.week }}</span>
         <span>{{ counts.salary_count }} salaries · {{ counts.unmatched_count }} unresolved</span>
       </a>
     </li>

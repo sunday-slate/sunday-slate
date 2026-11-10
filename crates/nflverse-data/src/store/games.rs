@@ -1,5 +1,5 @@
 use crate::error::NflDataError;
-use crate::model::{Game, Season, SeasonWeek};
+use crate::model::{Game, Season, SeasonType, SeasonWeek};
 use crate::store::Store;
 use crate::store::sync_state::{self, SyncedAsset};
 use sqlx::{Row, SqliteConnection, SqlitePool};
@@ -9,6 +9,11 @@ use sqlx::{Row, SqliteConnection, SqlitePool};
 /// tooling only — see `NflData::seed_for_test`.
 pub(crate) async fn seed(conn: &mut SqliteConnection, games: &[Game]) -> Result<(), NflDataError> {
     for g in games {
+        let season_type = if g.season_week.postseason() {
+            SeasonType::Post
+        } else {
+            SeasonType::Reg
+        };
         sqlx::query!(
             r#"INSERT INTO games
                (game_id, season, week, season_type, kickoff,
@@ -17,7 +22,7 @@ pub(crate) async fn seed(conn: &mut SqliteConnection, games: &[Game]) -> Result<
             g.game_id,
             g.season_week.season,
             g.season_week.week,
-            g.season_week.season_type,
+            season_type,
             g.kickoff,
             g.home_team,
             g.away_team,
@@ -41,6 +46,11 @@ pub(crate) async fn replace(
                 .execute(&mut *conn)
                 .await?;
             for g in games {
+                let season_type = if g.season_week.postseason() {
+                    SeasonType::Post
+                } else {
+                    SeasonType::Reg
+                };
                 sqlx::query!(
                     r#"INSERT INTO games
                        (game_id, season, week, season_type, kickoff,
@@ -49,7 +59,7 @@ pub(crate) async fn replace(
                     g.game_id,
                     g.season_week.season,
                     g.season_week.week,
-                    g.season_week.season_type,
+                    season_type,
                     g.kickoff,
                     g.home_team,
                     g.away_team,
@@ -74,12 +84,6 @@ pub(crate) async fn for_season(
                game_id,
                season,
                week,
-               -- Normalize legacy labels while retaining numeric SQLx enum encodings.
-               CAST(CASE season_type
-                   WHEN 'REG' THEN 0
-                   WHEN 'POST' THEN 1
-                   ELSE season_type
-               END AS INTEGER) AS season_type,
                kickoff,
                home_team,
                away_team,
@@ -95,7 +99,6 @@ pub(crate) async fn for_season(
             game_id: row.try_get("game_id")?,
             season_week: SeasonWeek {
                 season: row.try_get("season")?,
-                season_type: row.try_get("season_type")?,
                 week: row.try_get("week")?,
             },
             kickoff: row.try_get("kickoff")?,
@@ -111,7 +114,7 @@ pub(crate) async fn for_season(
 
 #[cfg(test)]
 mod tests {
-    use crate::model::{SeasonType, TeamAbbr, Week};
+    use crate::model::{TeamAbbr, Week};
     use time::macros::datetime;
 
     use super::*;
@@ -121,7 +124,6 @@ mod tests {
             game_id: id.to_string(),
             season_week: SeasonWeek {
                 season: Season(2025),
-                season_type: SeasonType::Reg,
                 week: Week(week),
             },
             kickoff: Some(datetime!(2025-10-03 00:15 UTC)),
@@ -175,7 +177,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn for_season_decodes_text_and_integer_season_types() {
+    async fn for_season_round_trips_canonical_week_18_and_week_22() {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(&format!("sqlite://{}/t.db", dir.path().display()))
             .await
@@ -183,42 +185,39 @@ mod tests {
 
         store
             .write_tx(async |conn| {
-                for (id, week, season_type) in [
-                    ("2025_20_REG", 20, "REG"),
-                    ("2025_21_POST", 21, "POST"),
-                ] {
-                    sqlx::query(
-                        "INSERT INTO games (game_id, season, week, season_type, home_team, away_team) VALUES (?, 2025, ?, ?, 'LA', 'SF')",
-                    )
-                    .bind(id)
-                    .bind(week)
-                    .bind(season_type)
-                    .execute(&mut *conn)
-                    .await?;
-                }
-                let integer_encoded = [
-                    game("2025_19_INT_REG", 19),
-                    {
-                        let mut post = game("2025_18_INT_POST", 18);
-                        post.season_week.season_type = SeasonType::Post;
-                        post
-                    },
-                ];
-                seed(conn, &integer_encoded).await?;
+                seed(
+                    conn,
+                    &[game("2025_18_SF_LA", 18), game("2025_22_SEA_NE", 22)],
+                )
+                .await?;
                 Ok(())
             })
             .await
             .unwrap();
 
         let games = for_season(store.reader(), Season(2025)).await.unwrap();
-        let season_types: std::collections::HashMap<_, _> = games
-            .into_iter()
-            .map(|game| (game.game_id, game.season_week.season_type))
-            .collect();
-        assert_eq!(season_types["2025_20_REG"], SeasonType::Reg);
-        assert_eq!(season_types["2025_21_POST"], SeasonType::Post);
-        assert_eq!(season_types["2025_19_INT_REG"], SeasonType::Reg);
-        assert_eq!(season_types["2025_18_INT_POST"], SeasonType::Post);
+        assert_eq!(games.len(), 2);
+
+        assert_eq!(games[0].game_id, "2025_18_SF_LA");
+        assert_eq!(games[0].season_week.season, Season(2025));
+        assert_eq!(games[0].season_week.week, Week(18));
+        assert!(!games[0].season_week.postseason());
+
+        assert_eq!(games[1].game_id, "2025_22_SEA_NE");
+        assert_eq!(games[1].season_week.season, Season(2025));
+        assert_eq!(games[1].season_week.week, Week(22));
+        assert!(games[1].season_week.postseason());
+
+        // The stored classification column stays consistent with the absolute week.
+        let stored: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT game_id, CAST(season_type AS INTEGER) FROM games ORDER BY game_id",
+        )
+        .fetch_all(store.reader())
+        .await
+        .unwrap();
+        assert_eq!(stored.len(), 2);
+        assert_eq!(stored[0], ("2025_18_SF_LA".to_string(), 0));
+        assert_eq!(stored[1], ("2025_22_SEA_NE".to_string(), 1));
     }
 
     #[tokio::test]

@@ -5,7 +5,7 @@ use super::test_support::Fixture;
 use crate::slates;
 use crate::slates::{Slate, SlateId};
 use crate::store;
-use crate::{Game, NflData, Season, SeasonType, SeasonWeek, Week};
+use crate::{Game, NflData, Season, SeasonWeek, Week};
 
 const BEFORE: OffsetDateTime = datetime!(2025-11-24 04:59:59 UTC);
 const MONDAY: OffsetDateTime = datetime!(2025-11-24 05:00 UTC);
@@ -16,17 +16,14 @@ const EDT_MONDAY: OffsetDateTime = datetime!(2025-09-01 04:00 UTC);
 
 const WEEK_13: SeasonWeek = SeasonWeek {
     season: Season(2025),
-    season_type: SeasonType::Reg,
     week: Week(13),
 };
 const WEEK_1: SeasonWeek = SeasonWeek {
     season: Season(2025),
-    season_type: SeasonType::Reg,
     week: Week(1),
 };
 const WEEK_16: SeasonWeek = SeasonWeek {
     season: Season(2025),
-    season_type: SeasonType::Reg,
     week: Week(16),
 };
 const BEFORE_WEEK_16: OffsetDateTime = datetime!(2025-12-22 04:59:59 UTC);
@@ -38,7 +35,6 @@ fn game(id: &str, week: u8, kickoff: Option<OffsetDateTime>) -> Game {
         game_id: id.into(),
         season_week: SeasonWeek {
             season: Season(2025),
-            season_type: SeasonType::Reg,
             week: Week(week),
         },
         kickoff,
@@ -194,6 +190,57 @@ async fn counts_for_season_reports_membership_per_slate() {
     let week = stored_week(&fixture.nfl, WEEK_13).await;
     assert_eq!(counts[&slate_named(&week, "Week 13").id], 2);
     assert_eq!(counts[&slate_named(&week, "Thanksgiving").id], 3);
+}
+
+#[tokio::test]
+async fn season_query_returns_a_stored_week_22_slate() {
+    let fixture = Fixture::connect().await;
+    fixture
+        .nfl
+        .seed_for_test(&[], &week_13_games())
+        .await
+        .unwrap();
+    populate(&fixture.nfl, MONDAY).await;
+
+    let before = slates::all(&fixture.nfl).await.expect("season slates");
+    let older_ids: Vec<SlateId> = before.iter().map(|slate| slate.id).collect();
+    assert!(!older_ids.is_empty());
+
+    let super_bowl_week = SeasonWeek {
+        season: Season(2025),
+        week: Week(22),
+    };
+    let super_bowl = crate::slates::SlateProposal {
+        id: SlateId(i64::from(super_bowl_week.encode()) * 10 + 1),
+        name: "Super Bowl".into(),
+        kickoff: Some(datetime!(2026-02-08 23:30 UTC)),
+        multiday: false,
+        game_ids: Vec::new(),
+    };
+    store::slates::reconcile(
+        &fixture.nfl.store,
+        super_bowl_week,
+        &[super_bowl],
+        &[],
+        false,
+    )
+    .await
+    .expect("store week 22 slate");
+
+    let after = slates::all(&fixture.nfl).await.expect("season slates");
+    let after_ids: Vec<SlateId> = after.iter().map(|slate| slate.id).collect();
+    assert_eq!(
+        &after_ids[..older_ids.len()],
+        &older_ids[..],
+        "older slate ids are unchanged"
+    );
+    let stored = after
+        .iter()
+        .find(|slate| slate.id == SlateId(20251221))
+        .expect("the week 22 slate is in the season query");
+    assert_eq!(stored.season_week, super_bowl_week);
+    assert_eq!(stored.name, "Super Bowl");
+    assert_eq!(stored.kickoff, Some(datetime!(2026-02-08 23:30 UTC)));
 }
 
 fn ids(games: &[Game]) -> Vec<&str> {

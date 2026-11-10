@@ -39,7 +39,6 @@ async fn pre_week_one_lists_every_team_without_scores_or_ranks(pool: SqlitePool)
 
     let week = nfl_data::SeasonWeek {
         season: nfl_data::Season(2025),
-        season_type: nfl_data::SeasonType::Reg,
         week: nfl_data::Week(1),
     };
     let wk1 = publish_slate(

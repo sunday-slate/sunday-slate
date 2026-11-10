@@ -272,7 +272,6 @@ pub fn headshot_salary_games() -> Vec<nfl_data::Game> {
     .map(|(id, week, kickoff)| nfl_data::Game {
         season_week: nfl_data::SeasonWeek {
             season: nfl_data::Season(2026),
-            season_type: nfl_data::SeasonType::Reg,
             week: nfl_data::Week(week),
         },
         kickoff: Some(kickoff),
@@ -340,7 +339,6 @@ pub async fn publish_headshot_slate(app: &TestApp, week: u8, players: &[nfl_data
         slate.season_week,
         nfl_data::SeasonWeek {
             season: nfl_data::Season(2026),
-            season_type: nfl_data::SeasonType::Reg,
             week: nfl_data::Week(week),
         },
         "the published maximum slate is the uploaded week"
@@ -446,10 +444,7 @@ pub async fn publish_slate(
             },
         ),
     ));
-    let season_type = match week.season_type {
-        nfl_data::SeasonType::Reg => "REG",
-        nfl_data::SeasonType::Post => "POST",
-    };
+    let season_type = if week.postseason() { "POST" } else { "REG" };
     let form = axum_test::multipart::MultipartForm::new()
         .add_text("season", week.season.0.to_string())
         .add_text("season_type", season_type)

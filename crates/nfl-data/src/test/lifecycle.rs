@@ -166,7 +166,6 @@ Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,
     fn salaried_week() -> SeasonWeek {
         SeasonWeek {
             season: Season(2026),
-            season_type: SeasonType::Reg,
             week: Week(WEEK_NUM),
         }
     }

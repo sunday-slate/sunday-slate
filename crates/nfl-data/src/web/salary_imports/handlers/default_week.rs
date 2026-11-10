@@ -1,4 +1,4 @@
-use crate::{Game, Season, SeasonType, SeasonWeek, Week, to_eastern};
+use crate::{Game, Season, SeasonWeek, Week, to_eastern};
 use nfl_model::nfl_week_monday;
 
 /// Select the next contest week, treating Monday night as belonging to the week just played.
@@ -22,7 +22,6 @@ pub(crate) fn default_season_week(
     weeks.sort_by_key(|game| game.kickoff);
     weeks.first().map(|g| g.season_week).unwrap_or(SeasonWeek {
         season: configured_season,
-        season_type: SeasonType::Reg,
         week: Week(1),
     })
 }
@@ -37,7 +36,6 @@ mod default_week_tests {
             game_id: id.into(),
             season_week: SeasonWeek {
                 season: Season(2025),
-                season_type: SeasonType::Reg,
                 week: Week(week),
             },
             kickoff: Some(kickoff),
@@ -67,7 +65,6 @@ mod default_week_tests {
             default_season_week(&games, Season(2025), datetime!(2025-10-05 23:00 UTC)),
             SeasonWeek {
                 season: Season(2025),
-                season_type: SeasonType::Reg,
                 week: Week(1)
             }
         );
@@ -80,7 +77,6 @@ mod default_week_tests {
             default_season_week(&games, Season(2026), datetime!(2026-12-01 12:00 UTC)),
             SeasonWeek {
                 season: Season(2026),
-                season_type: SeasonType::Reg,
                 week: Week(1)
             }
         );

@@ -43,12 +43,25 @@ pub mod web;
 #[cfg(test)]
 mod tests;
 
+use nfl_data::{SeasonType, SeasonWeek};
+
 pub use app::App;
 pub use config::Config;
 pub use db::Db;
 pub use error::AppError;
 pub use state::AppState;
 pub use users::User;
+
+/// The classification a season week implies: weeks 1–18 are regular season and
+/// week 19 onward is postseason. Provider rows still carry the enum explicitly,
+/// so derive it from the week instead of storing it twice.
+pub(crate) fn season_type_of(week: SeasonWeek) -> SeasonType {
+    if week.postseason() {
+        SeasonType::Post
+    } else {
+        SeasonType::Reg
+    }
+}
 
 /// Default filter; a non-blank `RUST_LOG` replaces it.
 const DEFAULT_LOG_FILTER: &str = "warn,sunday_slate=info,nfl_data=info,nflverse_data=info,tank01_data=info,fanduel_data=info,utils=info";

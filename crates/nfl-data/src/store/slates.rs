@@ -301,7 +301,6 @@ mod tests {
     fn reg_week(week: u8) -> SeasonWeek {
         SeasonWeek {
             season: Season(2025),
-            season_type: SeasonType::Reg,
             week: Week(week),
         }
     }
@@ -309,7 +308,6 @@ mod tests {
     fn post_week(week: u8) -> SeasonWeek {
         SeasonWeek {
             season: Season(2025),
-            season_type: SeasonType::Post,
             week: Week(week),
         }
     }
@@ -319,7 +317,6 @@ mod tests {
             game_id: id.into(),
             season_week: SeasonWeek {
                 season: Season(2025),
-                season_type: SeasonType::Reg,
                 week: Week(5),
             },
             kickoff,

@@ -287,7 +287,6 @@ async fn entry_page_sticky_switches_the_active_league(pool: SqlitePool) {
     };
     let week = nfl_data::SeasonWeek {
         season: nfl_data::Season(2025),
-        season_type: nfl_data::SeasonType::Reg,
         week: nfl_data::Week(1),
     };
     let slate = publish_slate(&app, week, &[scheduled], &[]).await;

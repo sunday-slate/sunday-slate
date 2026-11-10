@@ -252,7 +252,7 @@ fn format_dates(first: time::Date, last: time::Date) -> String {
 #[cfg(test)]
 mod contest_list_tests {
     use super::*;
-    use nfl_data::{SeasonType, SeasonWeek};
+    use nfl_data::SeasonWeek;
     use time::macros::{date, datetime};
 
     /// A fixed "now" late enough that every Sept 2025 contest is finished.
@@ -272,7 +272,6 @@ mod contest_list_tests {
             id: SlateId(id),
             season_week: SeasonWeek {
                 season: Season(2026),
-                season_type: SeasonType::Reg,
                 week: Week(1),
             },
             name: name.into(),
@@ -1039,7 +1038,7 @@ mod tests {
     use crate::live::{LiveContestSnapshot, LiveGameState};
     use crate::tests::TestApp;
     use crate::tests::factories::{self, TeamOptions};
-    use nfl_data::{Game, LiveGamePhase, Season, SeasonType, TeamAbbr, Week};
+    use nfl_data::{Game, LiveGamePhase, Season, TeamAbbr, Week};
     use sqlx::SqlitePool;
     use time::OffsetDateTime;
     use time::macros::datetime;
@@ -1064,7 +1063,6 @@ mod tests {
             game_id: id.into(),
             season_week: nfl_data::SeasonWeek {
                 season: Season(2025),
-                season_type: SeasonType::Post,
                 week: Week(19),
             },
             kickoff,
@@ -1366,7 +1364,6 @@ mod tests {
         let other = factories::team(&pool, TeamOptions::default()).await;
         let week = nfl_data::SeasonWeek {
             season: Season(2026),
-            season_type: SeasonType::Reg,
             week: Week(1),
         };
         let game = nfl_data::Game {

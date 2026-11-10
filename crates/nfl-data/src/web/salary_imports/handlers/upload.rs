@@ -18,10 +18,15 @@ pub async fn upload(
     let overview = import_salary_csv(&state, season_week, &csv)
         .await
         .map_err(|e| SalaryAdminError::BadRequest(e.to_string()))?;
+    let season_type = if overview.season_week.postseason() {
+        crate::SeasonType::Post
+    } else {
+        crate::SeasonType::Reg
+    };
     tracing::info!(
         season = overview.season_week.season.0,
         week = overview.season_week.week.0,
-        season_type = ?overview.season_week.season_type,
+        season_type = ?season_type,
         salary_count = overview.salary_count,
         "salary import processed"
     );
@@ -116,7 +121,6 @@ async fn read_upload(mut mp: Multipart) -> Result<SalaryUpload, SalaryAdminError
         .ok_or_else(|| SalaryAdminError::BadRequest("missing csv file".into()))?;
     let season_week = crate::SeasonWeek {
         season: crate::Season(season),
-        season_type,
         week: crate::Week(week),
     };
     Ok(SalaryUpload { season_week, csv })
@@ -228,7 +232,6 @@ mod tests {
                     game_id: "2025_21_BUF_NYJ".into(),
                     season_week: crate::SeasonWeek {
                         season: crate::Season(2025),
-                        season_type: crate::SeasonType::Post,
                         week: crate::Week(21),
                     },
                     kickoff: None,

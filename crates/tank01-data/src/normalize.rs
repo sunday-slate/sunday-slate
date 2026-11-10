@@ -1614,7 +1614,7 @@ fn canonicalize(value: &Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nfl_model::{LiveGame, LiveGamePhase, Season, SeasonType, TeamAbbr, Week};
+    use nfl_model::{LiveGame, LiveGamePhase, Season, TeamAbbr, Week};
     use serde_json::json;
     use time::macros::{date, datetime};
 
@@ -1624,7 +1624,6 @@ mod tests {
             tank01_game_id: "20260910_SF@LAR".into(),
             season_week: nfl_model::SeasonWeek {
                 season: Season(2026),
-                season_type: SeasonType::Reg,
                 week: Week(1),
             },
             kickoff: Some(datetime!(2026-09-10 20:35:00 -04:00)),
@@ -1675,7 +1674,6 @@ mod tests {
             tank01_game_id: "20260927_CAR@CLE".into(),
             season_week: nfl_model::SeasonWeek {
                 season: Season(2026),
-                season_type: SeasonType::Reg,
                 week: Week(3),
             },
             kickoff: Some(datetime!(2026-09-27 17:00:00 UTC)),

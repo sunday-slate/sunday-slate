@@ -17,7 +17,6 @@ const AFTER_KICKOFF: OffsetDateTime = datetime!(2026-09-13 18:00 UTC);
 fn week() -> nfl_data::SeasonWeek {
     nfl_data::SeasonWeek {
         season: nfl_data::Season(2026),
-        season_type: nfl_data::SeasonType::Reg,
         week: nfl_data::Week(1),
     }
 }
