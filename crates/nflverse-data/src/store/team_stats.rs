@@ -233,7 +233,7 @@ mod tests {
             let rows = for_week(store.reader(), expected.season_week)
                 .await
                 .unwrap();
-            assert_eq!(rows, [expected.clone()]);
+            assert_eq!(rows, std::slice::from_ref(expected));
             assert_eq!(
                 rows[0].season_week.postseason(),
                 expected.season_week.week.0 > 18
