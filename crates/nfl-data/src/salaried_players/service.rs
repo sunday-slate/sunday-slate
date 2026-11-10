@@ -3,9 +3,7 @@ use crate::slates::{self, Slate, SlateId};
 use crate::store::player_link;
 use crate::{NflData, NflDataError, PlayerIdentity, scoring};
 use fanduel_data::{Matchup, SalariedPlayer as FdSalariedPlayer};
-use nfl_model::{
-    DfsPosition, DfsPositionSlotType, Game, NflPlayerId, SeasonType, SeasonWeek, TeamAbbr,
-};
+use nfl_model::{DfsPosition, DfsPositionSlotType, Game, NflPlayerId, SeasonWeek, TeamAbbr};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -65,26 +63,20 @@ async fn slate_salaried_players(
     let games = fd_game_map(nfl, &slate.id, &fd_games).await?;
 
     // the week's own rows scored for this slate: a row absent here leaves the
-    // entry unattached
-    let season_type = if slate.season_week.postseason() {
-        SeasonType::Post
-    } else {
-        SeasonType::Reg
-    };
+    // entry unattached. A `SeasonWeek` names its season type, so a week 19
+    // read is postseason without a separate filter.
     // read the slate week directly: `scoring::week_stats` drops a week when
     // either dataset is empty, but each attachment stands alone
     let player_stats: HashMap<NflPlayerId, crate::PlayerWeekStats> = nfl
-        .player_week_stats(slate.season_week.season, slate.season_week.week)
+        .player_week_stats(slate.season_week)
         .await?
         .into_iter()
-        .filter(|row| row.season_type == season_type)
         .map(|row| (NflPlayerId(row.gsis_id.clone()), row))
         .collect();
     let team_stats: HashMap<TeamAbbr, crate::TeamWeekStats> = nfl
-        .team_week_stats(slate.season_week.season, slate.season_week.week)
+        .team_week_stats(slate.season_week)
         .await?
         .into_iter()
-        .filter(|row| row.season_type == season_type)
         .map(|row| (row.team, row))
         .collect();
 

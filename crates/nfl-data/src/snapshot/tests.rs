@@ -634,7 +634,7 @@ async fn scored_stats_attach_the_salaried_weeks_rows() {
         panic!("a player salary attaches a player row");
     };
     assert_eq!(
-        (row.week, row.rushing_yards, row.rushing_tds),
+        (row.season_week.week, row.rushing_yards, row.rushing_tds),
         (Week(5), 150, 1)
     );
     // 150 rushing yards, the touchdown, and the 100+ yard bonus
@@ -697,7 +697,12 @@ async fn scored_stats_attach_dst_rows_and_leave_missing_teams_empty() {
         panic!("a DST salary attaches a team row");
     };
     assert_eq!(
-        (row.week, row.sacks, row.interceptions, row.points_allowed),
+        (
+            row.season_week.week,
+            row.sacks,
+            row.interceptions,
+            row.points_allowed
+        ),
         (Week(5), 3, 1, 10)
     );
     // 3 sacks, 2 for the interception, 4 for 7-13 points allowed
@@ -757,7 +762,6 @@ async fn scored_stats_use_each_slates_own_week() {
         .await
         .expect("save links");
     let mack_wild_card = PlayerWeekStats {
-        season_type: SeasonType::Post,
         rushing_yards: 50,
         ..player_stats("00-MACK", 19)
     };
@@ -784,7 +788,10 @@ async fn scored_stats_use_each_slates_own_week() {
         let WeeklyStats::Player(row) = &scored.stats else {
             panic!("a player salary attaches a player row");
         };
-        assert_eq!((row.week, row.rushing_yards), (week.week, yards));
+        assert_eq!(
+            (row.season_week.week, row.rushing_yards),
+            (week.week, yards)
+        );
         assert!((scored.score.total - total).abs() < 1e-9, "{scored:?}");
     }
 }
