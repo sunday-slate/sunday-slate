@@ -159,11 +159,10 @@ pub(crate) async fn seed_representative_slate(nfl: &NflData) {
     .unwrap();
 }
 
-/// Upload form for the representative slate: 2025 with an explicit absolute
-/// week and CSV body.
+/// Upload form for the representative slate: an absolute week and CSV body,
+/// imported into the admin's configured season.
 pub(crate) fn salary_upload_form(week: u8, csv: &str) -> MultipartForm {
     MultipartForm::new()
-        .add_text("season", "2025")
         .add_text("week", week.to_string())
         .add_part(
             "csv",
@@ -200,13 +199,10 @@ fn player(gsis: &str, name: &str, team: &str) -> Player {
 }
 
 pub(crate) fn upload_form() -> MultipartForm {
-    MultipartForm::new()
-        .add_text("season", "2025")
-        .add_text("week", "1")
-        .add_part(
-            "csv",
-            Part::bytes(DASHBOARD_CSV.as_bytes().to_vec()).file_name("salary.csv"),
-        )
+    MultipartForm::new().add_text("week", "1").add_part(
+        "csv",
+        Part::bytes(DASHBOARD_CSV.as_bytes().to_vec()).file_name("salary.csv"),
+    )
 }
 
 #[tokio::test]
@@ -348,10 +344,4 @@ async fn dashboard_form_uses_config_clock_at_the_monday_boundary() {
         .unwrap();
     let root = state.server.get("/nfl-data-admin/salary-imports").await;
     root.assert_text_contains("value=\"6\"");
-    root.assert_text_contains("1–18 regular season, 19–22 postseason");
-    assert!(
-        !root.text().contains("name=\"season_type\""),
-        "the import form no longer asks for a season type: {}",
-        root.text()
-    );
 }

@@ -312,7 +312,6 @@ pub async fn publish_headshot_slate(app: &TestApp, week: u8, players: &[nfl_data
         ),
     ));
     let form = axum_test::multipart::MultipartForm::new()
-        .add_text("season", "2026")
         .add_text("week", week.to_string())
         .add_part(
             "csv",
@@ -444,7 +443,6 @@ pub async fn publish_slate(
         ),
     ));
     let form = axum_test::multipart::MultipartForm::new()
-        .add_text("season", week.season.0.to_string())
         .add_text("week", week.week.0.to_string())
         .add_part(
             "csv",
