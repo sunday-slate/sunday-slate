@@ -10,7 +10,7 @@ use time::macros::datetime;
 use utils::background::RunnerState;
 
 use super::{SalariedPlayers, Snapshot};
-use crate::salaried_players::{SalariedPlayer, SalariedPlayersBySlot};
+use crate::salaried_players::{SalariedPlayer, SalariedPlayersBySlot, WeeklyStats};
 use crate::scoring::{score_defense, score_player};
 use crate::slates::{self, Slate, SlateId};
 use crate::store::player_link::{self, PlayerLink};
@@ -607,6 +607,251 @@ Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,
     assert!(!slate.live(datetime!(2027-01-11 05:00 UTC)));
 }
 
+#[tokio::test]
+async fn scored_stats_attach_the_salaried_weeks_rows() {
+    let nfl = in_memory_fixture().await;
+    // seeding replaces the season's rows, so week 4 stays for the FPPG fixtures
+    nfl.seed_week_stats_for_test(
+        SEASON,
+        &[
+            mack_week_stats(4),
+            mack_week_stats(5),
+            player_stats("00-GAMMA", 5),
+        ],
+        &[kc_week_stats(4), buf_week_stats(4)],
+    )
+    .await
+    .expect("seed week stats");
+    nfl.rebuild_snapshot().await.expect("rebuild");
+    let snapshot = nfl.snapshot();
+    let main_id = main_slate_id(SEASON);
+
+    let mack = snapshot
+        .player(&main_id, &NflPlayerId("00-MACK".into()))
+        .expect("mack is built");
+    let scored = mack.scored_stats.as_ref().expect("week 5 has mack's row");
+    let WeeklyStats::Player(row) = &scored.stats else {
+        panic!("a player salary attaches a player row");
+    };
+    assert_eq!(
+        (row.week, row.rushing_yards, row.rushing_tds),
+        (Week(5), 150, 1)
+    );
+    // 150 rushing yards, the touchdown, and the 100+ yard bonus
+    assert!((scored.score.total - 24.0).abs() < 1e-9, "{scored:?}");
+    let breakdown: Vec<(&str, Option<f64>)> = scored
+        .score
+        .lines
+        .iter()
+        .map(|line| (line.stat, line.quantity))
+        .collect();
+    assert_eq!(
+        breakdown,
+        [
+            ("RuY", Some(150.0)),
+            ("RuTD", Some(1.0)),
+            ("100+ RuY Gm", None)
+        ]
+    );
+    for (line, expected) in scored.score.lines.iter().zip([15.0, 6.0, 3.0]) {
+        assert!((line.points - expected).abs() < 1e-9, "{line:?}");
+    }
+
+    // a seeded all-zero row is still a row: attached, scoring nothing
+    let gamma = snapshot
+        .player(&main_id, &NflPlayerId("00-GAMMA".into()))
+        .expect("gamma is built");
+    let gamma_scored = gamma.scored_stats.as_ref().expect("gamma's week 5 row");
+    assert_eq!(gamma_scored.score.total, 0.0);
+    assert!(gamma_scored.score.lines.is_empty());
+
+    // no row means no attachment, never a zero score
+    let zack = snapshot
+        .player(&main_id, &NflPlayerId("00-ZACK".into()))
+        .expect("zack is built");
+    assert!(zack.scored_stats.is_none());
+    for team in [TeamAbbr::KC, TeamAbbr::BUF] {
+        let defense = snapshot.defense(&main_id, &team).expect("dst is built");
+        assert!(defense.scored_stats.is_none(), "{team} has no week 5 row");
+    }
+}
+
+#[tokio::test]
+async fn scored_stats_attach_dst_rows_and_leave_missing_teams_empty() {
+    let nfl = in_memory_fixture().await;
+    // team rows only for the slate week: no player row is seeded for week 5
+    nfl.seed_week_stats_for_test(
+        SEASON,
+        &[mack_week_stats(4)],
+        &[kc_week_stats(4), buf_week_stats(4), kc_week_stats(5)],
+    )
+    .await
+    .expect("seed week stats");
+    nfl.rebuild_snapshot().await.expect("rebuild");
+    let snapshot = nfl.snapshot();
+    let main_id = main_slate_id(SEASON);
+
+    let kc = snapshot.defense(&main_id, &TeamAbbr::KC).expect("kc dst");
+    let scored = kc.scored_stats.as_ref().expect("week 5 has kc's row");
+    let WeeklyStats::Defense(row) = &scored.stats else {
+        panic!("a DST salary attaches a team row");
+    };
+    assert_eq!(
+        (row.week, row.sacks, row.interceptions, row.points_allowed),
+        (Week(5), 3, 1, 10)
+    );
+    // 3 sacks, 2 for the interception, 4 for 7-13 points allowed
+    assert!((scored.score.total - 9.0).abs() < 1e-9, "{scored:?}");
+    let breakdown: Vec<(&str, Option<f64>)> = scored
+        .score
+        .lines
+        .iter()
+        .map(|line| (line.stat, line.quantity))
+        .collect();
+    assert_eq!(
+        breakdown,
+        [("S", Some(3.0)), ("I", Some(1.0)), ("DE/PA", Some(10.0))]
+    );
+    for (line, expected) in scored.score.lines.iter().zip([3.0, 2.0, 4.0]) {
+        assert!((line.points - expected).abs() < 1e-9, "{line:?}");
+    }
+
+    // BUF has no week 5 row: no attachment, and no shutout points either
+    let buf = snapshot.defense(&main_id, &TeamAbbr::BUF).expect("buf dst");
+    assert!(buf.scored_stats.is_none());
+    let mack = snapshot
+        .player(&main_id, &NflPlayerId("00-MACK".into()))
+        .expect("mack is built");
+    assert!(mack.scored_stats.is_none(), "no week 5 player row");
+}
+
+#[tokio::test]
+async fn scored_stats_use_each_slates_own_week() {
+    let nfl = NflData::in_memory().await.expect("in-memory handle");
+    let wild_card = SeasonWeek {
+        season: SEASON,
+        week: Week(19),
+    };
+    let mut games = seeded_games();
+    games.retain(|game| game.season_week == SEASON_WEEK_5);
+    games.push(Game {
+        game_id: "2026_19_BUF_KC".into(),
+        season_week: wild_card,
+        kickoff: Some(datetime!(2027-01-09 21:00 UTC)),
+        home_team: TeamAbbr::BUF,
+        away_team: TeamAbbr::KC,
+        home_score: None,
+        away_score: None,
+    });
+    nfl.seed_for_test(&seeded_players(), &games)
+        .await
+        .expect("seed nflverse");
+    for week in [SEASON_WEEK_5, wild_card] {
+        let rows = crate::salaries::parse_fanduel_csv(&nfl.fanduel, week, SALARIES_CSV.as_bytes())
+            .expect("parse salaries");
+        crate::salaries::save_fanduel_salaries(&nfl.fanduel, &rows)
+            .await
+            .expect("save salaries");
+    }
+    player_link::save_links(&nfl.store, &seeded_links())
+        .await
+        .expect("save links");
+    let mack_wild_card = PlayerWeekStats {
+        season_type: SeasonType::Post,
+        rushing_yards: 50,
+        ..player_stats("00-MACK", 19)
+    };
+    nfl.seed_week_stats_for_test(
+        SEASON,
+        &[mack_week_stats(5), mack_wild_card],
+        &[kc_week_stats(5)],
+    )
+    .await
+    .expect("seed week stats");
+    slates::populate_at(&nfl.nflverse, &nfl.store, SEASON, PINNED_NOW)
+        .await
+        .expect("populate slates");
+    nfl.rebuild_snapshot().await.expect("rebuild");
+
+    let snapshot = nfl.snapshot();
+    let mack_id = NflPlayerId("00-MACK".into());
+    for (week, yards, total) in [(SEASON_WEEK_5, 150, 24.0), (wild_card, 50, 5.0)] {
+        let slate_id = SlateId(i64::from(week.encode()) * 10 + 1);
+        let mack = snapshot
+            .player(&slate_id, &mack_id)
+            .expect("mack is on both slates");
+        let scored = mack.scored_stats.as_ref().expect("mack's own week row");
+        let WeeklyStats::Player(row) = &scored.stats else {
+            panic!("a player salary attaches a player row");
+        };
+        assert_eq!((row.week, row.rushing_yards), (week.week, yards));
+        assert!((scored.score.total - total).abs() < 1e-9, "{scored:?}");
+    }
+}
+
+#[tokio::test]
+async fn scored_stats_reflect_a_rebuild() {
+    let nfl = in_memory_fixture().await;
+    let mack_id = NflPlayerId("00-MACK".into());
+    let main_id = main_slate_id(SEASON);
+
+    nfl.seed_week_stats_for_test(
+        SEASON,
+        &[mack_week_stats(4), mack_week_stats(5)],
+        &[kc_week_stats(4), buf_week_stats(4)],
+    )
+    .await
+    .expect("seed week stats");
+    nfl.rebuild_snapshot().await.expect("rebuild");
+    let published = nfl.snapshot();
+    let first = published
+        .player(&main_id, &mack_id)
+        .expect("mack is built")
+        .scored_stats
+        .as_ref()
+        .expect("mack's week 5 row")
+        .score
+        .total;
+    assert!((first - 24.0).abs() < 1e-9, "{first}");
+
+    // replace the target week's row: 50 rushing yards and no touchdown
+    let corrected = PlayerWeekStats {
+        rushing_yards: 50,
+        ..player_stats("00-MACK", 5)
+    };
+    nfl.seed_week_stats_for_test(
+        SEASON,
+        &[mack_week_stats(4), corrected],
+        &[kc_week_stats(4), buf_week_stats(4)],
+    )
+    .await
+    .expect("reseed week stats");
+    nfl.rebuild_snapshot().await.expect("rebuild");
+
+    let rebuilt = nfl.snapshot();
+    let second = rebuilt
+        .player(&main_id, &mack_id)
+        .expect("mack is built")
+        .scored_stats
+        .as_ref()
+        .expect("mack's week 5 row")
+        .score
+        .total;
+    assert!((second - 5.0).abs() < 1e-9, "{second}");
+    let held = published
+        .player(&main_id, &mack_id)
+        .expect("the held snapshot keeps mack")
+        .scored_stats
+        .as_ref()
+        .expect("the held snapshot keeps mack's row")
+        .score
+        .total;
+    assert!(
+        (held - 24.0).abs() < 1e-9,
+        "the published snapshot is unchanged"
+    );
+}
+
 fn accessor_slate(id: i64, name: &str) -> Slate {
     Slate {
         id: SlateId(id),
@@ -641,6 +886,7 @@ fn salaried(
         salary,
         games_played: 0,
         fppg: 0.0,
+        scored_stats: None,
     }
 }
 

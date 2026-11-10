@@ -1,9 +1,11 @@
-use crate::salaried_players::SalariedPlayer;
+use crate::salaried_players::{SalariedPlayer, ScoredStats, WeeklyStats};
 use crate::slates::{self, Slate, SlateId};
 use crate::store::player_link;
 use crate::{NflData, NflDataError, PlayerIdentity, scoring};
 use fanduel_data::{Matchup, SalariedPlayer as FdSalariedPlayer};
-use nfl_model::{DfsPosition, DfsPositionSlotType, Game, NflPlayerId, SeasonWeek};
+use nfl_model::{
+    DfsPosition, DfsPositionSlotType, Game, NflPlayerId, SeasonType, SeasonWeek, TeamAbbr,
+};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -62,13 +64,50 @@ async fn slate_salaried_players(
         salaries.iter().map(|salary| salary.game.clone()).collect();
     let games = fd_game_map(nfl, &slate.id, &fd_games).await?;
 
+    // the week's own rows scored for this slate: a row absent here leaves the
+    // entry unattached
+    let season_type = if slate.season_week.postseason() {
+        SeasonType::Post
+    } else {
+        SeasonType::Reg
+    };
+    // read the slate week directly: `scoring::week_stats` drops a week when
+    // either dataset is empty, but each attachment stands alone
+    let player_stats: HashMap<NflPlayerId, crate::PlayerWeekStats> = nfl
+        .player_week_stats(slate.season_week.season, slate.season_week.week)
+        .await?
+        .into_iter()
+        .filter(|row| row.season_type == season_type)
+        .map(|row| (NflPlayerId(row.gsis_id.clone()), row))
+        .collect();
+    let team_stats: HashMap<TeamAbbr, crate::TeamWeekStats> = nfl
+        .team_week_stats(slate.season_week.season, slate.season_week.week)
+        .await?
+        .into_iter()
+        .filter(|row| row.season_type == season_type)
+        .map(|row| (row.team, row))
+        .collect();
+
     // every week with salaries got an averages pass in `PlayerFacts::load`
     let averages = &facts.averages_by_week[&slate.season_week];
     let players: Vec<SalariedPlayer> = salaries
         .iter()
         .filter_map(|salary| {
             let game = games.get(&salary.game.matchup)?;
-            facts.salaried_player(salary, averages, game)
+            let mut player = facts.salaried_player(salary, averages, game)?;
+            // a DST row resolves without an id and is keyed by team; a missing
+            // row leaves the attachment empty rather than defaulting to zero
+            player.scored_stats = match &player.id {
+                Some(id) => player_stats.get(id).map(|row| ScoredStats {
+                    stats: WeeklyStats::Player(row.clone()),
+                    score: scoring::score_player(row),
+                }),
+                None => team_stats.get(&player.team).map(|row| ScoredStats {
+                    stats: WeeklyStats::Defense(row.clone()),
+                    score: scoring::score_defense(row),
+                }),
+            };
+            Some(player)
         })
         .collect();
 
@@ -188,6 +227,7 @@ impl PlayerFacts {
                 salary: salary.salary,
                 games_played,
                 fppg,
+                scored_stats: None,
             });
         }
 
@@ -209,6 +249,7 @@ impl PlayerFacts {
             salary: salary.salary,
             games_played,
             fppg,
+            scored_stats: None,
         })
     }
 }

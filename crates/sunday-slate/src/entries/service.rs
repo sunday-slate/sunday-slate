@@ -1537,6 +1537,7 @@ mod tests {
             salary,
             games_played,
             fppg,
+            scored_stats: None,
         }
     }
 
