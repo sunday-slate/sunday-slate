@@ -1,8 +1,8 @@
 //! Contest, entry, and NFL stat fixtures for scoring-path tests.
 
 use nfl_data::{
-    Game, Player, PlayerIdentity, PlayerWeekStats as NflPlayerWeekStats, Season, SeasonType,
-    TeamAbbr, TeamWeekStats as NflTeamWeekStats, Week,
+    Game, Player, PlayerIdentity, PlayerWeekStats as NflPlayerWeekStats, Season, TeamAbbr,
+    TeamWeekStats as NflTeamWeekStats, Week,
 };
 use sqlx::SqlitePool;
 
@@ -35,9 +35,7 @@ pub fn game_at(id: &str, week: u8, kickoff: time::OffsetDateTime) -> Game {
 /// through struct update syntax.
 pub fn player_stats(gsis: &str, week: u8) -> NflPlayerWeekStats {
     NflPlayerWeekStats {
-        season: Season(2025),
-        week: Week(week),
-        season_type: SeasonType::Reg,
+        season_week: nfl_data::SeasonWeek::new(Season(2025), Week(week)).expect("valid fixture"),
         gsis_id: gsis.into(),
         team: TeamAbbr::KC,
         opponent: None,
@@ -70,9 +68,7 @@ pub fn rb_stats(gsis: &str, week: u8, rush_yards: i32) -> NflPlayerWeekStats {
 /// A team defense with every stat at zero, including points allowed.
 pub fn defense_stats(team: &str, opponent: &str, week: u8) -> NflTeamWeekStats {
     NflTeamWeekStats {
-        season: Season(2025),
-        week: Week(week),
-        season_type: SeasonType::Reg,
+        season_week: nfl_data::SeasonWeek::new(Season(2025), Week(week)).expect("valid fixture"),
         team: team.parse().unwrap(),
         opponent: opponent.parse().unwrap(),
         game_id: format!("2025_{week:02}_{opponent}_{team}"),

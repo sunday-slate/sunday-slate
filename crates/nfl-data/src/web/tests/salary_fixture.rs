@@ -83,8 +83,7 @@ async fn seed_admin_slate(nfl: &NflData) {
     .await
     .unwrap();
     nfl.seed_weekly_roster_for_test(&[crate::WeeklyRosterEntry {
-        season: Season(2025),
-        week: crate::Week(1),
+        season_week: crate::SeasonWeek::new(Season(2025), crate::Week(1)).unwrap(),
         team: "BUF".parse().unwrap(),
         gsis_id: Some("00-roster-only".into()),
         espn_id: None,

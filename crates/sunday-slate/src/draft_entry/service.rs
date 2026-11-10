@@ -166,7 +166,7 @@ pub async fn editor_page(
 
     let injuries_by_player_id = state
         .injuries
-        .report(&ctx.slate_key())
+        .report(&ctx.slate.season_week)
         .map(|slate_injuries| slate_injuries.by_gsis)
         .unwrap_or_default();
 
@@ -245,7 +245,7 @@ pub async fn choices(
 
     let injuries_by_gsis = state
         .injuries
-        .report(&ctx.slate_key())
+        .report(&ctx.slate.season_week)
         .map(|report| report.by_gsis);
     let same_player = match draft.get(slot) {
         Some(PlayerOrDefenseId::Player(id)) => Some(id),
@@ -477,12 +477,6 @@ struct SlateCtx {
 }
 
 impl SlateCtx {
-    /// The injury report's cache key for this slate.
-    fn slate_key(&self) -> crate::injuries::SlateKey {
-        let week = self.slate.season_week;
-        (week.season, week.week, crate::season_type_of(week))
-    }
-
     fn salaried_player(&self, value: &PlayerOrDefenseId) -> Option<&SalariedPlayer> {
         self.snapshot.salaried_player(&self.slate.id, value)
     }

@@ -466,30 +466,30 @@ async fn migrated_2026_entry_keeps_its_id_and_links_its_slate(pool: SqlitePool) 
     let buf = TeamAbbr::BUF;
     let kc = TeamAbbr::KC;
     let rb = NflPlayerWeekStats {
-        season: Season(2026),
+        season_week: week,
         opponent: Some(buf),
         ..factories::rb_stats("00-A", 1, 100)
     };
     let qb = NflPlayerWeekStats {
-        season: Season(2026),
+        season_week: week,
         passing_yards: 200,
         opponent: Some(buf),
         ..factories::player_stats("00-F1", 1)
     };
     let buf_player = NflPlayerWeekStats {
-        season: Season(2026),
+        season_week: week,
         gsis_id: "00-BUF".into(),
         team: buf,
         opponent: Some(kc),
         ..factories::player_stats("00-BUF", 1)
     };
     let buf_defense = NflTeamWeekStats {
-        season: Season(2026),
+        season_week: week,
         game_id: "2026_01_BUF_KC".into(),
         ..factories::scoreless_defense_stats("BUF", "KC", 1)
     };
     let kc_defense = NflTeamWeekStats {
-        season: Season(2026),
+        season_week: week,
         game_id: "2026_01_BUF_KC".into(),
         ..factories::scoreless_defense_stats("KC", "BUF", 1)
     };

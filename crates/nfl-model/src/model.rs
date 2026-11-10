@@ -156,8 +156,7 @@ pub struct Player {
 /// actually there.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WeeklyRosterEntry {
-    pub season: Season,
-    pub week: Week,
+    pub season_week: SeasonWeek,
     pub team: TeamAbbr,
     /// None for players without a GSIS assignment yet (upstream leaves it empty).
     pub gsis_id: Option<String>,
@@ -171,9 +170,7 @@ pub struct WeeklyRosterEntry {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlayerWeekStats {
-    pub season: Season,
-    pub week: Week,
-    pub season_type: SeasonType,
+    pub season_week: SeasonWeek,
     pub gsis_id: String,
     pub team: TeamAbbr,
     pub opponent: Option<TeamAbbr>,
@@ -205,9 +202,7 @@ pub struct PlayerWeekStats {
 /// offensive points (FanDuel's points-allowed), not the scoreboard total.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TeamWeekStats {
-    pub season: Season,
-    pub week: Week,
-    pub season_type: SeasonType,
+    pub season_week: SeasonWeek,
     pub team: TeamAbbr,
     pub opponent: TeamAbbr,
     pub game_id: String,

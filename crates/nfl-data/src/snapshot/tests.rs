@@ -15,8 +15,8 @@ use crate::scoring::{score_defense, score_player};
 use crate::slates::{self, Slate, SlateId};
 use crate::store::player_link::{self, PlayerLink};
 use crate::{
-    Game, NflData, NflDataConfig, Player, PlayerWeekStats, Season, SeasonType, SeasonWeek,
-    TeamAbbr, TeamWeekStats, Week,
+    Game, NflData, NflDataConfig, Player, PlayerWeekStats, Season, SeasonWeek, TeamAbbr,
+    TeamWeekStats, Week,
 };
 use nfl_model::{DfsPosition, DfsPositionSlotType, NflPlayerId, PlayerOrDefenseId};
 
@@ -123,9 +123,7 @@ fn seeded_links() -> Vec<PlayerLink> {
 
 fn player_stats(gsis_id: &str, week: u8) -> PlayerWeekStats {
     PlayerWeekStats {
-        season: SEASON,
-        week: Week(week),
-        season_type: SeasonType::Reg,
+        season_week: SeasonWeek::new(SEASON, Week(week)).unwrap(),
         gsis_id: gsis_id.into(),
         team: TeamAbbr::KC,
         opponent: Some(TeamAbbr::BUF),
@@ -159,9 +157,7 @@ fn mack_week_stats(week: u8) -> PlayerWeekStats {
 
 fn team_stats(team: TeamAbbr, opponent: TeamAbbr, week: u8) -> TeamWeekStats {
     TeamWeekStats {
-        season: SEASON,
-        week: Week(week),
-        season_type: SeasonType::Reg,
+        season_week: SeasonWeek::new(SEASON, Week(week)).unwrap(),
         team,
         opponent,
         game_id: format!("2026_{week:02}_BUF_KC"),

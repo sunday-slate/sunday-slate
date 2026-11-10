@@ -9,8 +9,8 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
 use nfl_data::{
-    LiveGamePhase, LiveGameSnapshot, LivePlayerStats, ProviderOutcome, ProviderResponse,
-    SeasonType, TeamAbbr, TeamWeekStats,
+    LiveGamePhase, LiveGameSnapshot, LivePlayerStats, ProviderOutcome, ProviderResponse, TeamAbbr,
+    TeamWeekStats,
 };
 use tank01_data::{PollEvent, PollRequest};
 use time::macros::datetime;
@@ -214,9 +214,10 @@ async fn score_region_updates_for_one_slate_and_not_another(pool: sqlx::SqlitePo
         receiving_yards: 0,
     };
     let defense = TeamWeekStats {
-        season: nfl_data::Season(2026),
-        week: nfl_data::Week(1),
-        season_type: SeasonType::Reg,
+        season_week: nfl_data::SeasonWeek {
+            season: nfl_data::Season(2026),
+            week: nfl_data::Week(1),
+        },
         team: TeamAbbr::KC,
         opponent: TeamAbbr::BUF,
         game_id: game1.game_id.clone(),

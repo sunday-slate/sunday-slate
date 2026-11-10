@@ -221,8 +221,8 @@ mod tests {
 
     fn weekly(gsis: Option<&str>, name: &str, pos: Option<&str>, team: &str) -> WeeklyRosterEntry {
         WeeklyRosterEntry {
-            season: crate::Season(2025),
-            week: crate::Week(1),
+            season_week: crate::SeasonWeek::new(crate::Season(2025), crate::Week(1))
+                .expect("valid fixture week"),
             team: team.parse().unwrap(),
             gsis_id: gsis.map(Into::into),
             espn_id: None,

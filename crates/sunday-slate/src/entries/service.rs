@@ -1015,11 +1015,6 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
             ContestScores::Upcoming | ContestScores::Unavailable => None,
         };
 
-        let slate_key = (
-            slate.season_week.season,
-            slate.season_week.week,
-            crate::season_type_of(slate.season_week),
-        );
         let mut picks = build_picks(
             &entry.lineup,
             &names,
@@ -1034,7 +1029,7 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
             &avatars,
             &state
                 .injuries
-                .report(&slate_key)
+                .report(&slate.season_week)
                 .map(|report| report.by_gsis)
                 .unwrap_or_default(),
         );

@@ -375,9 +375,7 @@ fn adapt_player(
         .as_ref()
         .unwrap_or_else(|| opposing_team(&snapshot.game, Some(team)));
     PlayerWeekStats {
-        season: snapshot.game.season_week.season,
-        week: snapshot.game.season_week.week,
-        season_type: crate::season_type_of(snapshot.game.season_week),
+        season_week: snapshot.game.season_week,
         gsis_id: gsis_id.0,
         team: canonical_team(team),
         opponent: Some(canonical_team(opponent)),
@@ -406,9 +404,7 @@ fn adapt_defense(
     team: TeamAbbr,
 ) -> TeamWeekStats {
     TeamWeekStats {
-        season: snapshot.game.season_week.season,
-        week: snapshot.game.season_week.week,
-        season_type: crate::season_type_of(snapshot.game.season_week),
+        season_week: snapshot.game.season_week,
         team,
         opponent: canonical_team(&row.opponent),
         game_id: snapshot.game.game_id.clone(),

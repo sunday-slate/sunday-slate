@@ -6,7 +6,7 @@ use axum::extract::{Path, Query, State};
 use axum::response::sse::{Event, KeepAlive};
 use axum::response::{Html, Sse};
 use futures_util::stream::{self, Stream};
-use nfl_data::{LiveGamePhase, Season};
+use nfl_data::LiveGamePhase;
 use serde::Deserialize;
 
 use crate::auth::CurrentUser;
@@ -38,7 +38,6 @@ pub async fn index(
     State(state): State<AppState>,
     CurrentLeague(league): CurrentLeague,
 ) -> Result<Html<String>, AppError> {
-    let season = Season(state.config.season);
     let snapshot = state.nfl.snapshot();
     let now = state.now_eastern();
 
@@ -46,8 +45,7 @@ pub async fn index(
     let current = snapshot.current_slate().map(|slate| slate.id);
     let slate_contests = service::listed_contests(contests, current, now);
     let contest_weeks = service::contest_weeks(&snapshot);
-    let stats =
-        scoring_service::week_stats(&state.nfl, season, contest_weeks.values().copied()).await?;
+    let stats = scoring_service::week_stats(&state.nfl, contest_weeks.values().copied()).await?;
     let teams = standings_service::scored_teams(&state, league.id, &contest_weeks, &stats).await?;
 
     let mut rows = service::contest_list(&slate_contests, &teams, now);

@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, HashMap};
 
 use nfl_data::{
-    EspnPlayerId, NflData, NflDataError, Player, Season, TeamAbbr, Week, WeeklyRosterEntry,
+    EspnPlayerId, NflData, NflDataError, Player, SeasonWeek, TeamAbbr, WeeklyRosterEntry,
 };
 
 use crate::entries::NflPlayerId;
@@ -115,8 +115,7 @@ impl LiveIdentityIndex {
 
     pub async fn build(
         nfl: &NflData,
-        season: Season,
-        week: Week,
+        season_week: SeasonWeek,
         teams: &[TeamAbbr],
     ) -> Result<Self, NflDataError> {
         let players = nfl.players().await?;
@@ -126,7 +125,7 @@ impl LiveIdentityIndex {
             if !seen.insert(team.as_str().to_owned()) {
                 continue;
             }
-            rosters.extend(nfl.weekly_roster(season, week, team).await?);
+            rosters.extend(nfl.weekly_roster(season_week, team).await?);
         }
         Ok(Self::from_sources(&players, &rosters))
     }
@@ -243,7 +242,7 @@ fn normalize_position(position: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nfl_data::TeamAbbr;
+    use nfl_data::{Season, TeamAbbr, Week};
     fn player(gsis: &str, espn: Option<&str>, name: &str, team: &str, position: &str) -> Player {
         Player {
             gsis_id: gsis.into(),
@@ -265,8 +264,7 @@ mod tests {
         position: &str,
     ) -> WeeklyRosterEntry {
         WeeklyRosterEntry {
-            season: Season(2025),
-            week: Week(1),
+            season_week: SeasonWeek::new(Season(2025), Week(1)).unwrap(),
             team: team.parse().unwrap(),
             gsis_id: Some(gsis.into()),
             espn_id: espn.map(str::to_owned),
@@ -403,5 +401,44 @@ mod tests {
                 IdentityMatch::Ambiguous
             );
         }
+    }
+
+    /// A middle-of-season trade means one week's index must never answer for
+    /// another week: the same player resolves to the team he was on then.
+    #[tokio::test]
+    async fn season_week_build_scopes_identity_to_its_own_week() {
+        let nfl = NflData::in_memory().await.expect("in-memory handle");
+        let thielen = |team: &str, week: u8| WeeklyRosterEntry {
+            season_week: SeasonWeek::new(Season(2025), Week(week)).expect("valid fixture week"),
+            team: team.parse().unwrap(),
+            gsis_id: Some("00-0030035".into()),
+            espn_id: None,
+            full_name: "Adam Thielen".into(),
+            last_name: Some("Thielen".into()),
+            position: Some("WR".into()),
+        };
+        nfl.seed_weekly_roster_for_test(&[thielen("MIN", 13), thielen("PIT", 14)])
+            .await
+            .expect("seed weekly roster");
+
+        let gsis = NflPlayerId("00-0030035".into());
+        let teams = [TeamAbbr::MIN, TeamAbbr::PIT];
+        let earlier = LiveIdentityIndex::build(
+            &nfl,
+            SeasonWeek::new(Season(2025), Week(13)).expect("valid fixture week"),
+            &teams,
+        )
+        .await
+        .expect("build week 13");
+        let later = LiveIdentityIndex::build(
+            &nfl,
+            SeasonWeek::new(Season(2025), Week(14)).expect("valid fixture week"),
+            &teams,
+        )
+        .await
+        .expect("build week 14");
+
+        assert_eq!(earlier.scheduled_team(&gsis), Some(&TeamAbbr::MIN));
+        assert_eq!(later.scheduled_team(&gsis), Some(&TeamAbbr::PIT));
     }
 }
