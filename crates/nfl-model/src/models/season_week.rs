@@ -48,6 +48,13 @@ impl SeasonWeek {
         }
     }
 
+    /// Create a validated week in the default [`Season`].
+    ///
+    /// Accepts weeks 1–22 like [`new`](Self::new); use `new` to pick the season explicitly.
+    pub fn from_week(week: Week) -> Option<Self> {
+        Self::new(Season::default(), week)
+    }
+
     /// Whether this week is a postseason week (week 19 or later).
     pub fn postseason(&self) -> bool {
         self.week.0 > 18

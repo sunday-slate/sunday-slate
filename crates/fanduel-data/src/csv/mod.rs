@@ -67,12 +67,12 @@ pub(crate) fn parse_csv(
 #[cfg(test)]
 mod tests {
     use super::parse_csv;
-    use nfl_model::{DfsPosition, Season, SeasonWeek, TeamAbbr, Week};
+    use nfl_model::{DfsPosition, SeasonWeek, TeamAbbr, Week};
 
     #[test]
     fn parses_fanduel_export_players_games_and_defense() {
         let salaries = parse_csv(
-            SeasonWeek::new(Season::default(), Week(1)).expect("valid season week"),
+            SeasonWeek::from_week(Week(1)).expect("valid season week"),
             include_bytes!("./fixtures/fanduel-export.csv"),
         )
         .unwrap();
@@ -85,7 +85,7 @@ mod tests {
         assert_eq!(salaries[0].game.matchup.away, TeamAbbr::BUF);
         assert_eq!(
             salaries[0].game.season_week,
-            SeasonWeek::new(Season::default(), Week(1)).expect("valid season week")
+            SeasonWeek::from_week(Week(1)).expect("valid season week")
         );
 
         let defense = &salaries[1];
@@ -110,7 +110,7 @@ mod tests {
         let csv = include_str!("./fixtures/fanduel-export.csv").replacen(",QB,", ",CPT,", 1);
         assert!(matches!(
             parse_csv(
-                SeasonWeek::new(Season::default(), Week(1)).expect("valid season week"),
+                SeasonWeek::from_week(Week(1)).expect("valid season week"),
                 csv.as_bytes()
             ),
             Err(crate::FanduelDataError::InvalidRow(_))

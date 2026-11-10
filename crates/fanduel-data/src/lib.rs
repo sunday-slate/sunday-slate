@@ -14,11 +14,11 @@
 //!
 //! ```no_run
 //! use fanduel_data::FanduelData;
-//! use nfl_model::{Season, SeasonWeek, Week};
+//! use nfl_model::{SeasonWeek, Week};
 //!
 //! # async fn import(database_url: &str, csv_bytes: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
 //! let data = FanduelData::connect(database_url).await?;
-//! let week = SeasonWeek::new(Season::default(), Week(1)).expect("valid season week");
+//! let week = SeasonWeek::from_week(Week(1)).expect("valid season week");
 //! let salaries = data.parse_fanduel_csv(week, csv_bytes)?;
 //! data.save_salaried_players(&salaries).await?;
 //!
