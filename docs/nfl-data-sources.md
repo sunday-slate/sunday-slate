@@ -11,6 +11,24 @@ the contest is running.
 Nflverse does not publish stats until the conclusion of the game. Tank01 provides live stats. 
 Not required for Sunday Slate, but useful on gameday. The app considers Nflverse the official stats however.
 
+## Published Snapshot and Official Results
+
+Official results read precomputed scores from the published snapshot. Live and
+provisional results score raw rows using the same `nfl-data::scoring` rules and
+`WeekStats` type; Sunday Slate retains live coverage, identity, staleness, and
+ranking policy.
+
+For attachment and availability construction, each snapshot build reads player
+and team rows once per distinct salary-backed week, shared across its slates.
+The separate season-average pass also reads historical weeks. A locked slate
+uses official results when both teams' rows cover every slate game, unless a
+registered development feed takes precedence. Missing player attachments score
+zero without blocking availability. Missing game-side team rows leave results
+provisional if a live snapshot exists, or unavailable otherwise.
+
+New or corrected nflverse rows affect official results only after successful
+snapshot publication; a failed build leaves the previous snapshot in place.
+
 ## Fresh Cache Setup
 
 The nflverse stores its rebuildable, disposable source cache in

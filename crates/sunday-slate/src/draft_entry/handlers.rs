@@ -1,6 +1,9 @@
 //! The draft-entry editor's HTTP handlers: the editor page, the per-slot
 //! pick page, and the set / clear / save / discard mutations.
 
+#[cfg(test)]
+use crate::draft_entry::service::CapState;
+use axum::Form;
 use std::str::FromStr;
 
 use askama::Template;
@@ -108,7 +111,7 @@ pub async fn set_slot(
     State(state): State<AppState>,
     CurrentTeam(team): CurrentTeam,
     Path((id, slot)): Path<(i64, String)>,
-    axum::Form(form): axum::Form<SetSlotForm>,
+    Form(form): Form<SetSlotForm>,
 ) -> Result<Response, AppError> {
     let slot = parse_slot(&slot)?;
     let contest_id = SlateId(id);
@@ -185,6 +188,7 @@ mod tests {
             salary,
             games_played: pace.map_or(0, |(_, games)| u8::try_from(games).unwrap_or(0)),
             fppg: pace.map_or(0.0, |(avg, _)| avg),
+            scored_stats: None,
         }
     }
 
@@ -200,7 +204,7 @@ mod tests {
         EditorPage {
             contest_name: "Week 1".into(),
             team_name: "Sunday Funday".into(),
-            cap: crate::draft_entry::service::CapState {
+            cap: CapState {
                 filled: 0,
                 remaining: 60_000,
                 per_open: 6_666,

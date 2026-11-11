@@ -1,9 +1,15 @@
+use crate::{AppError, AppState};
+use nfl_data::{LiveGame, Snapshot};
+use std::collections::HashMap;
+use time::OffsetDateTime;
+#[cfg(test)]
+use time::macros::datetime;
 mod coordinator;
 pub(crate) mod dev_feed;
 pub mod identity;
 mod snapshot;
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use nfl_data::{Game, LiveGamePhase, TeamAbbr};
@@ -11,7 +17,7 @@ use tokio::sync::watch;
 
 use crate::live::identity::LiveIdentityIndex;
 use crate::live::snapshot::SnapshotReducer;
-use crate::scoring::WeekStats;
+use nfl_data::scoring::WeekStats;
 use nfl_data::slates::SlateId;
 
 pub(crate) use coordinator::run_coordinator;
@@ -60,7 +66,7 @@ pub struct LiveContestSnapshot {
     pub contest: SlateId,
     pub games: Vec<Game>,
     pub stats: WeekStats,
-    pub game_states: std::collections::HashMap<String, LiveGameState>,
+    pub game_states: HashMap<String, LiveGameState>,
     pub identity: Arc<LiveIdentityIndex>,
     pub identity_outcomes: BTreeMap<String, identity::IdentityMatch>,
     pub latest_error: Option<LiveError>,
@@ -96,15 +102,15 @@ impl LiveContestSnapshot {
 struct ContestRegistration {
     games: Vec<Game>,
     identity: Arc<LiveIdentityIndex>,
-    locked_at: Option<time::OffsetDateTime>,
+    locked_at: Option<OffsetDateTime>,
 }
 
 struct HubState {
-    snapshots: std::collections::HashMap<SlateId, Arc<LiveContestSnapshot>>,
-    reducers: std::collections::HashMap<SlateId, SnapshotReducer>,
-    registrations: std::collections::HashMap<SlateId, ContestRegistration>,
-    senders: std::collections::HashMap<SlateId, watch::Sender<u64>>,
-    revisions: std::collections::HashMap<SlateId, u64>,
+    snapshots: HashMap<SlateId, Arc<LiveContestSnapshot>>,
+    reducers: HashMap<SlateId, SnapshotReducer>,
+    registrations: HashMap<SlateId, ContestRegistration>,
+    senders: HashMap<SlateId, watch::Sender<u64>>,
+    revisions: HashMap<SlateId, u64>,
 }
 
 struct HubInner {
@@ -125,11 +131,11 @@ impl LiveContestHub {
             inner: Arc::new(HubInner {
                 enabled,
                 state: Mutex::new(HubState {
-                    snapshots: std::collections::HashMap::new(),
-                    reducers: std::collections::HashMap::new(),
-                    registrations: std::collections::HashMap::new(),
-                    senders: std::collections::HashMap::new(),
-                    revisions: std::collections::HashMap::new(),
+                    snapshots: HashMap::new(),
+                    reducers: HashMap::new(),
+                    registrations: HashMap::new(),
+                    senders: HashMap::new(),
+                    revisions: HashMap::new(),
                 }),
                 shutdown,
             }),
@@ -174,7 +180,7 @@ impl LiveContestHub {
         games: Vec<Game>,
         identity: Arc<LiveIdentityIndex>,
         feeds: &[coordinator::FeedReplay],
-        now: time::OffsetDateTime,
+        now: OffsetDateTime,
         locked: bool,
     ) {
         if !self.enabled() {
@@ -246,7 +252,7 @@ impl LiveContestHub {
         &self,
         id: SlateId,
         event: &tank01_data::PollEvent,
-        feed_games: &[nfl_data::LiveGame],
+        feed_games: &[LiveGame],
     ) {
         let mut state = self.inner.state.lock().expect("live hub mutex poisoned");
         let mut snapshot = {
@@ -266,7 +272,7 @@ impl LiveContestHub {
         }
     }
 
-    pub(crate) fn publish_feed_failure(&self, id: SlateId, feed_games: &[nfl_data::LiveGame]) {
+    pub(crate) fn publish_feed_failure(&self, id: SlateId, feed_games: &[LiveGame]) {
         let mut state = self.inner.state.lock().expect("live hub mutex poisoned");
         let mut snapshot = {
             let Some(reducer) = state.reducers.get_mut(&id) else {
@@ -303,53 +309,15 @@ fn next_revision(state: &mut HubState, id: SlateId) -> u64 {
 #[derive(Debug, Clone)]
 pub enum ContestScores {
     Upcoming,
-    Official(Arc<WeekStats>),
+    Official(Arc<Snapshot>),
     Provisional(Arc<LiveContestSnapshot>),
     Unavailable,
 }
 
-pub fn official_complete_for_slate(
-    season_week: nfl_data::SeasonWeek,
-    games: &[Game],
-    stats: &WeekStats,
-) -> bool {
-    let mut player_teams = HashSet::new();
-    let mut defense_coverage = HashSet::new();
-    for game in games {
-        let expected = [
-            (&game.home_team, &game.away_team),
-            (&game.away_team, &game.home_team),
-        ];
-        for (team, opponent) in expected {
-            let defense = stats.defenses.values().filter(|row| {
-                row.season_week == season_week
-                    && row.game_id == game.game_id
-                    && row.team == *team
-                    && row.opponent == *opponent
-            });
-            if defense.count() != 1 {
-                return false;
-            }
-            defense_coverage.insert((game.game_id.as_str(), team.as_str()));
-
-            let players = stats.players.values().filter(|row| {
-                row.season_week == season_week
-                    && row.team == *team
-                    && row.opponent.as_ref() == Some(opponent)
-            });
-            if players.count() == 0 {
-                return false;
-            }
-            player_teams.insert((game.game_id.as_str(), team.as_str()));
-        }
-    }
-    defense_coverage.len() == games.len() * 2 && player_teams.len() == games.len() * 2
-}
-
 pub async fn load_contest_scores(
-    state: &crate::AppState,
+    state: &AppState,
     contest: SlateId,
-) -> Result<ContestScores, crate::AppError> {
+) -> Result<ContestScores, AppError> {
     let snapshot = state.nfl.snapshot();
     let Some(slate) = snapshot.slate(&contest) else {
         return Ok(ContestScores::Unavailable);
@@ -368,65 +336,8 @@ pub async fn load_contest_scores(
         return Ok(ContestScores::Provisional(snapshot));
     }
 
-    let season_week = slate.season_week;
-    let players = state.nfl.player_week_stats(season_week).await?;
-    let defenses = state.nfl.team_week_stats(season_week).await?;
-    let expected_games = games
-        .iter()
-        .map(|game| game.game_id.as_str())
-        .collect::<HashSet<_>>();
-    let expected_teams = games
-        .iter()
-        .flat_map(|game| [game.home_team.as_str(), game.away_team.as_str()])
-        .collect::<HashSet<_>>();
-
-    let mut player_map = HashMap::new();
-    for player in players {
-        if player.season_week != season_week
-            || !expected_teams.contains(player.team.as_str())
-            || player
-                .opponent
-                .as_ref()
-                .is_none_or(|opponent| !expected_teams.contains(opponent.as_str()))
-        {
-            continue;
-        }
-        let matchup = games.iter().any(|game| {
-            game.home_team == player.team && player.opponent.as_ref() == Some(&game.away_team)
-                || game.away_team == player.team
-                    && player.opponent.as_ref() == Some(&game.home_team)
-        });
-        if !matchup
-            || player_map
-                .insert(crate::entries::NflPlayerId(player.gsis_id.clone()), player)
-                .is_some()
-        {
-            return Ok(ContestScores::Unavailable);
-        }
-    }
-
-    let mut defense_map = HashMap::new();
-    let mut defense_keys = HashSet::new();
-    for defense in defenses {
-        if defense.season_week != season_week
-            || !expected_games.contains(defense.game_id.as_str())
-            || !expected_teams.contains(defense.team.as_str())
-        {
-            continue;
-        }
-        let key = (defense.game_id.clone(), defense.team.as_str().to_owned());
-        if !defense_keys.insert(key.clone()) || defense_map.insert(defense.team, defense).is_some()
-        {
-            return Ok(ContestScores::Unavailable);
-        }
-    }
-
-    let stats = WeekStats {
-        players: player_map,
-        defenses: defense_map,
-    };
-    if official_complete_for_slate(slate.season_week, games, &stats) {
-        return Ok(ContestScores::Official(Arc::new(stats)));
+    if snapshot.stats_available(&contest) {
+        return Ok(ContestScores::Official(snapshot));
     }
     Ok(state
         .live
@@ -436,10 +347,10 @@ pub async fn load_contest_scores(
 }
 
 pub(crate) async fn stream_eligible(
-    state: &crate::AppState,
+    state: &AppState,
     contest: SlateId,
     source: &ContestScores,
-) -> Result<bool, crate::AppError> {
+) -> Result<bool, AppError> {
     if !state.live.enabled() || matches!(source, ContestScores::Official(_)) {
         return Ok(false);
     }
@@ -454,7 +365,6 @@ pub(crate) async fn stream_eligible(
 mod tests {
     use super::*;
     use crate::tests::factories;
-    use nfl_data::{PlayerWeekStats, TeamAbbr, TeamWeekStats};
 
     /// Registrations and revisions are keyed by SlateId: publishing one
     /// slate's snapshot leaves another slate's subscriber untouched.
@@ -463,11 +373,7 @@ mod tests {
         let hub = LiveContestHub::new(true);
         let one = SlateId(20260011);
         let two = SlateId(20260021);
-        let game = factories::game_at(
-            "2026_01_BUF_KC",
-            1,
-            time::macros::datetime!(2026-09-13 17:00 UTC),
-        );
+        let game = factories::game_at("2026_01_BUF_KC", 1, datetime!(2026-09-13 17:00 UTC));
         let identity = Arc::new(LiveIdentityIndex::from_sources(&[], &[]));
 
         let one_revisions = hub.subscribe(one);
@@ -477,7 +383,7 @@ mod tests {
             vec![game],
             identity,
             &[],
-            time::macros::datetime!(2026-09-13 18:00 UTC),
+            datetime!(2026-09-13 18:00 UTC),
             true,
         );
 
@@ -495,106 +401,5 @@ mod tests {
             !two_revisions.has_changed().unwrap(),
             "a revision for one slate never wakes another"
         );
-    }
-
-    #[test]
-    fn official_stats_require_every_slate_team_and_matching_game() {
-        let game = factories::game("live", 1);
-        let kc = PlayerWeekStats {
-            team: TeamAbbr::KC,
-            opponent: Some(TeamAbbr::BUF),
-            ..factories::player_stats("kc", 1)
-        };
-        let buf = PlayerWeekStats {
-            gsis_id: "buf".into(),
-            team: TeamAbbr::BUF,
-            opponent: Some(TeamAbbr::KC),
-            ..factories::player_stats("buf", 1)
-        };
-        let kc_def = TeamWeekStats {
-            game_id: "live".into(),
-            ..factories::defense_stats("KC", "BUF", 1)
-        };
-        let buf_def = TeamWeekStats {
-            game_id: "live".into(),
-            ..factories::defense_stats("BUF", "KC", 1)
-        };
-        let complete = WeekStats {
-            players: HashMap::from([
-                (crate::entries::NflPlayerId("kc".into()), kc),
-                (crate::entries::NflPlayerId("buf".into()), buf),
-            ]),
-            defenses: HashMap::from([(TeamAbbr::KC, kc_def), (TeamAbbr::BUF, buf_def)]),
-        };
-
-        assert!(official_complete_for_slate(
-            game.season_week,
-            std::slice::from_ref(&game),
-            &complete
-        ));
-
-        let mut missing = complete.clone();
-        missing.defenses.remove(&TeamAbbr::BUF);
-        assert!(!official_complete_for_slate(
-            game.season_week,
-            std::slice::from_ref(&game),
-            &missing
-        ));
-    }
-
-    /// Otherwise-matching stats from another season or another week are not
-    /// this slate's stats.
-    #[test]
-    fn season_week_official_stats_reject_another_season_or_week() {
-        let game = factories::game("live", 1);
-        let season_week = game.season_week;
-        let elsewhere = |season_week: nfl_data::SeasonWeek| {
-            let kc = PlayerWeekStats {
-                season_week,
-                team: TeamAbbr::KC,
-                opponent: Some(TeamAbbr::BUF),
-                ..factories::player_stats("kc", 1)
-            };
-            let buf = PlayerWeekStats {
-                season_week,
-                gsis_id: "buf".into(),
-                team: TeamAbbr::BUF,
-                opponent: Some(TeamAbbr::KC),
-                ..factories::player_stats("buf", 1)
-            };
-            let mut kc_def = factories::defense_stats("KC", "BUF", 1);
-            kc_def.season_week = season_week;
-            kc_def.game_id = "live".into();
-            let mut buf_def = factories::defense_stats("BUF", "KC", 1);
-            buf_def.season_week = season_week;
-            buf_def.game_id = "live".into();
-            WeekStats {
-                players: HashMap::from([
-                    (crate::entries::NflPlayerId("kc".into()), kc),
-                    (crate::entries::NflPlayerId("buf".into()), buf),
-                ]),
-                defenses: HashMap::from([(TeamAbbr::KC, kc_def), (TeamAbbr::BUF, buf_def)]),
-            }
-        };
-
-        for season_week_elsewhere in [
-            nfl_data::SeasonWeek {
-                season: nfl_data::Season(season_week.season.0 + 1),
-                week: season_week.week,
-            },
-            nfl_data::SeasonWeek {
-                season: season_week.season,
-                week: nfl_data::Week(season_week.week.0 + 1),
-            },
-        ] {
-            assert!(
-                !official_complete_for_slate(
-                    season_week,
-                    std::slice::from_ref(&game),
-                    &elsewhere(season_week_elsewhere)
-                ),
-                "{season_week_elsewhere:?} stats are not {season_week:?}'s"
-            );
-        }
     }
 }

@@ -180,3 +180,117 @@ fn group_digits(digits: &str) -> String {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Season, SeasonWeek, Week};
+    fn zero_player() -> NflPlayerWeekStats {
+        NflPlayerWeekStats {
+            season_week: SeasonWeek::new(Season(2025), Week(5)).expect("valid fixture"),
+            gsis_id: "00-1".into(),
+            team: TeamAbbr::SF,
+            opponent: None,
+            completions: 0,
+            attempts: 0,
+            passing_yards: 0,
+            passing_tds: 0,
+            passing_interceptions: 0,
+            rushing_attempts: 0,
+            rushing_yards: 0,
+            rushing_tds: 0,
+            targets: 0,
+            receptions: 0,
+            receiving_yards: 0,
+            receiving_tds: 0,
+            fumbles_lost: 0,
+            two_point_conversions: 0,
+            special_teams_tds: 0,
+            fumble_recovery_tds: 0,
+        }
+    }
+
+    #[test]
+    fn stat_line_renders_counted_stats_and_threshold_bonuses() {
+        let mut s = zero_player();
+        s.passing_yards = 325;
+        assert_eq!(score_player(&s).stat_line(), "325 PaY, 300+ PaY Gm");
+        let mut d = zero_defense();
+        d.points_allowed = 3;
+        assert_eq!(score_defense(&d).stat_line(), "3 DE/PA");
+    }
+
+    #[test]
+    fn qb_with_interception_and_bonus() {
+        let mut s = zero_player();
+        s.passing_yards = 325; // 13.0 + 3.0 bonus
+        s.passing_tds = 3; // 12.0
+        s.passing_interceptions = 1; // -1.0
+        let score = score_player(&s);
+        assert!((score.total - (13.0 + 3.0 + 12.0 - 1.0)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn fumble_recovery_td_scores_six() {
+        // A skill player who recovers a fumble and scores (FanDuel FU/TD),
+        // like Woody Marks week 15: 30 rush yds, 1 rec / 8 yds, and the FU/TD.
+        let mut s = zero_player();
+        s.rushing_yards = 30; // 3.0
+        s.receptions = 1; // 0.5
+        s.receiving_yards = 8; // 0.8
+        s.fumble_recovery_tds = 1; // 6.0
+        let score = score_player(&s);
+        assert!((score.total - (3.0 + 0.5 + 0.8 + 6.0)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn half_ppr_receptions() {
+        let mut s = zero_player();
+        s.receptions = 10; // 5.0
+        s.receiving_yards = 100; // 10.0 + 3.0 bonus
+        s.receiving_tds = 1; // 6.0
+        let score = score_player(&s);
+        assert!((score.total - (5.0 + 10.0 + 3.0 + 6.0)).abs() < 1e-9);
+    }
+
+    fn zero_defense() -> NflTeamWeekStats {
+        NflTeamWeekStats {
+            season_week: SeasonWeek::new(Season(2025), Week(5)).expect("valid fixture"),
+            team: TeamAbbr::SF,
+            opponent: TeamAbbr::LA,
+            game_id: "2025_05_SF_LA".into(),
+            sacks: 0,
+            interceptions: 0,
+            fumble_recoveries: 0,
+            safeties: 0,
+            touchdowns: 0,
+            blocked_kicks: 0,
+            conversion_returns: 0,
+            points_allowed: 10,
+        }
+    }
+    #[test]
+    fn defense_tier_boundaries() {
+        let mut t = zero_defense();
+        t.points_allowed = 6;
+        assert!((score_defense(&t).total - 7.0).abs() < 1e-9);
+        t.points_allowed = 7;
+        assert!((score_defense(&t).total - 4.0).abs() < 1e-9);
+        t.points_allowed = 0;
+        assert!((score_defense(&t).total - 10.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn defense_counts_every_category() {
+        let mut t = zero_defense();
+        t.points_allowed = 24; // 0 tier
+        t.sacks = 3; // 3
+        t.interceptions = 2; // 4
+        t.fumble_recoveries = 1; // 2
+        t.touchdowns = 1; // 6
+        t.safeties = 1; // 2
+        t.blocked_kicks = 1; // 2
+        t.conversion_returns = 1; // 2
+        assert!((score_defense(&t).total - 21.0).abs() < 1e-9);
+    }
+}

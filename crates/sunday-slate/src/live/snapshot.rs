@@ -11,7 +11,7 @@ use crate::entries::{Lineup, NflPlayerId, RosterSlot};
 use crate::live::identity::{IdentityMatch, LiveIdentityIndex};
 use crate::live::{Coverage, LiveContestSnapshot, LiveError, LiveSlotStatus, LiveTotal};
 use crate::player_identity::{canonical_team, tank01_team};
-use crate::scoring::{self, WeekStats};
+use nfl_data::scoring::{self, WeekStats};
 use nfl_data::slates::SlateId;
 use tank01_data::PollEvent;
 

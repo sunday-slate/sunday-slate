@@ -6,4 +6,5 @@ pub(crate) mod utils;
 
 pub use test_app::{
     TestApp, headshot_player, headshot_salary_games, publish_headshot_slate, publish_slate,
+    upload_slate,
 };

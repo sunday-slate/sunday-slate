@@ -1,32 +1,100 @@
-use crate::salaried_players::SalariedPlayer;
+use crate::salaried_players::{SalariedPlayer, ScoredStats, WeeklyStats};
 use crate::slates::{self, Slate, SlateId};
 use crate::store::player_link;
 use crate::{NflData, NflDataError, PlayerIdentity, scoring};
+use crate::{PlayerWeekStats, TeamWeekStats};
 use fanduel_data::{Matchup, SalariedPlayer as FdSalariedPlayer};
-use nfl_model::{DfsPosition, DfsPositionSlotType, Game, NflPlayerId, SeasonWeek};
+use nfl_model::{DfsPosition, DfsPositionSlotType, Game, NflPlayerId, SeasonWeek, TeamAbbr};
 use std::collections::{HashMap, HashSet};
+use std::iter;
 use std::sync::Arc;
 
 /// Salaried players for one slate, keyed by the roster slots they can fill.
 pub(crate) type SalariedPlayersBySlot = HashMap<DfsPositionSlotType, Vec<SalariedPlayer>>;
 
-/// Salaried players for every given slate, bucketed by the roster slots they
-/// can fill.
+/// Returns salary buckets and slate IDs with complete team-game coverage.
 pub(crate) async fn build_salaried_players(
     nfl: &NflData,
     slates: &[Slate],
-) -> Result<HashMap<SlateId, SalariedPlayersBySlot>, NflDataError> {
+    games: &HashMap<SlateId, Vec<Game>>,
+) -> Result<(HashMap<SlateId, SalariedPlayersBySlot>, HashSet<SlateId>), NflDataError> {
     let weeks: HashSet<SeasonWeek> = slates.iter().map(|slate| slate.season_week).collect();
     let salaries_by_week = salaries_by_week(nfl, weeks).await?;
     let facts = PlayerFacts::load(nfl, &salaries_by_week).await?;
+    let weekly = weekly_inputs(nfl, &salaries_by_week).await?;
 
     // each slate needs its own games, so slates are visited one at a time
     let mut by_slate = HashMap::new();
+    let mut available = HashSet::new();
     for slate in slates {
-        let players = slate_salaried_players(nfl, slate, &salaries_by_week, &facts).await?;
+        let players =
+            slate_salaried_players(nfl, slate, &salaries_by_week, &weekly, &facts).await?;
+        if !players.is_empty()
+            && let Some(inputs) = weekly.get(&slate.season_week)
+            && stats_available(inputs, games.get(&slate.id).map(Vec::as_slice))
+        {
+            available.insert(slate.id);
+        }
         by_slate.insert(slate.id, players);
     }
-    Ok(by_slate)
+    Ok((by_slate, available))
+}
+
+struct WeeklyInputs {
+    players: HashMap<NflPlayerId, PlayerWeekStats>,
+    defenses: HashMap<TeamAbbr, TeamWeekStats>,
+    team_games: HashSet<(String, TeamAbbr)>,
+}
+
+async fn weekly_inputs(
+    nfl: &NflData,
+    salaries_by_week: &HashMap<SeasonWeek, Vec<FdSalariedPlayer>>,
+) -> Result<HashMap<SeasonWeek, WeeklyInputs>, NflDataError> {
+    let mut by_week = HashMap::new();
+    for week in salaries_by_week
+        .iter()
+        .filter(|(_, salaries)| !salaries.is_empty())
+        .map(|(week, _)| *week)
+    {
+        let players: HashMap<NflPlayerId, PlayerWeekStats> = nfl
+            .player_week_stats(week)
+            .await?
+            .into_iter()
+            .filter(|row| row.season_week == week)
+            .map(|row| (NflPlayerId(row.gsis_id.clone()), row))
+            .collect();
+        let teams: Vec<TeamWeekStats> = nfl
+            .team_week_stats(week)
+            .await?
+            .into_iter()
+            .filter(|row| row.season_week == week)
+            .collect();
+        let team_games = teams
+            .iter()
+            .map(|row| (row.game_id.clone(), row.team))
+            .collect();
+        let defenses = teams.into_iter().map(|row| (row.team, row)).collect();
+        by_week.insert(
+            week,
+            WeeklyInputs {
+                players,
+                defenses,
+                team_games,
+            },
+        );
+    }
+    Ok(by_week)
+}
+
+fn stats_available(inputs: &WeeklyInputs, games: Option<&[Game]>) -> bool {
+    let Some(games) = games.filter(|games| !games.is_empty()) else {
+        return false;
+    };
+    games.iter().all(|game| {
+        [game.home_team, game.away_team]
+            .into_iter()
+            .all(|team| inputs.team_games.contains(&(game.game_id.clone(), team)))
+    })
 }
 
 /// One salary read per week, shared by every slate in that week.
@@ -48,12 +116,16 @@ async fn slate_salaried_players(
     nfl: &NflData,
     slate: &Slate,
     salaries_by_week: &HashMap<SeasonWeek, Vec<FdSalariedPlayer>>,
+    weekly: &HashMap<SeasonWeek, WeeklyInputs>,
     facts: &PlayerFacts,
 ) -> Result<SalariedPlayersBySlot, NflDataError> {
     let Some(salaries) = salaries_by_week
         .get(&slate.season_week)
         .filter(|salaries| !salaries.is_empty())
     else {
+        return Ok(SalariedPlayersBySlot::new());
+    };
+    let Some(inputs) = weekly.get(&slate.season_week) else {
         return Ok(SalariedPlayersBySlot::new());
     };
 
@@ -68,14 +140,24 @@ async fn slate_salaried_players(
         .iter()
         .filter_map(|salary| {
             let game = games.get(&salary.game.matchup)?;
-            facts.salaried_player(salary, averages, game)
+            let mut player = facts.salaried_player(salary, averages, game)?;
+            player.scored_stats = match &player.id {
+                Some(id) => inputs.players.get(id).map(|row| ScoredStats {
+                    stats: WeeklyStats::Player(row.clone()),
+                    score: scoring::score_player(row),
+                }),
+                None => inputs.defenses.get(&player.team).map(|row| ScoredStats {
+                    stats: WeeklyStats::Defense(row.clone()),
+                    score: scoring::score_defense(row),
+                }),
+            };
+            Some(player)
         })
         .collect();
 
     Ok(by_slot(&players))
 }
 
-/// Bucket players by the slots they can fill, leaving out the empty buckets.
 /// Bucket players by the slots they can fill, leaving out the empty buckets.
 /// Each bucket is ordered salary-descending for display.
 fn by_slot(players: &[SalariedPlayer]) -> SalariedPlayersBySlot {
@@ -104,7 +186,7 @@ fn slots_for(position: DfsPosition) -> impl Iterator<Item = DfsPositionSlotType>
     let flex = DfsPositionSlotType::Flex
         .allows(position)
         .then_some(DfsPositionSlotType::Flex);
-    std::iter::once(DfsPositionSlotType::Position(position)).chain(flex)
+    iter::once(DfsPositionSlotType::Position(position)).chain(flex)
 }
 
 /// The lookups every slate needs: FanDuel ids to NFL ids, NFL ids to display
@@ -188,6 +270,7 @@ impl PlayerFacts {
                 salary: salary.salary,
                 games_played,
                 fppg,
+                scored_stats: None,
             });
         }
 
@@ -209,6 +292,7 @@ impl PlayerFacts {
             salary: salary.salary,
             games_played,
             fppg,
+            scored_stats: None,
         })
     }
 }

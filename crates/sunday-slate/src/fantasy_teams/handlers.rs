@@ -7,6 +7,7 @@ use crate::fantasy_teams::open_contests::{OpenAction, OpenContestRow, open_conte
 use crate::fantasy_teams::store as fantasy_teams;
 use crate::fantasy_teams::{FantasyTeam, FantasyTeamId, MaybeTeam, OwnedTeam, TeamCreator, logo};
 use crate::invites::store as invites;
+use crate::leagues;
 use crate::leagues::CurrentLeague;
 use crate::media::{self, Media};
 use crate::scoring::service as scoring_service;
@@ -14,6 +15,7 @@ use crate::validation::{normalize_name, valid_name_chars};
 use crate::web::{FormErrors, FormInput, Valid, redirect};
 use crate::{AppError, AppState, form_view};
 use askama::Template;
+use axum::body::Bytes;
 use axum::extract::multipart::MultipartError;
 use axum::extract::{Multipart, Path, State};
 use axum::http::StatusCode;
@@ -22,6 +24,8 @@ use axum_htmx::HxRequest;
 use garde::Validate;
 use serde::Deserialize;
 use std::collections::HashSet;
+#[cfg(test)]
+use time::macros::datetime;
 use tower_sessions::Session;
 
 #[derive(Template, Default)]
@@ -93,8 +97,8 @@ pub async fn create(
         })
         .await?;
 
-    crate::leagues::clear_pending_creation(&session).await?;
-    crate::leagues::set_active(&session, team.league_id).await?;
+    leagues::clear_pending_creation(&session).await?;
+    leagues::set_active(&session, team.league_id).await?;
 
     Ok(redirect(is_htmx, "/"))
 }
@@ -180,7 +184,7 @@ fn multipart_app_error(e: MultipartError) -> AppError {
 }
 
 enum LogoSubmission {
-    Upload(axum::body::Bytes),
+    Upload(Bytes),
     Remove,
 }
 
@@ -308,15 +312,14 @@ pub async fn show(
     // Officially-decided contests only; `score_entries` narrows them to this
     // team's entries. A live contest stays out: the open-contests section
     // above owns the live row.
-    let snapshot = state.nfl.snapshot();
-    let results = contests_service::official_contest_weeks(&state, &snapshot).await?;
-    let scores =
-        scoring_service::score_entries(&team.entries, &results.contest_week, &results.stats);
+    let results = contests_service::official_contest_weeks(&state).await?;
+    let scores = scoring_service::score_entries(&team.entries, &results.snapshot, &results.slates);
 
     let scored = scores
         .into_iter()
         .map(|(id, points)| {
-            let slate = snapshot
+            let slate = results
+                .snapshot
                 .slate(&id)
                 .expect("official_contest_weeks returns published slates only")
                 .clone();
@@ -329,9 +332,10 @@ pub async fn show(
     let open = match edit_team_id {
         Some(team_id) => {
             // A contest whose official stats have landed is no longer open.
-            let candidates = snapshot
+            let candidates = results
+                .snapshot
                 .slates()
-                .filter(|slate| !results.contest_week.contains_key(&slate.id))
+                .filter(|slate| !results.slates.contains(&slate.id))
                 .cloned()
                 .collect::<Vec<_>>();
             let entry_ids =
@@ -550,10 +554,7 @@ mod tests {
         let with = TeamLogoTemplate {
             team_id: 7,
             name: "Champs".to_string(),
-            logo: Some(Media::fixture(
-                "7.png",
-                time::macros::datetime!(2026-08-09 12:00:00),
-            )),
+            logo: Some(Media::fixture("7.png", datetime!(2026-08-09 12:00:00))),
             chrome: Chrome::focused("Team Logo", "/teams/7"),
         }
         .render()

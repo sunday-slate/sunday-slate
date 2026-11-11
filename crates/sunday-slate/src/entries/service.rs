@@ -1,9 +1,18 @@
 //! The entry page's data: the structs the template renders and their
 //! construction.
 
+use crate::injuries::{self, InjuryChip};
+use crate::{assets, avatars};
+#[cfg(test)]
+use nfl_data::DfsPosition;
+use nfl_data::Snapshot;
 use std::collections::HashMap;
+#[cfg(test)]
+use std::sync::Arc;
+#[cfg(test)]
+use time::macros::datetime;
 
-use nfl_data::salaried_players::SalariedPlayer;
+use nfl_data::salaried_players::{SalariedPlayer, WeeklyStats};
 use nfl_data::slates::SlateId;
 use nfl_data::{
     Game, LiveGamePhase, PlayerIdentity, PlayerWeekStats as NflPlayerWeekStats, TeamAbbr,
@@ -14,13 +23,15 @@ use crate::contests::service as contests;
 use crate::entries::EntryId;
 use crate::entries::store;
 use crate::entries::{Lineup, NflPlayerId, PlayerOrDefenseId, RosterSlot};
-use crate::fantasy_teams::monogram;
+use crate::fantasy_teams as fantasy_teams_module;
 use crate::fantasy_teams::store as fantasy_teams;
 use crate::injuries::InjuryDesignation;
 use crate::live::{self, ContestScores, Coverage, LiveContestSnapshot};
 use crate::media::Media;
-use crate::scoring::{self, Score, WeekStats};
+use crate::scoring;
+use crate::scoring::service as scoring_service;
 use crate::{AppError, AppState, User};
+use nfl_data::scoring::{self as nfl_scoring, Score, ScoreLine, WeekStats};
 use time::OffsetDateTime;
 
 /// Which lineup page a viewer gets.
@@ -55,7 +66,7 @@ pub struct EntryPage {
 impl EntryPage {
     /// Up to two initials from the fantasy team name, for the logo fallback.
     pub fn monogram(&self) -> String {
-        monogram(&self.team_name)
+        fantasy_teams_module::monogram(&self.team_name)
     }
 
     /// The entry's total, or `None` while the picks stay hidden.
@@ -185,8 +196,8 @@ enum Avatar {
 impl Avatar {
     fn url(&self) -> String {
         match self {
-            Avatar::Headshot(url) | Avatar::TeamLogo(url) => crate::assets::versioned(url),
-            Avatar::Silhouette => crate::assets::versioned(SILHOUETTE),
+            Avatar::Headshot(url) | Avatar::TeamLogo(url) => assets::versioned(url),
+            Avatar::Silhouette => assets::versioned(SILHOUETTE),
         }
     }
 }
@@ -198,7 +209,7 @@ pub const SALARY_CAP: i64 = 60_000;
 
 /// The placeholder image for a row with no avatar.
 pub(crate) fn silhouette_url() -> String {
-    crate::assets::versioned(SILHOUETTE)
+    assets::versioned(SILHOUETTE)
 }
 
 /// The pre-kickoff pick block every lineup page renders the same way: the
@@ -233,8 +244,8 @@ impl PickInfo {
     }
 
     /// The pick's injury badge, when the report has it.
-    pub fn injury(&self) -> Option<crate::injuries::InjuryChip> {
-        self.injury.map(crate::injuries::chip)
+    pub fn injury(&self) -> Option<InjuryChip> {
+        self.injury.map(injuries::chip)
     }
 
     pub fn name(&self) -> &str {
@@ -365,8 +376,8 @@ impl SlotRow {
         self.dom_id.to_owned()
     }
 
-    pub fn injury(&self) -> Option<crate::injuries::InjuryChip> {
-        self.injury.map(crate::injuries::chip)
+    pub fn injury(&self) -> Option<InjuryChip> {
+        self.injury.map(injuries::chip)
     }
 
     /// The compact row name; DST names return unchanged.
@@ -418,7 +429,7 @@ impl SlotRow {
     }
 
     /// The per-stat scoring lines, for the expand panel.
-    pub fn breakdown(&self) -> &[scoring::ScoreLine] {
+    pub fn breakdown(&self) -> &[ScoreLine] {
         &self.score.lines
     }
 
@@ -587,6 +598,98 @@ fn top_stats_line(slot: RosterSlot, position: Option<&str>, stats: &NflPlayerWee
     parts.join(", ")
 }
 
+#[derive(Clone, Copy)]
+pub enum PickStats<'a> {
+    Raw(&'a WeekStats),
+    Stored {
+        snapshot: &'a Snapshot,
+        slate_id: SlateId,
+    },
+}
+
+#[derive(Default)]
+struct PickFacts {
+    team: Option<TeamAbbr>,
+    opponent: Option<TeamAbbr>,
+    top_stats: String,
+    score: Score,
+    // Distinguish a missing DST attachment from one with an empty scoring line.
+    present: bool,
+}
+
+fn player_facts(
+    stats: PickStats<'_>,
+    slot: RosterSlot,
+    id: &NflPlayerId,
+    position: Option<&str>,
+) -> PickFacts {
+    match stats {
+        PickStats::Raw(week) => match week.players.get(id) {
+            Some(row) => PickFacts {
+                team: Some(row.team),
+                opponent: row.opponent,
+                top_stats: top_stats_line(slot, position, row),
+                score: nfl_scoring::score_player(row),
+                present: true,
+            },
+            None => PickFacts::default(),
+        },
+        PickStats::Stored { snapshot, slate_id } => {
+            let value = PlayerOrDefenseId::Player(id.clone());
+            match stored_week(snapshot, slate_id, &value) {
+                Some((WeeklyStats::Player(row), score)) => PickFacts {
+                    team: Some(row.team),
+                    opponent: row.opponent,
+                    top_stats: top_stats_line(slot, position, row),
+                    score: score.clone(),
+                    present: true,
+                },
+                _ => PickFacts::default(),
+            }
+        }
+    }
+}
+
+fn defense_facts(stats: PickStats<'_>, team: TeamAbbr) -> PickFacts {
+    match stats {
+        PickStats::Raw(week) => match week.defenses.get(&team) {
+            Some(row) => PickFacts {
+                team: Some(row.team),
+                opponent: Some(row.opponent),
+                top_stats: String::new(),
+                score: nfl_scoring::score_defense(row),
+                present: true,
+            },
+            None => PickFacts::default(),
+        },
+        PickStats::Stored { snapshot, slate_id } => {
+            let value = PlayerOrDefenseId::Defense(team);
+            match stored_week(snapshot, slate_id, &value) {
+                Some((WeeklyStats::Defense(row), score)) => PickFacts {
+                    team: Some(row.team),
+                    opponent: Some(row.opponent),
+                    top_stats: String::new(),
+                    score: score.clone(),
+                    present: true,
+                },
+                _ => PickFacts::default(),
+            }
+        }
+    }
+}
+
+fn stored_week<'a>(
+    snapshot: &'a Snapshot,
+    slate_id: SlateId,
+    value: &PlayerOrDefenseId,
+) -> Option<(&'a WeeklyStats, &'a Score)> {
+    let scored = snapshot
+        .salaried_player(&slate_id, value)?
+        .scored_stats
+        .as_ref()?;
+    Some((&scored.stats, &scored.score))
+}
+
 /// Score the lineup into the nine display rows, in roster order. `names` is
 /// keyed by gsis id; a pick in neither nfl-data source is named by its raw
 /// id. The named team is the matchup fallback for a slot with no stat row
@@ -595,7 +698,7 @@ fn top_stats_line(slot: RosterSlot, position: Option<&str>, stats: &NflPlayerWee
 pub fn build_picks(
     lineup: &Lineup,
     names: &HashMap<NflPlayerId, PlayerIdentity>,
-    stats: &WeekStats,
+    stats: PickStats<'_>,
     slate: &[Game],
     salary: impl Fn(&PlayerOrDefenseId) -> Option<i64>,
     ownership: &Ownership,
@@ -607,15 +710,17 @@ pub fn build_picks(
         .into_iter()
         .map(|(slot, id)| {
             let known = names.get(id);
-            let stat = stats.players.get(id);
-            let team = stat
-                .map(|s| s.team.as_str().to_owned())
+            let facts = player_facts(stats, slot, id, known.and_then(|k| k.position.as_deref()));
+            let team = facts
+                .team
+                .map(|team| team.as_str().to_owned())
                 .or_else(|| known.and_then(|k| k.team.as_ref().map(|t| t.as_str().to_owned())));
             let value = PlayerOrDefenseId::Player(id.clone());
             let avatar = match avatars.get(&value) {
                 Some(media) => Avatar::Headshot(media.url()),
                 None => Avatar::Silhouette,
             };
+            let points = Some(facts.score.total);
             SlotRow {
                 slot: slot.position_label(),
                 dom_id: slot.dom_id(),
@@ -623,13 +728,11 @@ pub fn build_picks(
                 avatar,
                 team: team.clone(),
                 kickoff: team.as_deref().and_then(|team| team_kickoff(slate, team)),
-                opponent: stat.and_then(|s| s.opponent.as_ref().map(|o| o.as_str().to_owned())),
+                opponent: facts.opponent.map(|opponent| opponent.as_str().to_owned()),
                 game: team.as_deref().and_then(|t| game_line(slate, t)),
-                top_stats: stat.map_or_else(String::new, |s| {
-                    top_stats_line(slot, known.and_then(|k| k.position.as_deref()), s)
-                }),
-                score: stat.map(scoring::score_player).unwrap_or_default(),
-                points: Some(stat.map_or(0.0, |stat| scoring::score_player(stat).total)),
+                top_stats: facts.top_stats,
+                score: facts.score,
+                points,
                 score_direction: None,
                 score_delta: None,
                 coverage: Coverage::Complete,
@@ -644,11 +747,15 @@ pub fn build_picks(
         })
         .collect();
 
-    let defense = stats.defenses.get(&lineup.def);
+    let facts = defense_facts(stats, lineup.def);
     let def_team = lineup.def.as_str().to_owned();
-    let def_score = defense.map(scoring::score_defense).unwrap_or_default();
-    let def_points = def_score.total;
     let defense_id = PlayerOrDefenseId::Defense(lineup.def);
+    let top_stats = if facts.present {
+        or_dash(facts.score.stat_line())
+    } else {
+        String::new()
+    };
+    let points = Some(facts.score.total);
     rows.push(SlotRow {
         slot: RosterSlot::Def.position_label(),
         dom_id: RosterSlot::Def.dom_id(),
@@ -660,13 +767,11 @@ pub fn build_picks(
         ),
         team: Some(def_team.clone()),
         kickoff: team_kickoff(slate, &def_team),
-        opponent: defense.map(|t| t.opponent.as_str().to_owned()),
+        opponent: facts.opponent.map(|opponent| opponent.as_str().to_owned()),
         game: game_line(slate, &def_team),
-        // A defense has no box score; its collapsed line is its scoring line.
-        // With no defense stat row there is nothing to show, not even a dash.
-        top_stats: defense.map_or_else(String::new, |_| or_dash(def_score.stat_line())),
-        score: def_score,
-        points: Some(def_points),
+        top_stats,
+        score: facts.score,
+        points,
         score_direction: None,
         score_delta: None,
         coverage: Coverage::Complete,
@@ -793,7 +898,7 @@ pub struct EntryPreview {
 impl EntryPreview {
     /// Up to two initials from the fantasy team name, for the logo fallback.
     pub fn monogram(&self) -> String {
-        monogram(&self.team_name)
+        fantasy_teams_module::monogram(&self.team_name)
     }
 
     /// What the lineup left under the cap, `"$600"`.
@@ -943,9 +1048,11 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
         .await?
         .ok_or(AppError::NotFound)?;
 
-    let snapshot = state.nfl.snapshot();
-    let slate = snapshot.slate(&entry.slate_id).ok_or(AppError::NotFound)?;
-    let games = snapshot.games_for_slate(&entry.slate_id);
+    let snapshot_ref = state.nfl.snapshot();
+    let slate = snapshot_ref
+        .slate(&entry.slate_id)
+        .ok_or(AppError::NotFound)?;
+    let games = snapshot_ref.games_for_slate(&entry.slate_id);
     let contest_name = slate.name.clone();
     let now = state.now();
 
@@ -959,11 +1066,11 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
             .into_iter()
             .map(|slot| slot.value)
             .collect();
-        let avatars = crate::avatars::by_id(&state.db, &values).await?;
+        let avatars = avatars::by_id(&state.db, &values).await?;
         let (rows, spent) = build_preview(
             &entry.lineup,
-            |id| snapshot.player(&entry.slate_id, id).cloned(),
-            |team| snapshot.defense(&entry.slate_id, team).cloned(),
+            |id| snapshot_ref.player(&entry.slate_id, id).cloned(),
+            |team| snapshot_ref.defense(&entry.slate_id, team).cloned(),
             &avatars,
         );
         return Ok(EntryView::Preview(EntryPreview {
@@ -982,10 +1089,26 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
         let source = live::load_contest_scores(state, entry.slate_id).await?;
         let stream_eligible = live::stream_eligible(state, entry.slate_id, &source).await?;
         let unsynced = WeekStats::default();
-        let (week_stats, display_slate) = match &source {
-            ContestScores::Official(stats) => (stats.as_ref(), games.to_vec()),
-            ContestScores::Provisional(snapshot) => (&snapshot.stats, snapshot.scored_games()),
-            ContestScores::Upcoming | ContestScores::Unavailable => (&unsynced, games.to_vec()),
+        // Keep official scores, games, and salaries on the same publication.
+        let (stats, display_slate, roster) = match &source {
+            ContestScores::Official(official) => (
+                PickStats::Stored {
+                    snapshot: official,
+                    slate_id: entry.slate_id,
+                },
+                official.games_for_slate(&entry.slate_id).to_vec(),
+                official.as_ref(),
+            ),
+            ContestScores::Provisional(snapshot) => (
+                PickStats::Raw(&snapshot.stats),
+                snapshot.scored_games(),
+                snapshot_ref.as_ref(),
+            ),
+            ContestScores::Upcoming | ContestScores::Unavailable => (
+                PickStats::Raw(&unsynced),
+                games.to_vec(),
+                snapshot_ref.as_ref(),
+            ),
         };
         let names = state.nfl.identify(&ids).await?;
         let values: Vec<PlayerOrDefenseId> = entry
@@ -994,17 +1117,23 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
             .into_iter()
             .map(|slot| slot.value)
             .collect();
-        let avatars = crate::avatars::by_id(&state.db, &values).await?;
+        let avatars = avatars::by_id(&state.db, &values).await?;
         let contest_entries = store::by_contest(reader, entry.slate_id, entry.league_id).await?;
 
         let ownership = compute_ownership(contest_entries.iter().map(|e| &e.lineup));
 
         let rank = match &source {
-            ContestScores::Official(stats) => {
-                contests::rank_contest_entries(contests::entrants(&contest_entries, Some(stats)))
-                    .into_iter()
-                    .find(|row| row.id == id)
-                    .and_then(|row| row.rank)
+            ContestScores::Official(official) => {
+                contests::rank_contest_entries(contests::entrants(&contest_entries, |lineup| {
+                    Some(scoring_service::lineup_total(
+                        lineup,
+                        official,
+                        entry.slate_id,
+                    ))
+                }))
+                .into_iter()
+                .find(|row| row.id == id)
+                .and_then(|row| row.rank)
             }
             ContestScores::Provisional(snapshot) => {
                 contests::rank_live_entries(&contest_entries, snapshot, now)
@@ -1018,10 +1147,10 @@ pub async fn page(state: &AppState, viewer: &User, id: EntryId) -> Result<EntryV
         let mut picks = build_picks(
             &entry.lineup,
             &names,
-            week_stats,
+            stats,
             &display_slate,
             |value| {
-                snapshot
+                roster
                     .salaried_player(&entry.slate_id, value)
                     .map(|row| i64::from(row.salary))
             },
@@ -1169,7 +1298,7 @@ mod tests {
             build_picks(
                 &lineup(),
                 &self.names,
-                &self.stats,
+                PickStats::Raw(&self.stats),
                 &slate(),
                 |_| None,
                 &self.ownership,
@@ -1519,17 +1648,17 @@ mod tests {
     fn salaried(
         id: Option<&str>,
         name: &str,
-        position: nfl_data::DfsPosition,
+        position: DfsPosition,
         salary: u32,
         fppg: f64,
         games_played: u8,
     ) -> SalariedPlayer {
         SalariedPlayer {
             id: id.map(|id| NflPlayerId(id.into())),
-            game: std::sync::Arc::new(factories::game_at(
+            game: Arc::new(factories::game_at(
                 "2025_01_BUF_KC",
                 1,
-                time::macros::datetime!(2025-09-07 13:00 -4),
+                datetime!(2025-09-07 13:00 -4),
             )),
             name: name.into(),
             position,
@@ -1537,13 +1666,14 @@ mod tests {
             salary,
             games_played,
             fppg,
+            scored_stats: None,
         }
     }
 
     #[test]
     fn abbreviated_name_preserves_defense_rows() {
         let info = PickInfo::new(
-            salaried(None, "KC DST", nfl_data::DfsPosition::Dst, 3_000, 0.0, 0),
+            salaried(None, "KC DST", DfsPosition::Dst, 3_000, 0.0, 0),
             None,
             None,
         );
@@ -1577,7 +1707,7 @@ mod tests {
                     salaried(
                         Some(id.as_ref()),
                         id.as_ref(),
-                        nfl_data::DfsPosition::Rb,
+                        DfsPosition::Rb,
                         5_000,
                         fppg,
                         games,
@@ -1585,7 +1715,7 @@ mod tests {
                 )
             })
             .collect();
-        let defense = salaried(None, "KC DST", nfl_data::DfsPosition::Dst, 3_000, 6.5, 2);
+        let defense = salaried(None, "KC DST", DfsPosition::Dst, 3_000, 6.5, 2);
         let (rows, spent) = build_preview(
             &lineup(),
             |id| players.get(id).cloned(),
@@ -1626,10 +1756,7 @@ mod tests {
     #[test]
     fn entry_page_total_agrees_with_the_standings_total() {
         let picks = picks();
-        assert_eq!(
-            picks.total,
-            Some(scoring::score_lineup(&lineup(), &week_stats()))
-        );
+        assert_eq!(picks.total, Some(20.0));
     }
 
     #[test]

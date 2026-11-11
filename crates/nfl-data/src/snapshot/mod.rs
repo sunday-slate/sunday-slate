@@ -2,14 +2,14 @@ use crate::salaried_players::{self, SalariedPlayer, SalariedPlayersBySlot};
 use crate::slates::{self, Slate, SlateId};
 use crate::{NflData, NflDataError};
 use nfl_model::{DfsPositionSlotType, Game, NflPlayerId, PlayerOrDefenseId, TeamAbbr};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 #[cfg(test)]
 mod tests;
 
 /// One slate's salaried players: the position buckets plus direct lookups by
 /// gsis id and by team.
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct SalariedPlayers {
     by_slot: SalariedPlayersBySlot,
     players: HashMap<NflPlayerId, SalariedPlayer>,
@@ -45,11 +45,12 @@ impl SalariedPlayers {
     }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Snapshot {
     slates: BTreeMap<SlateId, Slate>,
     games: HashMap<SlateId, Vec<Game>>,
     salaried_players: HashMap<SlateId, SalariedPlayers>,
+    stats_available: HashSet<SlateId>,
 }
 
 impl Snapshot {
@@ -65,27 +66,39 @@ impl Snapshot {
             games.insert(slate.id, slates::games(nfl, &slate.id).await?);
         }
 
+        let (built, available) =
+            salaried_players::build_salaried_players(nfl, all_slates.as_slice(), &games).await?;
+
         // stored slates exist for every week, even those without games or
         // salaries; only the ones that resolve to players belong in a snapshot
-        let salaried: HashMap<SlateId, SalariedPlayers> =
-            salaried_players::build_salaried_players(nfl, all_slates.as_slice())
-                .await?
-                .into_iter()
-                .filter(|(_, by_slot)| !by_slot.is_empty())
-                .map(|(slate_id, by_slot)| (slate_id, SalariedPlayers::new(by_slot)))
-                .collect();
+        let salaried: HashMap<SlateId, SalariedPlayers> = built
+            .into_iter()
+            .filter(|(_, by_slot)| !by_slot.is_empty())
+            .map(|(slate_id, by_slot)| (slate_id, SalariedPlayers::new(by_slot)))
+            .collect();
 
-        let slates = all_slates
+        let slates: BTreeMap<SlateId, Slate> = all_slates
             .into_iter()
             .filter(|slate| salaried.contains_key(&slate.id))
             .map(|slate| (slate.id, slate))
+            .collect();
+
+        let stats_available = available
+            .into_iter()
+            .filter(|slate_id| slates.contains_key(slate_id))
             .collect();
 
         Ok(Self {
             slates,
             games,
             salaried_players: salaried,
+            stats_available,
         })
+    }
+
+    /// Complete team-game coverage in this publication; not a game-finality guarantee.
+    pub fn stats_available(&self, slate_id: &SlateId) -> bool {
+        self.stats_available.contains(slate_id)
     }
 
     /// All slates with salaried players in ascending order
