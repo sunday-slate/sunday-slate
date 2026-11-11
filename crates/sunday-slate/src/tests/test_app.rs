@@ -360,7 +360,21 @@ pub async fn publish_slate(
         .seed_for_test(players, games)
         .await
         .expect("seed the slate's players and games");
+    upload_slate(app, week, games, players).await
+}
 
+/// Re-upload `publish_slate`'s salaries for `week`, which rebuilds and
+/// publishes the snapshot, and return the week's main slate id.
+///
+/// Salaries upsert, so an unchanged upload is a pure republish. Use it after
+/// seeding stats: publication is what puts new weekly rows into the snapshot's
+/// attachments.
+pub async fn upload_slate(
+    app: &TestApp,
+    week: nfl_data::SeasonWeek,
+    games: &[nfl_data::Game],
+    players: &[nfl_data::Player],
+) -> nfl_data::slates::SlateId {
     let mut csv = String::from(
         r#""Id","Position","First Name","Nickname","Last Name","FPPG","Played","Salary","Game","Team","Opponent","Injury Indicator","Injury Details"
 "#,

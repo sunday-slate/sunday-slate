@@ -859,6 +859,286 @@ async fn scored_stats_reflect_a_rebuild() {
     );
 }
 
+#[tokio::test]
+async fn stats_available_requires_both_sides_of_every_slate_game() {
+    let nfl = in_memory_fixture().await;
+    let main_id = main_slate_id(SEASON);
+
+    // the fixture seeds week 4 only: week 5 has nothing, so nothing is played
+    nfl.rebuild_snapshot().await.expect("rebuild");
+    assert!(
+        !nfl.snapshot().stats_available(&main_id),
+        "a week without rows is not available"
+    );
+
+    // both game sides, and deliberately no player row at all
+    nfl.seed_week_stats_for_test(
+        SEASON,
+        &[mack_week_stats(4)],
+        &[
+            kc_week_stats(4),
+            buf_week_stats(4),
+            kc_week_stats(5),
+            buf_week_stats(5),
+        ],
+    )
+    .await
+    .expect("seed week stats");
+    nfl.rebuild_snapshot().await.expect("rebuild");
+    let snapshot = nfl.snapshot();
+    assert!(
+        snapshot.stats_available(&main_id),
+        "both teams' rows cover the game"
+    );
+
+    // coverage is not player coverage: the missing rows stay empty
+    let mack = snapshot
+        .player(&main_id, &NflPlayerId("00-MACK".into()))
+        .expect("mack is built");
+    assert!(mack.scored_stats.is_none(), "no week 5 player row");
+    let kc = snapshot.defense(&main_id, &TeamAbbr::KC).expect("kc dst");
+    assert!(
+        kc.scored_stats.is_some(),
+        "the team row attaches to its DST"
+    );
+}
+
+#[tokio::test]
+async fn stats_available_needs_the_slates_own_game_and_week() {
+    let nfl = in_memory_fixture().await;
+    let main_id = main_slate_id(SEASON);
+
+    // the right teams in the right week, but under another game id
+    let elsewhere = |team, opponent| crate::TeamWeekStats {
+        game_id: "2026_05_XXX_YYY".into(),
+        ..team_stats(team, opponent, 5)
+    };
+    // and the previous season's week 5, which is another identity entirely
+    let last_season = |team, opponent| crate::TeamWeekStats {
+        season_week: PREVIOUS_WEEK_5,
+        game_id: "2025_05_BUF_KC".into(),
+        ..team_stats(team, opponent, 5)
+    };
+    nfl.seed_week_stats_for_test(
+        SEASON,
+        &[mack_week_stats(4)],
+        &[
+            kc_week_stats(4),
+            buf_week_stats(4),
+            elsewhere(TeamAbbr::KC, TeamAbbr::BUF),
+            elsewhere(TeamAbbr::BUF, TeamAbbr::KC),
+        ],
+    )
+    .await
+    .expect("seed week stats");
+    nfl.seed_week_stats_for_test(
+        PREVIOUS_SEASON,
+        &[],
+        &[
+            last_season(TeamAbbr::KC, TeamAbbr::BUF),
+            last_season(TeamAbbr::BUF, TeamAbbr::KC),
+        ],
+    )
+    .await
+    .expect("seed the previous season");
+    nfl.rebuild_snapshot().await.expect("rebuild");
+    assert!(
+        !nfl.snapshot().stats_available(&main_id),
+        "another game id and another season are not this slate's rows"
+    );
+
+    // naming the slate's own game makes it available
+    nfl.seed_week_stats_for_test(
+        SEASON,
+        &[mack_week_stats(4)],
+        &[
+            kc_week_stats(4),
+            buf_week_stats(4),
+            kc_week_stats(5),
+            buf_week_stats(5),
+        ],
+    )
+    .await
+    .expect("seed week stats");
+    nfl.rebuild_snapshot().await.expect("rebuild");
+    assert!(nfl.snapshot().stats_available(&main_id));
+}
+
+/// Week 12 has a Sunday main slate and a Thanksgiving slate; each needs its
+/// own games' rows.
+#[tokio::test]
+async fn same_week_slates_become_available_independently() {
+    const WEEK_12: SeasonWeek = SeasonWeek {
+        season: SEASON,
+        week: Week(12),
+    };
+    let nfl = NflData::in_memory().await.expect("in-memory handle");
+    // Sunday Nov 29 and Thursday Nov 26, 2026, in Eastern time.
+    let games = vec![
+        Game {
+            game_id: "2026_12_BUF_KC".into(),
+            season_week: WEEK_12,
+            kickoff: Some(datetime!(2026-11-29 18:00 UTC)),
+            home_team: TeamAbbr::BUF,
+            away_team: TeamAbbr::KC,
+            home_score: None,
+            away_score: None,
+        },
+        Game {
+            game_id: "2026_12_GB_DET".into(),
+            season_week: WEEK_12,
+            kickoff: Some(datetime!(2026-11-26 21:25 UTC)),
+            home_team: TeamAbbr::DET,
+            away_team: TeamAbbr::GB,
+            home_score: None,
+            away_score: None,
+        },
+    ];
+    nfl.seed_for_test(&[], &games).await.expect("seed games");
+    let csv = "\
+Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,Injury Indicator,Injury Details,Tier,,,Roster Position
+9201-1,D,Kansas,Kansas City Chiefs,Chiefs,,0,4800,KC@BUF,KC,BUF,,,,,,DEF
+9202-2,D,Buffalo,Buffalo Bills,Bills,,0,4700,KC@BUF,BUF,KC,,,,,,DEF
+9203-3,D,Detroit,Detroit Lions,Lions,,0,4600,GB@DET,DET,GB,,,,,,DEF
+9204-4,D,Green Bay,Green Bay Packers,Packers,,0,4500,GB@DET,GB,DET,,,,,,DEF
+";
+    let rows = crate::salaries::parse_fanduel_csv(&nfl.fanduel, WEEK_12, csv.as_bytes())
+        .expect("parse salaries");
+    crate::salaries::save_fanduel_salaries(&nfl.fanduel, &rows)
+        .await
+        .expect("save salaries");
+    slates::populate_at(&nfl.nflverse, &nfl.store, SEASON, PINNED_NOW)
+        .await
+        .expect("populate slates");
+
+    let main_id = SlateId(i64::from(WEEK_12.encode()) * 10 + 1);
+    let thanksgiving_id = SlateId(i64::from(WEEK_12.encode()) * 10);
+
+    // Only the Sunday game's teams have rows: the Thanksgiving slate stays
+    // unavailable even though its week is the same.
+    let week_12 = |team, opponent, game_id: &str| crate::TeamWeekStats {
+        game_id: game_id.into(),
+        ..team_stats(team, opponent, 12)
+    };
+    nfl.seed_week_stats_for_test(
+        SEASON,
+        &[],
+        &[
+            week_12(TeamAbbr::KC, TeamAbbr::BUF, "2026_12_BUF_KC"),
+            week_12(TeamAbbr::BUF, TeamAbbr::KC, "2026_12_BUF_KC"),
+        ],
+    )
+    .await
+    .expect("seed the Sunday game");
+    nfl.rebuild_snapshot().await.expect("rebuild");
+
+    let snapshot = nfl.snapshot();
+    assert!(
+        snapshot.stats_available(&main_id),
+        "the Sunday slate's game is covered"
+    );
+    assert!(
+        !snapshot.stats_available(&thanksgiving_id),
+        "the same week's other slate has none of its own rows"
+    );
+
+    // Adding the Thursday game's two sides flips only that slate.
+    let mut teams = vec![
+        week_12(TeamAbbr::KC, TeamAbbr::BUF, "2026_12_BUF_KC"),
+        week_12(TeamAbbr::BUF, TeamAbbr::KC, "2026_12_BUF_KC"),
+        week_12(TeamAbbr::DET, TeamAbbr::GB, "2026_12_GB_DET"),
+        week_12(TeamAbbr::GB, TeamAbbr::DET, "2026_12_GB_DET"),
+    ];
+    teams.sort_by_key(|row| (row.game_id.clone(), row.team));
+    nfl.seed_week_stats_for_test(SEASON, &[], &teams)
+        .await
+        .expect("seed both games");
+    nfl.rebuild_snapshot().await.expect("rebuild");
+
+    let snapshot = nfl.snapshot();
+    assert!(snapshot.stats_available(&main_id));
+    assert!(
+        snapshot.stats_available(&thanksgiving_id),
+        "the Thanksgiving slate's own game is now covered"
+    );
+}
+
+#[tokio::test]
+async fn unknown_and_game_less_slates_are_never_available() {
+    let nfl = in_memory_fixture().await;
+    nfl.rebuild_snapshot().await.expect("rebuild");
+    let snapshot = nfl.snapshot();
+
+    assert!(!snapshot.stats_available(&SlateId(-1)), "unknown id");
+    assert!(
+        !snapshot.stats_available(&SlateId(9_999_999)),
+        "no stored slate"
+    );
+    assert!(
+        !Snapshot::default().stats_available(&main_slate_id(SEASON)),
+        "an empty snapshot has no availability"
+    );
+}
+
+#[tokio::test]
+async fn availability_and_scores_move_together_only_on_rebuild() {
+    let nfl = in_memory_fixture().await;
+    let main_id = main_slate_id(SEASON);
+    let mack_id = NflPlayerId("00-MACK".into());
+    let scored = |snapshot: &Snapshot| {
+        snapshot
+            .player(&main_id, &mack_id)
+            .and_then(|player| player.scored_stats.as_ref())
+            .map(|scored| scored.score.total)
+    };
+
+    nfl.seed_week_stats_for_test(
+        SEASON,
+        &[mack_week_stats(4), mack_week_stats(5)],
+        &[
+            kc_week_stats(4),
+            buf_week_stats(4),
+            kc_week_stats(5),
+            buf_week_stats(5),
+        ],
+    )
+    .await
+    .expect("seed week stats");
+    nfl.rebuild_snapshot().await.expect("rebuild");
+    let held = nfl.snapshot();
+    assert!(held.stats_available(&main_id));
+    assert_eq!(scored(&held), Some(24.0));
+
+    // Raw records change without a publication: the published snapshot is
+    // still the same value, availability and scores alike.
+    nfl.seed_week_stats_for_test(
+        SEASON,
+        &[mack_week_stats(4)],
+        &[kc_week_stats(4), buf_week_stats(4), kc_week_stats(5)],
+    )
+    .await
+    .expect("reseed week stats");
+    assert!(
+        Arc::ptr_eq(&held, &nfl.snapshot()),
+        "seeding alone publishes nothing"
+    );
+    assert!(nfl.snapshot().stats_available(&main_id));
+    assert_eq!(scored(&nfl.snapshot()), Some(24.0));
+
+    // The next publication carries both changes together.
+    nfl.rebuild_snapshot().await.expect("rebuild");
+    let rebuilt = nfl.snapshot();
+    assert!(
+        !rebuilt.stats_available(&main_id),
+        "one game side is gone, so the slate is no longer official"
+    );
+    assert_eq!(scored(&rebuilt), None, "and the row is gone with it");
+
+    // The held snapshot keeps what it published.
+    assert!(held.stats_available(&main_id));
+    assert_eq!(scored(&held), Some(24.0));
+}
+
 fn accessor_slate(id: i64, name: &str) -> Slate {
     Slate {
         id: SlateId(id),

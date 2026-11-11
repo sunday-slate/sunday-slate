@@ -1,24 +1,18 @@
-//! Assemble the standings: fetch each fantasy team's entries, resolve the
-//! officially-decided contests, load their stats, score, rank.
-
-use std::collections::HashMap;
+//! Assemble the standings: fetch each fantasy team's entries, score the ones
+//! in officially-decided contests from the snapshot, rank.
 
 use crate::contests::service;
 use crate::entries::store as entries;
-use crate::scoring::WeekStats;
 use crate::standings::standings::{self, ScoredFantasyTeam, StandingRow};
 use crate::{AppError, AppState};
-use nfl_data::SeasonWeek;
-use nfl_data::slates::SlateId;
 
-/// Every fantasy team in a league, scored against the supplied contest weeks
-/// with their already-loaded stats. A contest absent from the map is skipped.
+/// Every fantasy team in a league, scored against the published snapshot's
+/// official slates.
 pub async fn scored_teams(
     state: &AppState,
     league_id: i64,
-    contest_week: &HashMap<SlateId, SeasonWeek>,
-    stats: &HashMap<SeasonWeek, WeekStats>,
 ) -> Result<Vec<ScoredFantasyTeam>, AppError> {
+    let results = service::official_contest_weeks(state).await?;
     let teams = entries::by_fantasy_team(state.db.reader(), league_id).await?;
 
     Ok(teams
@@ -29,18 +23,11 @@ pub async fn scored_teams(
             owner_name: t.owner_name,
             logo: t.logo.map(|m| m.url()),
             entered: t.entries.iter().map(|e| e.slate_id).collect(),
-            scores: t
-                .entries
-                .iter()
-                .filter_map(|entry| {
-                    let week = contest_week.get(&entry.slate_id)?;
-                    let week_stats = stats.get(week)?;
-                    Some((
-                        entry.slate_id,
-                        crate::scoring::score_lineup(&entry.lineup, week_stats),
-                    ))
-                })
-                .collect(),
+            scores: crate::scoring::service::score_entries(
+                &t.entries,
+                &results.snapshot,
+                &results.slates,
+            ),
         })
         .collect())
 }
@@ -50,9 +37,5 @@ pub async fn standings_for_league(
     state: &AppState,
     league_id: i64,
 ) -> Result<Vec<StandingRow>, AppError> {
-    let snapshot = state.nfl.snapshot();
-    let results = service::official_contest_weeks(state, &snapshot).await?;
-    Ok(standings::rank(
-        scored_teams(state, league_id, &results.contest_week, &results.stats).await?,
-    ))
+    Ok(standings::rank(scored_teams(state, league_id).await?))
 }

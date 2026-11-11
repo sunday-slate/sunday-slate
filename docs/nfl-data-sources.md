@@ -11,6 +11,20 @@ the contest is running.
 Nflverse does not publish stats until the conclusion of the game. Tank01 provides live stats. 
 Not required for Sunday Slate, but useful on gameday. The app considers Nflverse the official stats however.
 
+## Published Snapshot and Official Results
+
+Requests never score raw weekly rows. Each snapshot build reads every distinct
+week's player and team rows once, attaches the precomputed FanDuel score for a
+slate's own week to each of its salaried players, and records which slates have
+both teams' rows for every one of their games. The contest list, contest
+details, My Team, standings, and entry breakdowns read those attachments: a
+slate is official when it is locked and its games' team rows are in the
+snapshot the scores were built from, and a pick with no attachment scores zero
+without making the slate unavailable. A slate missing one game's team rows
+stays provisional rather than publishing a partial total. New or corrected
+nflverse rows appear only after the next successful publication; a failed
+build leaves the previous snapshot in place.
+
 ## Fresh Cache Setup
 
 The nflverse stores its rebuildable, disposable source cache in

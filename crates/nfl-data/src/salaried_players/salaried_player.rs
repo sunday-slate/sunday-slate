@@ -2,7 +2,7 @@ use crate::scoring::Score;
 use nfl_model::{DfsPosition, Game, NflPlayerId, PlayerWeekStats, TeamAbbr, TeamWeekStats};
 use std::sync::Arc;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SalariedPlayer {
     pub id: Option<NflPlayerId>,
     pub game: Arc<Game>,

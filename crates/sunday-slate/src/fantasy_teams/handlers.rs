@@ -308,15 +308,14 @@ pub async fn show(
     // Officially-decided contests only; `score_entries` narrows them to this
     // team's entries. A live contest stays out: the open-contests section
     // above owns the live row.
-    let snapshot = state.nfl.snapshot();
-    let results = contests_service::official_contest_weeks(&state, &snapshot).await?;
-    let scores =
-        scoring_service::score_entries(&team.entries, &results.contest_week, &results.stats);
+    let results = contests_service::official_contest_weeks(&state).await?;
+    let scores = scoring_service::score_entries(&team.entries, &results.snapshot, &results.slates);
 
     let scored = scores
         .into_iter()
         .map(|(id, points)| {
-            let slate = snapshot
+            let slate = results
+                .snapshot
                 .slate(&id)
                 .expect("official_contest_weeks returns published slates only")
                 .clone();
@@ -329,9 +328,10 @@ pub async fn show(
     let open = match edit_team_id {
         Some(team_id) => {
             // A contest whose official stats have landed is no longer open.
-            let candidates = snapshot
+            let candidates = results
+                .snapshot
                 .slates()
-                .filter(|slate| !results.contest_week.contains_key(&slate.id))
+                .filter(|slate| !results.slates.contains(&slate.id))
                 .cloned()
                 .collect::<Vec<_>>();
             let entry_ids =

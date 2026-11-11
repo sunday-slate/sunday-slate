@@ -2,10 +2,10 @@
 //! assembly.
 
 use std::cmp::Reverse;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
+use nfl_data::Game;
 use nfl_data::slates::{Slate, SlateId, SlateStatus};
-use nfl_data::{Game, SeasonWeek};
 use time::OffsetDateTime;
 
 use crate::entries::store as entries_store;
@@ -13,68 +13,32 @@ use crate::entries::{ContestEntry, EntryId};
 use crate::fantasy_teams::store as fantasy_teams_store;
 use crate::fantasy_teams::{FantasyTeamId, LeagueTeam, monogram};
 use crate::live::{self, Coverage, LINEUP_REGULATION_MINUTES, LiveContestSnapshot};
-use crate::scoring::{self, WeekStats, score_lineup};
+use crate::scoring;
 use crate::standings::standings::{self, ScoredFantasyTeam};
 use crate::{AppError, AppState};
 
-/// Contests whose slates' official stats have fully arrived, plus those stats.
-#[derive(Default)]
+/// The published snapshot that stores the official results, plus the slates
+/// whose results it can answer: locked, and with every game's stats in the
+/// records its attachments were built from.
 pub struct OfficialResults {
-    pub contest_week: HashMap<SlateId, SeasonWeek>,
-    pub stats: HashMap<SeasonWeek, WeekStats>,
+    pub snapshot: std::sync::Arc<nfl_data::Snapshot>,
+    pub slates: HashSet<SlateId>,
 }
 
-/// Each published slate's NFL week, from its authoritative metadata.
-pub fn contest_weeks(snapshot: &nfl_data::Snapshot) -> HashMap<SlateId, SeasonWeek> {
-    snapshot
-        .slates()
-        .map(|slate| (slate.id, slate.season_week))
-        .collect()
-}
-
-/// The published slates whose official stats have fully arrived — the same
-/// gate the contest page applies. Skips non-locked slates and ones whose
-/// stats have not arrived rather than reporting false zeros; while the dev
-/// live feed owns a registered snapshot, the result stays provisional.
-pub async fn official_contest_weeks(
-    state: &AppState,
-    snapshot: &nfl_data::Snapshot,
-) -> Result<OfficialResults, AppError> {
+/// The published slates whose stats are available in the snapshot — the same
+/// gate the contest page applies. Skips non-locked slates and ones without
+/// stats rather than reporting false zeros; while the dev live feed owns a
+/// registered snapshot, the result stays provisional.
+pub async fn official_contest_weeks(state: &AppState) -> Result<OfficialResults, AppError> {
+    let snapshot = state.nfl.snapshot();
     let now = state.now();
-    let candidates: Vec<(SlateId, nfl_data::SeasonWeek, &[Game])> = snapshot
+    let slates = snapshot
         .slates()
         .filter(|slate| !(state.config.live_dev_feed && state.live.snapshot(slate.id).is_some()))
-        .filter_map(|slate| {
-            let games = snapshot.games_for_slate(&slate.id);
-            slate
-                .locked(now)
-                .then_some((slate.id, slate.season_week, games))
-        })
+        .filter(|slate| slate.locked(now) && snapshot.stats_available(&slate.id))
+        .map(|slate| slate.id)
         .collect();
-    if candidates.is_empty() {
-        return Ok(OfficialResults::default());
-    }
-
-    let weeks = candidates
-        .iter()
-        .map(|(_, season_week, _)| *season_week)
-        .collect::<HashSet<_>>();
-    let mut stats = crate::scoring::service::week_stats(&state.nfl, weeks).await?;
-
-    let mut contest_week = HashMap::new();
-    for (slate_id, season_week, games) in candidates {
-        let Some(week_stats) = stats.get(&season_week) else {
-            continue;
-        };
-        if live::official_complete_for_slate(season_week, games, week_stats) {
-            contest_week.insert(slate_id, season_week);
-        }
-    }
-    stats.retain(|week, _| contest_week.values().any(|w| w == week));
-    Ok(OfficialResults {
-        contest_week,
-        stats,
-    })
+    Ok(OfficialResults { snapshot, slates })
 }
 
 /// The contests the Contests tab lists: every contest that has started (live
@@ -602,10 +566,13 @@ impl EntryRow {
     }
 }
 
-/// Contest entrants with their scored points, for the rank table. `None`
-/// stats leave every entrant un-scored so `rank_contest_entries` applies its
-/// results gate.
-pub fn entrants(entries: &[ContestEntry], stats: Option<&WeekStats>) -> Vec<ContestEntrant> {
+/// Contest entrants with their scored points, for the rank table. `points`
+/// answers once per lineup, so an unscored page passes a closure returning
+/// `None` and `rank_contest_entries` applies its results gate.
+pub fn entrants(
+    entries: &[ContestEntry],
+    points: impl Fn(&crate::entries::Lineup) -> Option<f64>,
+) -> Vec<ContestEntrant> {
     entries
         .iter()
         .map(|e| ContestEntrant {
@@ -613,7 +580,7 @@ pub fn entrants(entries: &[ContestEntry], stats: Option<&WeekStats>) -> Vec<Cont
             name: e.team_name.clone(),
             owner_name: e.owner_name.clone(),
             logo: e.logo.as_ref().map(|m| m.url()),
-            points: stats.map(|s| score_lineup(&e.lineup, s)),
+            points: points(&e.lineup),
         })
         .collect()
 }
@@ -976,17 +943,19 @@ pub async fn details_for_league(
             .map(|e| e.id)
     });
     let mut rows = if upcoming {
-        rows_in_entry_order(entrants(&entries, None), my_entry)
+        rows_in_entry_order(entrants(&entries, |_| None), my_entry)
     } else {
         match &source {
-            live::ContestScores::Official(stats) => {
-                rank_contest_entries(entrants(&entries, Some(stats)))
+            live::ContestScores::Official(snapshot) => {
+                rank_contest_entries(entrants(&entries, |lineup| {
+                    Some(crate::scoring::service::lineup_total(lineup, snapshot, id))
+                }))
             }
             live::ContestScores::Provisional(snapshot) => {
                 rank_live_entries(&entries, snapshot, now)
             }
             live::ContestScores::Upcoming | live::ContestScores::Unavailable => {
-                rank_contest_entries(entrants(&entries, None))
+                rank_contest_entries(entrants(&entries, |_| None))
             }
         }
     };
@@ -1035,6 +1004,7 @@ mod tests {
     use super::*;
     use crate::entries::Lineup;
     use crate::live::{LiveContestSnapshot, LiveGameState};
+    use crate::scoring::WeekStats;
     use crate::tests::TestApp;
     use crate::tests::factories::{self, TeamOptions};
     use nfl_data::{Game, LiveGamePhase, Season, TeamAbbr, Week};

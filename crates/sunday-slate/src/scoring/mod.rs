@@ -6,45 +6,9 @@ use nfl_data::{
 };
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct ScoreLine {
-    pub stat: &'static str,
-    /// `None` for a threshold bonus, whose name already states the quantity.
-    pub quantity: Option<f64>,
-    pub points: f64,
-}
-
-impl ScoreLine {
-    /// `"2 RuTD"`, or just the stat name for a threshold bonus (`"100+ RuY Gm"`).
-    pub fn label(&self) -> String {
-        match self.quantity {
-            Some(q) => format!("{} {}", q as i64, self.stat),
-            None => self.stat.to_string(),
-        }
-    }
-    /// This line's points as `"12.00"`.
-    pub fn points_str(&self) -> String {
-        format_points(self.points)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct Score {
-    pub total: f64,
-    pub lines: Vec<ScoreLine>,
-}
-
-impl Score {
-    /// `"247 PaY, 2 PaTD, 300+ PaY Gm"` — one clause per scoring line, in
-    /// scoring order.
-    pub fn stat_line(&self) -> String {
-        self.lines
-            .iter()
-            .map(ScoreLine::label)
-            .collect::<Vec<_>>()
-            .join(", ")
-    }
-}
+/// A scored week's total and lines: the same type the NFL snapshot attaches
+/// to its salaried players, so stored and request-time scoring agree.
+pub use nfl_data::scoring::{Score, ScoreLine};
 
 fn line(stat: &'static str, quantity: f64, points: f64) -> ScoreLine {
     ScoreLine {

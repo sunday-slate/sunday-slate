@@ -44,30 +44,31 @@ pub async fn index(
     let contests = snapshot.slates().cloned().collect::<Vec<_>>();
     let current = snapshot.current_slate().map(|slate| slate.id);
     let slate_contests = service::listed_contests(contests, current, now);
-    let contest_weeks = service::contest_weeks(&snapshot);
-    let stats = scoring_service::week_stats(&state.nfl, contest_weeks.values().copied()).await?;
-    let teams = standings_service::scored_teams(&state, league.id, &contest_weeks, &stats).await?;
+    let teams = standings_service::scored_teams(&state, league.id).await?;
 
     let mut rows = service::contest_list(&slate_contests, &teams, now);
 
     for row in &mut rows {
-        match crate::live::load_contest_scores(&state, row.id).await? {
-            ContestScores::Official(stats) => {
+        let contest = row.id;
+        match crate::live::load_contest_scores(&state, contest).await? {
+            ContestScores::Official(snapshot) => {
                 row.state = SlateStatus::Finished;
                 let entries =
-                    entries_store::by_contest(state.db.reader(), row.id, league.id).await?;
+                    entries_store::by_contest(state.db.reader(), contest, league.id).await?;
                 row.winners =
-                    service::rank_contest_entries(service::entrants(&entries, Some(&stats)))
-                        .into_iter()
-                        .filter(|entry| entry.winner)
-                        .filter_map(|entry| {
-                            entry.points.map(|points| WinnerRow {
-                                name: entry.name,
-                                owner_name: entry.owner_name,
-                                points,
-                            })
+                    service::rank_contest_entries(service::entrants(&entries, |lineup| {
+                        Some(scoring_service::lineup_total(lineup, &snapshot, contest))
+                    }))
+                    .into_iter()
+                    .filter(|entry| entry.winner)
+                    .filter_map(|entry| {
+                        entry.points.map(|points| WinnerRow {
+                            name: entry.name,
+                            owner_name: entry.owner_name,
+                            points,
                         })
-                        .collect();
+                    })
+                    .collect();
                 row.pending_official = false;
             }
             ContestScores::Provisional(snapshot) => {
