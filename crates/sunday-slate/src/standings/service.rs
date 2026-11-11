@@ -1,18 +1,14 @@
-//! Assemble the standings: fetch each fantasy team's entries, score the ones
-//! in officially-decided contests from the snapshot, rank.
-
-use crate::contests::service;
+use crate::contests::service as contests_service;
 use crate::entries::store as entries;
+use crate::scoring::service as scoring_service;
 use crate::standings::standings::{self, ScoredFantasyTeam, StandingRow};
 use crate::{AppError, AppState};
 
-/// Every fantasy team in a league, scored against the published snapshot's
-/// official slates.
 pub async fn scored_teams(
     state: &AppState,
     league_id: i64,
 ) -> Result<Vec<ScoredFantasyTeam>, AppError> {
-    let results = service::official_contest_weeks(state).await?;
+    let results = contests_service::official_contest_weeks(state).await?;
     let teams = entries::by_fantasy_team(state.db.reader(), league_id).await?;
 
     Ok(teams
@@ -23,11 +19,7 @@ pub async fn scored_teams(
             owner_name: t.owner_name,
             logo: t.logo.map(|m| m.url()),
             entered: t.entries.iter().map(|e| e.slate_id).collect(),
-            scores: crate::scoring::service::score_entries(
-                &t.entries,
-                &results.snapshot,
-                &results.slates,
-            ),
+            scores: scoring_service::score_entries(&t.entries, &results.snapshot, &results.slates),
         })
         .collect())
 }

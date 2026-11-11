@@ -1,5 +1,7 @@
 //! Snapshot build tests.
 
+use crate::salaries;
+use sqlx::{AssertSqlSafe, Error as SqlxError};
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -199,9 +201,9 @@ async fn seed_sources(nfl: &NflData) {
         (SEASON_WEEK_5, SALARIES_CSV),
         (PREVIOUS_WEEK_5, PREVIOUS_SEASON_SALARIES_CSV),
     ] {
-        let rows = crate::salaries::parse_fanduel_csv(&nfl.fanduel, week, csv.as_bytes())
+        let rows = salaries::parse_fanduel_csv(&nfl.fanduel, week, csv.as_bytes())
             .expect("parse salaries");
-        crate::salaries::save_fanduel_salaries(&nfl.fanduel, &rows)
+        salaries::save_fanduel_salaries(&nfl.fanduel, &rows)
             .await
             .expect("save salaries");
     }
@@ -280,7 +282,7 @@ async fn raw_pool(url: &str) -> SqlitePool {
 
 async fn drop_table(url: &str, table: &'static str) {
     let pool = raw_pool(url).await;
-    sqlx::query(sqlx::AssertSqlSafe(format!("DROP TABLE {table}")))
+    sqlx::query(AssertSqlSafe(format!("DROP TABLE {table}")))
         .execute(&pool)
         .await
         .expect("drop table");
@@ -301,7 +303,7 @@ async fn table_definition(url: &str, table: &'static str) -> String {
 
 async fn recreate_table(url: &str, definition: &str) {
     let pool = raw_pool(url).await;
-    sqlx::raw_sql(sqlx::AssertSqlSafe(definition.to_owned()))
+    sqlx::raw_sql(AssertSqlSafe(definition.to_owned()))
         .execute(&pool)
         .await
         .expect("recreate table");
@@ -439,7 +441,7 @@ async fn connect_populates_slates_before_the_initial_snapshot() {
                 sqlx::query("DELETE FROM slates")
                     .execute(&mut *conn)
                     .await?;
-                Ok::<(), sqlx::Error>(())
+                Ok::<(), SqlxError>(())
             })
             .await
             .expect("clear slate rows");
@@ -569,9 +571,9 @@ Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,
 9101-1,D,Kansas,Kansas City Chiefs,Chiefs,,0,4800,BUF@KC,KC,BUF,,,,,,DEF
 9102-2,D,Detroit,Detroit Lions,Lions,,0,4700,GB@DET,DET,GB,,,,,,DEF
 ";
-    let rows = crate::salaries::parse_fanduel_csv(&nfl.fanduel, week, csv.as_bytes())
-        .expect("parse salaries");
-    crate::salaries::save_fanduel_salaries(&nfl.fanduel, &rows)
+    let rows =
+        salaries::parse_fanduel_csv(&nfl.fanduel, week, csv.as_bytes()).expect("parse salaries");
+    salaries::save_fanduel_salaries(&nfl.fanduel, &rows)
         .await
         .expect("save salaries");
     slates::populate_at(
@@ -610,7 +612,7 @@ Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,
 #[tokio::test]
 async fn scored_stats_attach_the_salaried_weeks_rows() {
     let nfl = in_memory_fixture().await;
-    // seeding replaces the season's rows, so week 4 stays for the FPPG fixtures
+    // Seeding replaces the season; retain week 4 for the FPPG fixture.
     nfl.seed_week_stats_for_test(
         SEASON,
         &[
@@ -637,7 +639,6 @@ async fn scored_stats_attach_the_salaried_weeks_rows() {
         (row.season_week.week, row.rushing_yards, row.rushing_tds),
         (Week(5), 150, 1)
     );
-    // 150 rushing yards, the touchdown, and the 100+ yard bonus
     assert!((scored.score.total - 24.0).abs() < 1e-9, "{scored:?}");
     let breakdown: Vec<(&str, Option<f64>)> = scored
         .score
@@ -657,7 +658,6 @@ async fn scored_stats_attach_the_salaried_weeks_rows() {
         assert!((line.points - expected).abs() < 1e-9, "{line:?}");
     }
 
-    // a seeded all-zero row is still a row: attached, scoring nothing
     let gamma = snapshot
         .player(&main_id, &NflPlayerId("00-GAMMA".into()))
         .expect("gamma is built");
@@ -665,7 +665,6 @@ async fn scored_stats_attach_the_salaried_weeks_rows() {
     assert_eq!(gamma_scored.score.total, 0.0);
     assert!(gamma_scored.score.lines.is_empty());
 
-    // no row means no attachment, never a zero score
     let zack = snapshot
         .player(&main_id, &NflPlayerId("00-ZACK".into()))
         .expect("zack is built");
@@ -679,7 +678,6 @@ async fn scored_stats_attach_the_salaried_weeks_rows() {
 #[tokio::test]
 async fn scored_stats_attach_dst_rows_and_leave_missing_teams_empty() {
     let nfl = in_memory_fixture().await;
-    // team rows only for the slate week: no player row is seeded for week 5
     nfl.seed_week_stats_for_test(
         SEASON,
         &[mack_week_stats(4)],
@@ -705,7 +703,6 @@ async fn scored_stats_attach_dst_rows_and_leave_missing_teams_empty() {
         ),
         (Week(5), 3, 1, 10)
     );
-    // 3 sacks, 2 for the interception, 4 for 7-13 points allowed
     assert!((scored.score.total - 9.0).abs() < 1e-9, "{scored:?}");
     let breakdown: Vec<(&str, Option<f64>)> = scored
         .score
@@ -721,7 +718,6 @@ async fn scored_stats_attach_dst_rows_and_leave_missing_teams_empty() {
         assert!((line.points - expected).abs() < 1e-9, "{line:?}");
     }
 
-    // BUF has no week 5 row: no attachment, and no shutout points either
     let buf = snapshot.defense(&main_id, &TeamAbbr::BUF).expect("buf dst");
     assert!(buf.scored_stats.is_none());
     let mack = snapshot
@@ -752,9 +748,9 @@ async fn scored_stats_use_each_slates_own_week() {
         .await
         .expect("seed nflverse");
     for week in [SEASON_WEEK_5, wild_card] {
-        let rows = crate::salaries::parse_fanduel_csv(&nfl.fanduel, week, SALARIES_CSV.as_bytes())
+        let rows = salaries::parse_fanduel_csv(&nfl.fanduel, week, SALARIES_CSV.as_bytes())
             .expect("parse salaries");
-        crate::salaries::save_fanduel_salaries(&nfl.fanduel, &rows)
+        salaries::save_fanduel_salaries(&nfl.fanduel, &rows)
             .await
             .expect("save salaries");
     }
@@ -821,7 +817,6 @@ async fn scored_stats_reflect_a_rebuild() {
         .total;
     assert!((first - 24.0).abs() < 1e-9, "{first}");
 
-    // replace the target week's row: 50 rushing yards and no touchdown
     let corrected = PlayerWeekStats {
         rushing_yards: 50,
         ..player_stats("00-MACK", 5)
@@ -864,14 +859,12 @@ async fn stats_available_requires_both_sides_of_every_slate_game() {
     let nfl = in_memory_fixture().await;
     let main_id = main_slate_id(SEASON);
 
-    // the fixture seeds week 4 only: week 5 has nothing, so nothing is played
     nfl.rebuild_snapshot().await.expect("rebuild");
     assert!(
         !nfl.snapshot().stats_available(&main_id),
         "a week without rows is not available"
     );
 
-    // both game sides, and deliberately no player row at all
     nfl.seed_week_stats_for_test(
         SEASON,
         &[mack_week_stats(4)],
@@ -891,7 +884,6 @@ async fn stats_available_requires_both_sides_of_every_slate_game() {
         "both teams' rows cover the game"
     );
 
-    // coverage is not player coverage: the missing rows stay empty
     let mack = snapshot
         .player(&main_id, &NflPlayerId("00-MACK".into()))
         .expect("mack is built");
@@ -908,13 +900,11 @@ async fn stats_available_needs_the_slates_own_game_and_week() {
     let nfl = in_memory_fixture().await;
     let main_id = main_slate_id(SEASON);
 
-    // the right teams in the right week, but under another game id
-    let elsewhere = |team, opponent| crate::TeamWeekStats {
+    let elsewhere = |team, opponent| TeamWeekStats {
         game_id: "2026_05_XXX_YYY".into(),
         ..team_stats(team, opponent, 5)
     };
-    // and the previous season's week 5, which is another identity entirely
-    let last_season = |team, opponent| crate::TeamWeekStats {
+    let last_season = |team, opponent| TeamWeekStats {
         season_week: PREVIOUS_WEEK_5,
         game_id: "2025_05_BUF_KC".into(),
         ..team_stats(team, opponent, 5)
@@ -947,7 +937,6 @@ async fn stats_available_needs_the_slates_own_game_and_week() {
         "another game id and another season are not this slate's rows"
     );
 
-    // naming the slate's own game makes it available
     nfl.seed_week_stats_for_test(
         SEASON,
         &[mack_week_stats(4)],
@@ -964,8 +953,6 @@ async fn stats_available_needs_the_slates_own_game_and_week() {
     assert!(nfl.snapshot().stats_available(&main_id));
 }
 
-/// Week 12 has a Sunday main slate and a Thanksgiving slate; each needs its
-/// own games' rows.
 #[tokio::test]
 async fn same_week_slates_become_available_independently() {
     const WEEK_12: SeasonWeek = SeasonWeek {
@@ -973,7 +960,6 @@ async fn same_week_slates_become_available_independently() {
         week: Week(12),
     };
     let nfl = NflData::in_memory().await.expect("in-memory handle");
-    // Sunday Nov 29 and Thursday Nov 26, 2026, in Eastern time.
     let games = vec![
         Game {
             game_id: "2026_12_BUF_KC".into(),
@@ -1002,9 +988,9 @@ Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,
 9203-3,D,Detroit,Detroit Lions,Lions,,0,4600,GB@DET,DET,GB,,,,,,DEF
 9204-4,D,Green Bay,Green Bay Packers,Packers,,0,4500,GB@DET,GB,DET,,,,,,DEF
 ";
-    let rows = crate::salaries::parse_fanduel_csv(&nfl.fanduel, WEEK_12, csv.as_bytes())
-        .expect("parse salaries");
-    crate::salaries::save_fanduel_salaries(&nfl.fanduel, &rows)
+    let rows =
+        salaries::parse_fanduel_csv(&nfl.fanduel, WEEK_12, csv.as_bytes()).expect("parse salaries");
+    salaries::save_fanduel_salaries(&nfl.fanduel, &rows)
         .await
         .expect("save salaries");
     slates::populate_at(&nfl.nflverse, &nfl.store, SEASON, PINNED_NOW)
@@ -1014,9 +1000,7 @@ Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,
     let main_id = SlateId(i64::from(WEEK_12.encode()) * 10 + 1);
     let thanksgiving_id = SlateId(i64::from(WEEK_12.encode()) * 10);
 
-    // Only the Sunday game's teams have rows: the Thanksgiving slate stays
-    // unavailable even though its week is the same.
-    let week_12 = |team, opponent, game_id: &str| crate::TeamWeekStats {
+    let week_12 = |team, opponent, game_id: &str| TeamWeekStats {
         game_id: game_id.into(),
         ..team_stats(team, opponent, 12)
     };
@@ -1042,7 +1026,6 @@ Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,
         "the same week's other slate has none of its own rows"
     );
 
-    // Adding the Thursday game's two sides flips only that slate.
     let mut teams = vec![
         week_12(TeamAbbr::KC, TeamAbbr::BUF, "2026_12_BUF_KC"),
         week_12(TeamAbbr::BUF, TeamAbbr::KC, "2026_12_BUF_KC"),
@@ -1109,8 +1092,6 @@ async fn availability_and_scores_move_together_only_on_rebuild() {
     assert!(held.stats_available(&main_id));
     assert_eq!(scored(&held), Some(24.0));
 
-    // Raw records change without a publication: the published snapshot is
-    // still the same value, availability and scores alike.
     nfl.seed_week_stats_for_test(
         SEASON,
         &[mack_week_stats(4)],
@@ -1125,7 +1106,6 @@ async fn availability_and_scores_move_together_only_on_rebuild() {
     assert!(nfl.snapshot().stats_available(&main_id));
     assert_eq!(scored(&nfl.snapshot()), Some(24.0));
 
-    // The next publication carries both changes together.
     nfl.rebuild_snapshot().await.expect("rebuild");
     let rebuilt = nfl.snapshot();
     assert!(
@@ -1134,7 +1114,6 @@ async fn availability_and_scores_move_together_only_on_rebuild() {
     );
     assert_eq!(scored(&rebuilt), None, "and the row is gone with it");
 
-    // The held snapshot keeps what it published.
     assert!(held.stats_available(&main_id));
     assert_eq!(scored(&held), Some(24.0));
 }

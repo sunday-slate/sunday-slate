@@ -1,3 +1,5 @@
+#[cfg(test)]
+use nfl_data::SeasonWeek;
 pub mod service;
 
 use crate::entries::{Lineup, NflPlayerId};
@@ -6,8 +8,6 @@ use nfl_data::{
 };
 use std::collections::HashMap;
 
-/// A scored week's total and lines: the same type the NFL snapshot attaches
-/// to its salaried players, so stored and request-time scoring agree.
 pub use nfl_data::scoring::{Score, ScoreLine};
 
 fn line(stat: &'static str, quantity: f64, points: f64) -> ScoreLine {
@@ -237,7 +237,7 @@ mod tests {
 
     fn zero_player() -> NflPlayerWeekStats {
         NflPlayerWeekStats {
-            season_week: nfl_data::SeasonWeek::new(Season(2025), Week(5)).expect("valid fixture"),
+            season_week: SeasonWeek::new(Season(2025), Week(5)).expect("valid fixture"),
             gsis_id: "00-1".into(),
             team: TeamAbbr::SF,
             opponent: None,
@@ -305,7 +305,7 @@ mod tests {
 
     fn zero_defense() -> NflTeamWeekStats {
         NflTeamWeekStats {
-            season_week: nfl_data::SeasonWeek::new(Season(2025), Week(5)).expect("valid fixture"),
+            season_week: SeasonWeek::new(Season(2025), Week(5)).expect("valid fixture"),
             team: TeamAbbr::SF,
             opponent: TeamAbbr::LA,
             game_id: "2025_05_SF_LA".into(),

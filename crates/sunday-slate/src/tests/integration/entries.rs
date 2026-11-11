@@ -1,13 +1,20 @@
 //! Entry details page: one entry's scored lineup, with access rules.
 
+use crate::entries::Lineup;
+use crate::live;
+use crate::standings::service as standings_service;
 use http::StatusCode;
 use nfl_data::{
     Game, PlayerWeekStats as NflPlayerWeekStats, Season, TeamAbbr,
     TeamWeekStats as NflTeamWeekStats,
 };
+use nfl_data::{Player, SeasonWeek, Week, slates::SlateId};
 use sqlx::SqlitePool;
+
+use std::{slice, sync::Arc};
 use time::OffsetDateTime;
 use time::macros::datetime;
+use wiremock::MockServer;
 
 use crate::tests::factories::{self, GeneratedTeam, TeamOptions};
 use crate::tests::nfl::mocked_nfl;
@@ -32,16 +39,16 @@ fn scheduled_game() -> Game {
 }
 
 /// The 2025 week-1 regular-season week the fixture publishes.
-fn week1() -> nfl_data::SeasonWeek {
-    nfl_data::SeasonWeek {
+fn week1() -> SeasonWeek {
+    SeasonWeek {
         season: Season(2025),
-        week: nfl_data::Week(1),
+        week: Week(1),
     }
 }
 
 /// A 2025-season test app around mocked nfl-data. The returned mock keeps the
 /// nflverse mocks alive for the test's lifetime.
-async fn app_at(pool: &SqlitePool, now: OffsetDateTime) -> (TestApp, wiremock::MockServer) {
+async fn app_at(pool: &SqlitePool, now: OffsetDateTime) -> (TestApp, MockServer) {
     let (nfl, server) = mocked_nfl(Season(2025)).await;
     let app = TestApp::from_pool_with_nfl_at(pool.clone(), nfl, now).await;
     (app, server)
@@ -49,7 +56,7 @@ async fn app_at(pool: &SqlitePool, now: OffsetDateTime) -> (TestApp, wiremock::M
 
 /// Every lineup pick as a priced KC player: `rb1` at RB1 plus the seven
 /// fillers the full entry writes.
-fn lineup_players(rb1: &str) -> Vec<nfl_data::Player> {
+fn lineup_players(rb1: &str) -> Vec<Player> {
     let named = |gsis: &str, name: &str, position: &str| {
         let mut player = factories::player(gsis, name);
         player.position = Some(position.into());
@@ -80,7 +87,7 @@ async fn setup_entry(
     app: &TestApp,
     rb1: &str,
     scheduled: &[Game],
-) -> (GeneratedTeam, GeneratedTeam, i64, nfl_data::slates::SlateId) {
+) -> (GeneratedTeam, GeneratedTeam, i64, SlateId) {
     let a = factories::team(
         pool,
         TeamOptions {
@@ -449,9 +456,9 @@ async fn migrated_2026_entry_keeps_its_id_and_links_its_slate(pool: SqlitePool) 
     )
     .await;
 
-    let week = nfl_data::SeasonWeek {
+    let week = SeasonWeek {
         season: Season(2026),
-        week: nfl_data::Week(1),
+        week: Week(1),
     };
     let game = Game {
         game_id: "2026_01_BUF_KC".into(),
@@ -459,13 +466,7 @@ async fn migrated_2026_entry_keeps_its_id_and_links_its_slate(pool: SqlitePool) 
         kickoff: Some(KICKOFF_2026),
         ..factories::game(SLATE_GAME, 1)
     };
-    let slate = publish_slate(
-        &app,
-        week,
-        std::slice::from_ref(&game),
-        &lineup_players("00-A"),
-    )
-    .await;
+    let slate = publish_slate(&app, week, slice::from_ref(&game), &lineup_players("00-A")).await;
     assert_eq!(slate.0, 20260011);
     let entry_id = factories::full_entry(&pool, slate, a.team.id, "00-A").await;
 
@@ -507,15 +508,7 @@ async fn migrated_2026_entry_keeps_its_id_and_links_its_slate(pool: SqlitePool) 
         )
         .await
         .unwrap();
-    // the stats arrive after the first upload, so republish: the page's
-    // official scores are the published snapshot's attachments
-    upload_slate(
-        &app,
-        week,
-        std::slice::from_ref(&game),
-        &lineup_players("00-A"),
-    )
-    .await;
+    upload_slate(&app, week, slice::from_ref(&game), &lineup_players("00-A")).await;
 
     app.login_as(&b.owner).await;
     let body = app.get(&format!("/entries/{entry_id}")).await.text();
@@ -531,8 +524,7 @@ async fn migrated_2026_entry_keeps_its_id_and_links_its_slate(pool: SqlitePool) 
     );
 }
 
-/// Both competing RB identities, so each entry's own back resolves.
-fn stored_lineup_players() -> Vec<nfl_data::Player> {
+fn stored_lineup_players() -> Vec<Player> {
     let mut players = lineup_players("00-A");
     let mut beta = factories::player("00-B", "Beta Runner");
     beta.position = Some("RB".into());
@@ -540,10 +532,9 @@ fn stored_lineup_players() -> Vec<nfl_data::Player> {
     players
 }
 
-/// The lineup `full_entry` writes, for summing a held snapshot directly.
-fn stored_lineup(rb1: &str) -> crate::entries::Lineup {
+fn stored_lineup(rb1: &str) -> Lineup {
     use crate::entries::NflPlayerId;
-    crate::entries::Lineup {
+    Lineup {
         qb: NflPlayerId("00-F1".into()),
         rb1: NflPlayerId(rb1.into()),
         rb2: NflPlayerId("00-F2".into()),
@@ -556,8 +547,6 @@ fn stored_lineup(rb1: &str) -> crate::entries::Lineup {
     }
 }
 
-/// The two competing backs, a shared QB, and both game sides' team rows.
-/// Only `00-A`'s line varies between the scenarios.
 async fn seed_stored_results(
     app: &TestApp,
     alpha_yards: i32,
@@ -604,7 +593,6 @@ async fn seed_stored_results(
         .unwrap();
 }
 
-/// The text between `marker` and the next `end`.
 fn text_after<'a>(html: &'a str, marker: &str, end: &str) -> &'a str {
     let start = html
         .find(marker)
@@ -617,7 +605,6 @@ fn text_after<'a>(html: &'a str, marker: &str, end: &str) -> &'a str {
     &rest[..stop]
 }
 
-/// The entry page's total: the summary's one large figure.
 fn entry_total(html: &str, entry: i64) -> String {
     let summary = html
         .find(&format!(r#"id="entry-{entry}-score-summary""#))
@@ -630,7 +617,6 @@ fn entry_total(html: &str, entry: i64) -> String {
     value.trim().to_string()
 }
 
-/// One lineup row's rendered points, `"24.00"`.
 fn row_points(html: &str, entry: i64, dom_id: &str) -> String {
     let region = text_after(
         html,
@@ -642,7 +628,6 @@ fn row_points(html: &str, entry: i64, dom_id: &str) -> String {
     format!("{whole}{dec}")
 }
 
-/// One lineup row's stored breakdown points, in line order.
 fn breakdown_points(html: &str, entry: i64, dom_id: &str) -> Vec<String> {
     let region = text_after(
         html,
@@ -657,8 +642,7 @@ fn breakdown_points(html: &str, entry: i64, dom_id: &str) -> Vec<String> {
         .collect()
 }
 
-/// One entry's score as the contest page renders it.
-fn contest_entry_score(html: &str, slate: nfl_data::slates::SlateId, entry: i64) -> String {
+fn contest_entry_score(html: &str, slate: SlateId, entry: i64) -> String {
     let region = text_after(
         html,
         &format!(r#"id="contest-{}-entry-{entry}-score""#, slate.0),
@@ -673,16 +657,14 @@ fn contest_entry_score(html: &str, slate: nfl_data::slates::SlateId, entry: i64)
         .to_string()
 }
 
-/// One contest's row in the contest list, up to its closing anchor.
-fn contest_list_row(html: &str, slate: nfl_data::slates::SlateId) -> &str {
+fn contest_list_row(html: &str, slate: SlateId) -> &str {
     let marker = format!(r#"href="/contests/{}""#, slate.0);
     let start = html.find(&marker).expect("contest list row");
     let rest = &html[start..];
     &rest[..rest.find("</a>").unwrap_or(rest.len())]
 }
 
-/// One contest's points on a team page.
-fn team_row_points(html: &str, slate: nfl_data::slates::SlateId) -> String {
+fn team_row_points(html: &str, slate: SlateId) -> String {
     let row = contest_list_row(html, slate);
     text_after(
         row,
@@ -693,31 +675,24 @@ fn team_row_points(html: &str, slate: nfl_data::slates::SlateId) -> String {
     .to_string()
 }
 
-/// One side's expected stored result, for the cross-surface assertions.
 struct Surface<'a> {
     team: i64,
     name: &'a str,
     entry: i64,
-    /// The entry's total, as the pages render it.
     points: &'a str,
-    /// Its first running back's row, which is the one pick that differs.
     rb1: &'a str,
 }
 
-/// Assert every official surface reports the same stored totals: the contest
-/// page, its contest-list row, the standings, both team pages, and both entry
-/// breakdowns.
 async fn assert_stored_surfaces(
     app: &TestApp,
-    slate: nfl_data::slates::SlateId,
+    slate: SlateId,
     league_id: i64,
     alpha: Surface<'_>,
     beta: Surface<'_>,
 ) {
     let alpha_points: f64 = alpha.points.parse().unwrap();
     let beta_points: f64 = beta.points.parse().unwrap();
-    // the rank table hides every score until one beats zero, so negative
-    // totals show on the entry and team pages but never as a contest result
+    // The existing rank gate hides all scores when nobody beats zero.
     let ranked = alpha_points.max(beta_points) > 0.0;
     let details = app.get(&format!("/contests/{}", slate.0)).await.text();
     for side in [&alpha, &beta] {
@@ -742,7 +717,7 @@ async fn assert_stored_surfaces(
         );
     }
 
-    let standings = crate::standings::service::standings_for_league(&app.state(), league_id)
+    let standings = standings_service::standings_for_league(&app.state(), league_id)
         .await
         .unwrap();
     let total = |team: i64| {
@@ -765,7 +740,6 @@ async fn assert_stored_surfaces(
     let list = app.get("/contests").await.text();
     let row = contest_list_row(&list, slate);
     if ranked {
-        // the list crowns the higher total, and shows it alone
         let (winner, loser) = if alpha_points > beta_points {
             (&alpha, &beta)
         } else {
@@ -775,7 +749,6 @@ async fn assert_stored_surfaces(
         assert!(row.contains(winner.points), "with its total: {row}");
         assert!(!row.contains(loser.name), "and only the winner: {row}");
     } else {
-        // no positive total wins, and no total is shown
         assert!(
             !row.contains("ph-trophy"),
             "no winner without a positive score: {row}"
@@ -786,8 +759,6 @@ async fn assert_stored_surfaces(
     }
 }
 
-/// Every pick but Beta's back loses three fumbles, and the DST allows 40:
-/// Alpha totals -52.00 and Beta -33.00, both genuinely negative.
 async fn seed_negative_week(app: &TestApp) {
     let losers = [
         "00-A", "00-F1", "00-F2", "00-F3", "00-F4", "00-F5", "00-F6", "00-F7",
@@ -843,8 +814,6 @@ async fn stored_results_reach_every_surface(pool: SqlitePool) {
     let slate = publish_slate(&app, week1(), &[scheduled_game()], &stored_lineup_players()).await;
     let alpha = factories::full_entry(&pool, slate, a.team.id, "00-A").await;
     let beta = factories::full_entry(&pool, slate, b.team.id, "00-B").await;
-    // the stats land after the first upload, so republish: official results
-    // are the published snapshot's attachments
     seed_stored_results(&app, 150, 1, 200, 0, true).await;
     upload_slate(&app, week1(), &[scheduled_game()], &stored_lineup_players()).await;
 
@@ -866,8 +835,6 @@ async fn stored_results_reach_every_surface(pool: SqlitePool) {
         breakdown_points(&body, alpha, "def"),
         ["3.00", "2.00", "4.00"].map(String::from)
     );
-    // an absent attachment contributes zero and an empty breakdown, and does
-    // not make the slate unavailable
     assert_eq!(row_points(&body, alpha, "rb2"), "0.00");
     assert!(breakdown_points(&body, alpha, "rb2").is_empty());
     assert!(
@@ -893,15 +860,13 @@ async fn stored_results_reach_every_surface(pool: SqlitePool) {
         "the winner takes the trophy"
     );
 
-    // the contest list's winner column agrees with the details page
     let list = app.get("/contests").await.text();
     let row = contest_list_row(&list, slate);
     assert!(row.contains(&a.team.name), "alpha wins: {row}");
     assert!(row.contains("41.00"), "with the stored total: {row}");
     assert!(!row.contains("30.00"), "and only the winner: {row}");
 
-    // standings and My Team read the same snapshot
-    let standings = crate::standings::service::standings_for_league(&app.state(), a.league.id)
+    let standings = standings_service::standings_for_league(&app.state(), a.league.id)
         .await
         .unwrap();
     assert_eq!(standings[0].name, a.team.name);
@@ -919,7 +884,7 @@ async fn stored_results_reach_every_surface(pool: SqlitePool) {
 #[sqlx::test]
 async fn held_snapshot_keeps_its_results_across_record_changes(pool: SqlitePool) {
     use crate::live::ContestScores;
-    use crate::scoring::service::lineup_total;
+    use crate::scoring::service as scoring_service;
 
     let (app, _mock) = app_at(&pool, KICKOFF).await;
     let a = factories::team(
@@ -962,7 +927,10 @@ async fn held_snapshot_keeps_its_results_across_record_changes(pool: SqlitePool)
 
     let held = app.nfl.snapshot();
     assert!(held.stats_available(&slate));
-    assert_eq!(lineup_total(&stored_lineup("00-A"), &held, slate), 41.0);
+    assert_eq!(
+        scoring_service::lineup_total(&stored_lineup("00-A"), &held, slate),
+        41.0
+    );
     app.login_as(&a.owner).await;
     assert_stored_surfaces(
         &app,
@@ -973,14 +941,15 @@ async fn held_snapshot_keeps_its_results_across_record_changes(pool: SqlitePool)
     )
     .await;
 
-    // Raw records change with no rebuild: every surface keeps the snapshot it
-    // holds, scores and all.
     seed_stored_results(&app, 50, 0, 200, 0, true).await;
     assert!(
-        std::sync::Arc::ptr_eq(&held, &app.nfl.snapshot()),
+        Arc::ptr_eq(&held, &app.nfl.snapshot()),
         "seeding alone publishes nothing"
     );
-    assert_eq!(lineup_total(&stored_lineup("00-A"), &held, slate), 41.0);
+    assert_eq!(
+        scoring_service::lineup_total(&stored_lineup("00-A"), &held, slate),
+        41.0
+    );
     assert_stored_surfaces(
         &app,
         slate,
@@ -990,8 +959,6 @@ async fn held_snapshot_keeps_its_results_across_record_changes(pool: SqlitePool)
     )
     .await;
 
-    // Publishing moves every surface's scores together: 50 rushing yards and
-    // no touchdown leave Alpha at 22.00, so Beta wins.
     upload_slate(&app, week1(), &[scheduled_game()], &stored_lineup_players()).await;
     assert_stored_surfaces(
         &app,
@@ -1001,19 +968,18 @@ async fn held_snapshot_keeps_its_results_across_record_changes(pool: SqlitePool)
         beta_side("30.00", "13.00"),
     )
     .await;
-    // the held snapshot keeps what it published
     assert!(held.stats_available(&slate));
-    assert_eq!(lineup_total(&stored_lineup("00-A"), &held, slate), 41.0);
+    assert_eq!(
+        scoring_service::lineup_total(&stored_lineup("00-A"), &held, slate),
+        41.0
+    );
 
-    // A negative stored line is summed, never clamped.
     seed_stored_results(&app, 50, 0, 0, 2, true).await;
     upload_slate(&app, week1(), &[scheduled_game()], &stored_lineup_players()).await;
     let body = app.get(&format!("/entries/{alpha}")).await.text();
     assert_eq!(row_points(&body, alpha, "qb"), "-2.00", "two interceptions");
     assert_eq!(entry_total(&body, alpha), "12.00", "5 + -2 + 9: {body}");
 
-    // A genuinely negative total is published as it is: every pick but
-    // Beta's back loses three fumbles, and the DST allows 40.
     seed_negative_week(&app).await;
     upload_slate(&app, week1(), &[scheduled_game()], &stored_lineup_players()).await;
     assert_stored_surfaces(
@@ -1030,18 +996,19 @@ async fn held_snapshot_keeps_its_results_across_record_changes(pool: SqlitePool)
         ["-6.00"].map(String::from),
         "three lost fumbles at -2.00 each: {body}"
     );
-    assert_eq!(lineup_total(&stored_lineup("00-A"), &held, slate), 41.0);
+    assert_eq!(
+        scoring_service::lineup_total(&stored_lineup("00-A"), &held, slate),
+        41.0
+    );
 
-    // One game side missing leaves the slate provisional, without publishing
-    // a partial total; restoring it publishes Official results again.
     let published = app.nfl.snapshot();
     seed_stored_results(&app, 150, 1, 200, 0, false).await;
     assert!(
-        std::sync::Arc::ptr_eq(&published, &app.nfl.snapshot()),
+        Arc::ptr_eq(&published, &app.nfl.snapshot()),
         "the unpublished change leaves availability alone"
     );
     assert!(matches!(
-        crate::live::load_contest_scores(&app.state(), slate)
+        live::load_contest_scores(&app.state(), slate)
             .await
             .unwrap(),
         ContestScores::Official(_)
@@ -1049,7 +1016,7 @@ async fn held_snapshot_keeps_its_results_across_record_changes(pool: SqlitePool)
 
     upload_slate(&app, week1(), &[scheduled_game()], &stored_lineup_players()).await;
     assert!(matches!(
-        crate::live::load_contest_scores(&app.state(), slate)
+        live::load_contest_scores(&app.state(), slate)
             .await
             .unwrap(),
         ContestScores::Unavailable
@@ -1070,7 +1037,7 @@ async fn held_snapshot_keeps_its_results_across_record_changes(pool: SqlitePool)
     seed_stored_results(&app, 150, 1, 200, 0, true).await;
     upload_slate(&app, week1(), &[scheduled_game()], &stored_lineup_players()).await;
     assert!(matches!(
-        crate::live::load_contest_scores(&app.state(), slate)
+        live::load_contest_scores(&app.state(), slate)
             .await
             .unwrap(),
         ContestScores::Official(_)

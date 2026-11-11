@@ -1,3 +1,6 @@
+use crate::live;
+#[cfg(test)]
+use crate::live::Coverage;
 use std::convert::Infallible;
 use std::time::Duration;
 
@@ -12,7 +15,7 @@ use serde::Deserialize;
 use crate::auth::CurrentUser;
 use crate::chrome::{Chrome, Tab};
 use crate::contests::service::{
-    self, ContestRow, EntryRow, GameRow, Upcoming, WaitingRow, WinnerRow,
+    self as contests_service, ContestRow, EntryRow, GameRow, Upcoming, WaitingRow, WinnerRow,
 };
 use crate::draft_entry::store as draft_entry_store;
 use crate::entries::store as entries_store;
@@ -43,32 +46,32 @@ pub async fn index(
 
     let contests = snapshot.slates().cloned().collect::<Vec<_>>();
     let current = snapshot.current_slate().map(|slate| slate.id);
-    let slate_contests = service::listed_contests(contests, current, now);
+    let slate_contests = contests_service::listed_contests(contests, current, now);
     let teams = standings_service::scored_teams(&state, league.id).await?;
 
-    let mut rows = service::contest_list(&slate_contests, &teams, now);
+    let mut rows = contests_service::contest_list(&slate_contests, &teams, now);
 
     for row in &mut rows {
         let contest = row.id;
-        match crate::live::load_contest_scores(&state, contest).await? {
+        match live::load_contest_scores(&state, contest).await? {
             ContestScores::Official(snapshot) => {
                 row.state = SlateStatus::Finished;
                 let entries =
                     entries_store::by_contest(state.db.reader(), contest, league.id).await?;
-                row.winners =
-                    service::rank_contest_entries(service::entrants(&entries, |lineup| {
-                        Some(scoring_service::lineup_total(lineup, &snapshot, contest))
-                    }))
-                    .into_iter()
-                    .filter(|entry| entry.winner)
-                    .filter_map(|entry| {
-                        entry.points.map(|points| WinnerRow {
-                            name: entry.name,
-                            owner_name: entry.owner_name,
-                            points,
-                        })
+                row.winners = contests_service::rank_contest_entries(contests_service::entrants(
+                    &entries,
+                    |lineup| Some(scoring_service::lineup_total(lineup, &snapshot, contest)),
+                ))
+                .into_iter()
+                .filter(|entry| entry.winner)
+                .filter_map(|entry| {
+                    entry.points.map(|points| WinnerRow {
+                        name: entry.name,
+                        owner_name: entry.owner_name,
+                        points,
                     })
-                    .collect();
+                })
+                .collect();
                 row.pending_official = false;
             }
             ContestScores::Provisional(snapshot) => {
@@ -124,7 +127,7 @@ struct ContestPage {
     draft_action: Option<DraftAction>,
     /// Pre-kickoff header: when entries lock and how many teams are in.
     upcoming: Option<Upcoming>,
-    score: service::ContestScoreMeta,
+    score: contests_service::ContestScoreMeta,
     fragment: bool,
 }
 
@@ -159,7 +162,7 @@ pub async fn show(
     let id: i64 = id.parse().map_err(|_| AppError::NotFound)?;
     let slate_id = SlateId(id);
     let viewer = team.map(|t| FantasyTeamId(t.id));
-    let details = service::details_for_league(&state, league.id, viewer, slate_id)
+    let details = contests_service::details_for_league(&state, league.id, viewer, slate_id)
         .await?
         .ok_or(AppError::NotFound)?;
 
@@ -224,7 +227,7 @@ pub async fn events(
     }
     let revisions = state.live.subscribe(contest_id);
 
-    let details = service::details_for_league(
+    let details = contests_service::details_for_league(
         &state,
         query.league_id,
         Some(FantasyTeamId(team.id)),
@@ -307,7 +310,7 @@ pub async fn events(
                                 );
                                 return None;
                             };
-                            if service::details_for_league(
+                            if contests_service::details_for_league(
                                 &state,
                                 league_id,
                                 Some(FantasyTeamId(team.id)),
@@ -355,7 +358,7 @@ pub async fn events(
                             );
                             return None;
                         };
-                        let Some(details) = service::details_for_league(
+                        let Some(details) = contests_service::details_for_league(
                             &state,
                             league_id,
                             Some(FantasyTeamId(team.id)),
@@ -423,7 +426,7 @@ pub async fn events(
 }
 
 fn render_fragment(
-    details: service::ContestDetails,
+    details: contests_service::ContestDetails,
     contest_id: i64,
 ) -> Result<String, askama::Error> {
     let title = details.name.clone();
@@ -459,7 +462,7 @@ mod tests {
             owner_name: "Mike".to_string(),
             logo: None,
             points,
-            coverage: crate::live::Coverage::Unavailable,
+            coverage: Coverage::Unavailable,
             winner,
             mine: false,
             minutes_remaining: None,
@@ -506,8 +509,8 @@ mod tests {
     #[test]
     fn renders_live_indicator() {
         let html = ContestPage {
-            score: service::ContestScoreMeta {
-                coverage: crate::live::Coverage::Complete,
+            score: contests_service::ContestScoreMeta {
+                coverage: Coverage::Complete,
                 events_url: Some("/contests/1/events?league_id=1".into()),
                 active: true,
                 delayed: false,
@@ -541,8 +544,8 @@ mod tests {
     #[test]
     fn renders_indicator_fragment_labels() {
         let partial = ContestPage {
-            score: service::ContestScoreMeta {
-                coverage: crate::live::Coverage::Partial,
+            score: contests_service::ContestScoreMeta {
+                coverage: Coverage::Partial,
                 events_url: Some("/contests/1/events?league_id=1".into()),
                 active: true,
                 delayed: false,
@@ -566,8 +569,8 @@ mod tests {
         );
 
         let pending = ContestPage {
-            score: service::ContestScoreMeta {
-                coverage: crate::live::Coverage::Complete,
+            score: contests_service::ContestScoreMeta {
+                coverage: Coverage::Complete,
                 events_url: Some("/contests/1/events?league_id=1".into()),
                 active: false,
                 delayed: false,
@@ -591,8 +594,8 @@ mod tests {
         );
 
         let delayed = ContestPage {
-            score: service::ContestScoreMeta {
-                coverage: crate::live::Coverage::Partial,
+            score: contests_service::ContestScoreMeta {
+                coverage: Coverage::Partial,
                 events_url: Some("/contests/1/events?league_id=1".into()),
                 active: true,
                 delayed: true,
@@ -620,8 +623,8 @@ mod tests {
         );
 
         let official = ContestPage {
-            score: service::ContestScoreMeta {
-                coverage: crate::live::Coverage::Complete,
+            score: contests_service::ContestScoreMeta {
+                coverage: Coverage::Complete,
                 events_url: None,
                 active: false,
                 delayed: false,
@@ -654,8 +657,8 @@ mod tests {
         let mut live_row = row("Gridiron Giants", Some(1), Some(23.0), false);
         live_row.minutes_remaining = Some(342.0);
         let html = ContestPage {
-            score: service::ContestScoreMeta {
-                coverage: crate::live::Coverage::Complete,
+            score: contests_service::ContestScoreMeta {
+                coverage: Coverage::Complete,
                 events_url: Some("/contests/1/events?league_id=1".into()),
                 active: true,
                 delayed: false,
@@ -679,8 +682,8 @@ mod tests {
         assert!(html.contains("342m"), "meter labels its minutes: {html}");
 
         let official = ContestPage {
-            score: service::ContestScoreMeta {
-                coverage: crate::live::Coverage::Complete,
+            score: contests_service::ContestScoreMeta {
+                coverage: Coverage::Complete,
                 events_url: None,
                 active: false,
                 delayed: false,
@@ -706,8 +709,8 @@ mod tests {
             let mut live_row = row("Gridiron Giants", Some(1), Some(23.0), false);
             live_row.minutes_remaining = Some(342.0);
             ContestPage {
-                score: service::ContestScoreMeta {
-                    coverage: crate::live::Coverage::Complete,
+                score: contests_service::ContestScoreMeta {
+                    coverage: Coverage::Complete,
                     events_url: Some("/contests/1/events?league_id=1".into()),
                     active: true,
                     delayed: false,

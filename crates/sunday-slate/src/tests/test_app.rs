@@ -1,4 +1,13 @@
+use crate::{avatars::AvatarFetchRunner, injuries::InjuryReports, live::LiveContestHub};
+use crate::{router, sessions, tests::utils};
+use axum::Router;
+use axum_test::multipart::{MultipartForm, Part};
+use nfl_data::{
+    AdminConfig, Game, NflData, Player, Season, SeasonWeek, TeamAbbr, Week, slates::SlateId,
+};
 use std::sync::Arc;
+use tempfile::TempDir;
+use time::{Duration, OffsetDateTime, macros::datetime};
 
 use axum::http::StatusCode;
 use axum_test::{TestResponse, TestServer};
@@ -13,10 +22,10 @@ pub struct TestApp {
     pub server: TestServer,
     pub pool: SqlitePool,
     pub mailer: Mailer,
-    pub nfl: Arc<nfl_data::NflData>,
+    pub nfl: Arc<NflData>,
     pub state: AppState,
     // Keeps the per-test media directory alive; removed on drop.
-    pub _media_dir: tempfile::TempDir,
+    pub _media_dir: TempDir,
 }
 
 impl TestApp {
@@ -36,8 +45,8 @@ impl TestApp {
     /// season differs from the in-memory default).
     pub async fn from_pool_with_nfl_at(
         pool: SqlitePool,
-        nfl: Arc<nfl_data::NflData>,
-        now: time::OffsetDateTime,
+        nfl: Arc<NflData>,
+        now: OffsetDateTime,
     ) -> Self {
         Self::build(
             pool,
@@ -52,19 +61,15 @@ impl TestApp {
     async fn build(
         pool: SqlitePool,
         mailer: Mailer,
-        now_override: Option<time::OffsetDateTime>,
+        now_override: Option<OffsetDateTime>,
         live_dev_feed: bool,
-        nfl_override: Option<Arc<nfl_data::NflData>>,
+        nfl_override: Option<Arc<NflData>>,
     ) -> Self {
         let media_dir = tempfile::tempdir().expect("temp media dir");
 
         let nfl = match nfl_override {
             Some(nfl) => nfl,
-            None => Arc::new(
-                nfl_data::NflData::in_memory()
-                    .await
-                    .expect("in-memory nfl-data"),
-            ),
+            None => Arc::new(NflData::in_memory().await.expect("in-memory nfl-data")),
         };
 
         let config = Config {
@@ -86,13 +91,13 @@ impl TestApp {
             now_override,
         };
 
-        let (session_layer, sessions) = crate::sessions::layer_in_memory()
+        let (session_layer, sessions) = sessions::layer_in_memory()
             .await
             .expect("build session layer");
 
         let db = Db::test(pool.clone());
 
-        let avatar_runner = Arc::new(crate::avatars::AvatarFetchRunner::new());
+        let avatar_runner = Arc::new(AvatarFetchRunner::new());
 
         let state = AppState {
             db,
@@ -101,15 +106,15 @@ impl TestApp {
             mailer: mailer.clone(),
             nfl: nfl.clone(),
             avatar_runner,
-            live: Arc::new(crate::live::LiveContestHub::new(true)),
-            injuries: Arc::new(crate::injuries::InjuryReports::new()),
+            live: Arc::new(LiveContestHub::new(true)),
+            injuries: Arc::new(InjuryReports::new()),
         };
 
         // Cookie jar on: each response's Set-Cookie is saved and replayed on the
         // next request from this server, so login/flash/logout carry automatically.
         let server = TestServer::builder()
             .save_cookies()
-            .build(crate::router::build(state.clone(), session_layer));
+            .build(router::build(state.clone(), session_layer));
 
         TestApp {
             server,
@@ -130,13 +135,13 @@ impl TestApp {
     /// tests that don't need to seed data before the app exists — seed via
     /// `&app.pool` afterward if you do. Uses `Mailer::capture`.
     pub async fn new() -> Self {
-        Self::from_pool(crate::tests::utils::in_memory_pool().await).await
+        Self::from_pool(utils::in_memory_pool().await).await
     }
 
     /// Build a host test app around a mock-configured NFL-data instance.
-    pub async fn new_with_nfl(nfl: Arc<nfl_data::NflData>) -> Self {
+    pub async fn new_with_nfl(nfl: Arc<NflData>) -> Self {
         Self::build(
-            crate::tests::utils::in_memory_pool().await,
+            utils::in_memory_pool().await,
             Mailer::capture("Sunday Slate <no-reply@example.com>"),
             None,
             false,
@@ -147,7 +152,7 @@ impl TestApp {
 
     /// Like `new` but accepts a custom `Mailer` (e.g. `failing_mailer()`).
     pub async fn new_with_mailer(mailer: Mailer) -> Self {
-        Self::from_pool_with_mailer(crate::tests::utils::in_memory_pool().await, mailer).await
+        Self::from_pool_with_mailer(utils::in_memory_pool().await, mailer).await
     }
 
     /// Log in as `user` via the test-only `/__test/login/{user_id}` route —
@@ -241,38 +246,30 @@ pub fn headshot_player(
     first: &str,
     last: &str,
     headshot_url: Option<&str>,
-) -> nfl_data::Player {
-    nfl_data::Player {
+) -> Player {
+    Player {
         gsis_id: nfl_player_id.0,
         espn_id: None,
         full_name: format!("{first} {last}"),
         first_name: Some(first.into()),
         last_name: Some(last.into()),
         position: Some("RB".into()),
-        latest_team: Some(nfl_data::TeamAbbr::KC),
+        latest_team: Some(TeamAbbr::KC),
         headshot_url: headshot_url.map(Into::into),
     }
 }
 
 /// Weeks 1–2 2026 KC-vs-BUF games for headshot fixtures.
-pub fn headshot_salary_games() -> Vec<nfl_data::Game> {
+pub fn headshot_salary_games() -> Vec<Game> {
     [
-        (
-            "2026_01_BUF_KC",
-            1,
-            time::macros::datetime!(2026-09-13 17:00 UTC),
-        ),
-        (
-            "2026_02_BUF_KC",
-            2,
-            time::macros::datetime!(2026-09-20 17:00 UTC),
-        ),
+        ("2026_01_BUF_KC", 1, datetime!(2026-09-13 17:00 UTC)),
+        ("2026_02_BUF_KC", 2, datetime!(2026-09-20 17:00 UTC)),
     ]
     .into_iter()
-    .map(|(id, week, kickoff)| nfl_data::Game {
-        season_week: nfl_data::SeasonWeek {
-            season: nfl_data::Season(2026),
-            week: nfl_data::Week(week),
+    .map(|(id, week, kickoff)| Game {
+        season_week: SeasonWeek {
+            season: Season(2026),
+            week: Week(week),
         },
         kickoff: Some(kickoff),
         ..factories::game_at(id, week, kickoff)
@@ -282,7 +279,7 @@ pub fn headshot_salary_games() -> Vec<nfl_data::Game> {
 
 /// Publish one week's salaries via the real admin upload.
 /// `players` must be seeded; adds a KC defense row for validity.
-pub async fn publish_headshot_slate(app: &TestApp, week: u8, players: &[nfl_data::Player]) {
+pub async fn publish_headshot_slate(app: &TestApp, week: u8, players: &[Player]) {
     let mut csv = String::from(
         r#""Id","Position","First Name","Nickname","Last Name","FPPG","Played","Salary","Game","Team","Opponent","Injury Indicator","Injury Details"
 "#,
@@ -301,22 +298,19 @@ pub async fn publish_headshot_slate(app: &TestApp, week: u8, players: &[nfl_data
 "#
     ));
 
-    let server = TestServer::new(axum::Router::new().nest(
+    let server = TestServer::new(Router::new().nest(
         "/nfl-data-admin",
         nfl_data::admin_router::<()>(
             Arc::clone(&app.nfl),
-            nfl_data::AdminConfig {
-                season: nfl_data::Season(2026),
-                now_override: Some(time::macros::datetime!(2026-09-01 00:00 UTC)),
+            AdminConfig {
+                season: Season(2026),
+                now_override: Some(datetime!(2026-09-01 00:00 UTC)),
             },
         ),
     ));
-    let form = axum_test::multipart::MultipartForm::new()
+    let form = MultipartForm::new()
         .add_text("week", week.to_string())
-        .add_part(
-            "csv",
-            axum_test::multipart::Part::bytes(csv.into_bytes()).file_name("salary.csv"),
-        );
+        .add_part("csv", Part::bytes(csv.into_bytes()).file_name("salary.csv"));
     let response = server
         .post("/nfl-data-admin/salary-imports")
         .multipart(form)
@@ -335,9 +329,9 @@ pub async fn publish_headshot_slate(app: &TestApp, week: u8, players: &[nfl_data
         .clone();
     assert_eq!(
         slate.season_week,
-        nfl_data::SeasonWeek {
-            season: nfl_data::Season(2026),
-            week: nfl_data::Week(week),
+        SeasonWeek {
+            season: Season(2026),
+            week: Week(week),
         },
         "the published maximum slate is the uploaded week"
     );
@@ -352,10 +346,10 @@ pub async fn publish_headshot_slate(app: &TestApp, week: u8, players: &[nfl_data
 /// generated for both teams of every supplied game.
 pub async fn publish_slate(
     app: &TestApp,
-    week: nfl_data::SeasonWeek,
-    games: &[nfl_data::Game],
-    players: &[nfl_data::Player],
-) -> nfl_data::slates::SlateId {
+    week: SeasonWeek,
+    games: &[Game],
+    players: &[Player],
+) -> SlateId {
     app.nfl
         .seed_for_test(players, games)
         .await
@@ -363,18 +357,13 @@ pub async fn publish_slate(
     upload_slate(app, week, games, players).await
 }
 
-/// Re-upload `publish_slate`'s salaries for `week`, which rebuilds and
-/// publishes the snapshot, and return the week's main slate id.
-///
-/// Salaries upsert, so an unchanged upload is a pure republish. Use it after
-/// seeding stats: publication is what puts new weekly rows into the snapshot's
-/// attachments.
+/// Re-upload after stat seeding: seeding alone does not publish a Snapshot.
 pub async fn upload_slate(
     app: &TestApp,
-    week: nfl_data::SeasonWeek,
-    games: &[nfl_data::Game],
-    players: &[nfl_data::Player],
-) -> nfl_data::slates::SlateId {
+    week: SeasonWeek,
+    games: &[Game],
+    players: &[Player],
+) -> SlateId {
     let mut csv = String::from(
         r#""Id","Position","First Name","Nickname","Last Name","FPPG","Played","Salary","Game","Team","Opponent","Injury Indicator","Injury Details"
 "#,
@@ -444,24 +433,21 @@ pub async fn upload_slate(
         .iter()
         .filter_map(|game| game.kickoff)
         .min()
-        .map(|kickoff| kickoff - time::Duration::hours(1))
-        .unwrap_or_else(|| time::macros::datetime!(2026-01-01 00:00 UTC));
-    let server = TestServer::new(axum::Router::new().nest(
+        .map(|kickoff| kickoff - Duration::hours(1))
+        .unwrap_or_else(|| datetime!(2026-01-01 00:00 UTC));
+    let server = TestServer::new(Router::new().nest(
         "/nfl-data-admin",
         nfl_data::admin_router::<()>(
             Arc::clone(&app.nfl),
-            nfl_data::AdminConfig {
+            AdminConfig {
                 season: week.season,
                 now_override: Some(clock),
             },
         ),
     ));
-    let form = axum_test::multipart::MultipartForm::new()
+    let form = MultipartForm::new()
         .add_text("week", week.week.0.to_string())
-        .add_part(
-            "csv",
-            axum_test::multipart::Part::bytes(csv.into_bytes()).file_name("salary.csv"),
-        );
+        .add_part("csv", Part::bytes(csv.into_bytes()).file_name("salary.csv"));
     let response = server
         .post("/nfl-data-admin/salary-imports")
         .multipart(form)
@@ -472,7 +458,7 @@ pub async fn upload_slate(
         format!("/nfl-data-admin/salary-imports/{}", week.encode())
     );
 
-    let expected = nfl_data::slates::SlateId(i64::from(week.encode()) * 10 + 1);
+    let expected = SlateId(i64::from(week.encode()) * 10 + 1);
     assert!(
         app.nfl.snapshot().slate(&expected).is_some(),
         "the upload populates the week's main slate {expected:?}"

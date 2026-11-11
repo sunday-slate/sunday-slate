@@ -1,8 +1,18 @@
 //! Contest views over the published NFL snapshot, plus pure contest-list
 //! assembly.
 
+use crate::entries::Lineup;
+use crate::scoring::service as scoring_service;
+#[cfg(test)]
+use crate::{entries::NflPlayerId, live::identity::LiveIdentityIndex, tests as test_support};
+use nfl_data::Snapshot;
+#[cfg(test)]
+use nfl_data::{Player, SeasonWeek};
+use std::cmp::Ordering;
 use std::cmp::Reverse;
 use std::collections::HashSet;
+use std::sync::Arc;
+use time::{Date, format_description::BorrowedFormatItem};
 
 use nfl_data::Game;
 use nfl_data::slates::{Slate, SlateId, SlateStatus};
@@ -11,24 +21,17 @@ use time::OffsetDateTime;
 use crate::entries::store as entries_store;
 use crate::entries::{ContestEntry, EntryId};
 use crate::fantasy_teams::store as fantasy_teams_store;
-use crate::fantasy_teams::{FantasyTeamId, LeagueTeam, monogram};
+use crate::fantasy_teams::{self, FantasyTeamId, LeagueTeam};
 use crate::live::{self, Coverage, LINEUP_REGULATION_MINUTES, LiveContestSnapshot};
 use crate::scoring;
 use crate::standings::standings::{self, ScoredFantasyTeam};
 use crate::{AppError, AppState};
 
-/// The published snapshot that stores the official results, plus the slates
-/// whose results it can answer: locked, and with every game's stats in the
-/// records its attachments were built from.
 pub struct OfficialResults {
-    pub snapshot: std::sync::Arc<nfl_data::Snapshot>,
+    pub snapshot: Arc<Snapshot>,
     pub slates: HashSet<SlateId>,
 }
 
-/// The published slates whose stats are available in the snapshot — the same
-/// gate the contest page applies. Skips non-locked slates and ones without
-/// stats rather than reporting false zeros; while the dev live feed owns a
-/// registered snapshot, the result stays provisional.
 pub async fn official_contest_weeks(state: &AppState) -> Result<OfficialResults, AppError> {
     let snapshot = state.nfl.snapshot();
     let now = state.now();
@@ -193,15 +196,14 @@ pub fn contest_list(
 }
 
 /// "Sep 7" for one day, "Jan 10–11" within a month, "Nov 30 – Dec 1" across.
-fn format_dates(first: time::Date, last: time::Date) -> String {
+fn format_dates(first: Date, last: Date) -> String {
     use time::macros::format_description;
     let month_day = format_description!("[month repr:short] [day padding:none]");
     let day = format_description!("[day padding:none]");
     // Both descriptions ask only for components a `Date` carries, so
     // formatting cannot fail.
-    let fmt = |d: time::Date, desc: &[time::format_description::BorrowedFormatItem<'_>]| {
-        d.format(desc).expect("date components only")
-    };
+    let fmt =
+        |d: Date, desc: &[BorrowedFormatItem<'_>]| d.format(desc).expect("date components only");
     let f = fmt(first, month_day);
     if first == last {
         f
@@ -224,7 +226,7 @@ mod contest_list_tests {
     }
 
     /// A 1:00pm Eastern kickoff on `date`.
-    fn kickoff(date: time::Date) -> OffsetDateTime {
+    fn kickoff(date: Date) -> OffsetDateTime {
         date.with_hms(13, 0, 0)
             .expect("valid time")
             .assume_offset(nfl_data::eastern_offset(date))
@@ -254,7 +256,7 @@ mod contest_list_tests {
         }
     }
 
-    fn one_day(id: i64, name: &str, day: time::Date) -> Slate {
+    fn one_day(id: i64, name: &str, day: Date) -> Slate {
         contest(id, name, Some(kickoff(day)), false)
     }
 
@@ -526,7 +528,7 @@ impl EntryRow {
 
     /// Up to two initials from the fantasy team name, for the logo fallback.
     pub fn monogram(&self) -> String {
-        monogram(&self.name)
+        fantasy_teams::monogram(&self.name)
     }
 
     /// The points as `"1,247.50"`, or `None` pre-results.
@@ -566,12 +568,9 @@ impl EntryRow {
     }
 }
 
-/// Contest entrants with their scored points, for the rank table. `points`
-/// answers once per lineup, so an unscored page passes a closure returning
-/// `None` and `rank_contest_entries` applies its results gate.
 pub fn entrants(
     entries: &[ContestEntry],
-    points: impl Fn(&crate::entries::Lineup) -> Option<f64>,
+    points: impl Fn(&Lineup) -> Option<f64>,
 ) -> Vec<ContestEntrant> {
     entries
         .iter()
@@ -663,9 +662,9 @@ pub fn rank_live_entries(
     rows.sort_by(|a, b| {
         match (a.points, b.points) {
             (Some(a), Some(b)) => standings::by_points_desc(&a, &b),
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => std::cmp::Ordering::Equal,
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => Ordering::Equal,
         }
         .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
@@ -765,7 +764,7 @@ pub struct WaitingRow {
 impl WaitingRow {
     /// Up to two initials from the fantasy team name, for the logo fallback.
     pub fn monogram(&self) -> String {
-        monogram(&self.name)
+        fantasy_teams::monogram(&self.name)
     }
 }
 
@@ -948,7 +947,7 @@ pub async fn details_for_league(
         match &source {
             live::ContestScores::Official(snapshot) => {
                 rank_contest_entries(entrants(&entries, |lineup| {
-                    Some(crate::scoring::service::lineup_total(lineup, snapshot, id))
+                    Some(scoring_service::lineup_total(lineup, snapshot, id))
                 }))
             }
             live::ContestScores::Provisional(snapshot) => {
@@ -1030,7 +1029,7 @@ mod tests {
     fn game(id: &str, away: &str, home: &str, kickoff: Option<OffsetDateTime>) -> Game {
         Game {
             game_id: id.into(),
-            season_week: nfl_data::SeasonWeek {
+            season_week: SeasonWeek {
                 season: Season(2025),
                 week: Week(19),
             },
@@ -1204,18 +1203,15 @@ mod tests {
     #[test]
     fn provisional_rows_rank_numeric_totals_without_winners() {
         let game = game("live", "BUF", "KC", None);
-        let player_a = nfl_data::Player {
+        let player_a = Player {
             position: Some("RB".into()),
             ..factories::player("a", "A Runner")
         };
-        let player_b = nfl_data::Player {
+        let player_b = Player {
             position: Some("RB".into()),
             ..factories::player("b", "B Runner")
         };
-        let identity = Arc::new(crate::live::identity::LiveIdentityIndex::from_sources(
-            &[player_a, player_b],
-            &[],
-        ));
+        let identity = Arc::new(LiveIdentityIndex::from_sources(&[player_a, player_b], &[]));
         let state = LiveGameState {
             game: game.clone(),
             tank01_game_id: Some("live".into()),
@@ -1226,14 +1222,8 @@ mod tests {
             away_score: Some(7),
             status_observed: true,
             players: HashMap::from([
-                (
-                    crate::entries::NflPlayerId("a".into()),
-                    factories::rb_stats("a", 19, 100),
-                ),
-                (
-                    crate::entries::NflPlayerId("b".into()),
-                    factories::rb_stats("b", 19, 50),
-                ),
+                (NflPlayerId("a".into()), factories::rb_stats("a", 19, 100)),
+                (NflPlayerId("b".into()), factories::rb_stats("b", 19, 50)),
             ]),
             player_section_present: true,
             player_identity_incomplete: false,
@@ -1255,7 +1245,7 @@ mod tests {
             revision: 1,
         };
         let lineup = |id: &str| {
-            let id = crate::entries::NflPlayerId(id.to_owned());
+            let id = NflPlayerId(id.to_owned());
             Lineup {
                 qb: id.clone(),
                 rb1: id.clone(),
@@ -1331,11 +1321,11 @@ mod tests {
         let app = TestApp::from_pool(pool.clone()).await;
         let mine = factories::team(&pool, TeamOptions::default()).await;
         let other = factories::team(&pool, TeamOptions::default()).await;
-        let week = nfl_data::SeasonWeek {
+        let week = SeasonWeek {
             season: Season(2026),
             week: Week(1),
         };
-        let game = nfl_data::Game {
+        let game = Game {
             game_id: "2026_01_BUF_KC".into(),
             season_week: week,
             kickoff: Some(datetime!(2026 - 09 - 13 17:00 UTC)),
@@ -1344,7 +1334,7 @@ mod tests {
             home_score: None,
             away_score: None,
         };
-        let wk1 = crate::tests::publish_slate(&app, week, &[game], &[]).await;
+        let wk1 = test_support::publish_slate(&app, week, &[game], &[]).await;
         factories::full_entry(&pool, wk1, other.team.id, "00-B").await;
 
         let details = details_for_league(&app.state(), mine.league.id, None, wk1)

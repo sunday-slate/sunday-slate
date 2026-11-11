@@ -1,3 +1,9 @@
+use crate::{AppError, AppState};
+use nfl_data::{LiveGame, Snapshot};
+use std::collections::HashMap;
+use time::OffsetDateTime;
+#[cfg(test)]
+use time::macros::datetime;
 mod coordinator;
 pub(crate) mod dev_feed;
 pub mod identity;
@@ -60,7 +66,7 @@ pub struct LiveContestSnapshot {
     pub contest: SlateId,
     pub games: Vec<Game>,
     pub stats: WeekStats,
-    pub game_states: std::collections::HashMap<String, LiveGameState>,
+    pub game_states: HashMap<String, LiveGameState>,
     pub identity: Arc<LiveIdentityIndex>,
     pub identity_outcomes: BTreeMap<String, identity::IdentityMatch>,
     pub latest_error: Option<LiveError>,
@@ -96,15 +102,15 @@ impl LiveContestSnapshot {
 struct ContestRegistration {
     games: Vec<Game>,
     identity: Arc<LiveIdentityIndex>,
-    locked_at: Option<time::OffsetDateTime>,
+    locked_at: Option<OffsetDateTime>,
 }
 
 struct HubState {
-    snapshots: std::collections::HashMap<SlateId, Arc<LiveContestSnapshot>>,
-    reducers: std::collections::HashMap<SlateId, SnapshotReducer>,
-    registrations: std::collections::HashMap<SlateId, ContestRegistration>,
-    senders: std::collections::HashMap<SlateId, watch::Sender<u64>>,
-    revisions: std::collections::HashMap<SlateId, u64>,
+    snapshots: HashMap<SlateId, Arc<LiveContestSnapshot>>,
+    reducers: HashMap<SlateId, SnapshotReducer>,
+    registrations: HashMap<SlateId, ContestRegistration>,
+    senders: HashMap<SlateId, watch::Sender<u64>>,
+    revisions: HashMap<SlateId, u64>,
 }
 
 struct HubInner {
@@ -125,11 +131,11 @@ impl LiveContestHub {
             inner: Arc::new(HubInner {
                 enabled,
                 state: Mutex::new(HubState {
-                    snapshots: std::collections::HashMap::new(),
-                    reducers: std::collections::HashMap::new(),
-                    registrations: std::collections::HashMap::new(),
-                    senders: std::collections::HashMap::new(),
-                    revisions: std::collections::HashMap::new(),
+                    snapshots: HashMap::new(),
+                    reducers: HashMap::new(),
+                    registrations: HashMap::new(),
+                    senders: HashMap::new(),
+                    revisions: HashMap::new(),
                 }),
                 shutdown,
             }),
@@ -174,7 +180,7 @@ impl LiveContestHub {
         games: Vec<Game>,
         identity: Arc<LiveIdentityIndex>,
         feeds: &[coordinator::FeedReplay],
-        now: time::OffsetDateTime,
+        now: OffsetDateTime,
         locked: bool,
     ) {
         if !self.enabled() {
@@ -246,7 +252,7 @@ impl LiveContestHub {
         &self,
         id: SlateId,
         event: &tank01_data::PollEvent,
-        feed_games: &[nfl_data::LiveGame],
+        feed_games: &[LiveGame],
     ) {
         let mut state = self.inner.state.lock().expect("live hub mutex poisoned");
         let mut snapshot = {
@@ -266,7 +272,7 @@ impl LiveContestHub {
         }
     }
 
-    pub(crate) fn publish_feed_failure(&self, id: SlateId, feed_games: &[nfl_data::LiveGame]) {
+    pub(crate) fn publish_feed_failure(&self, id: SlateId, feed_games: &[LiveGame]) {
         let mut state = self.inner.state.lock().expect("live hub mutex poisoned");
         let mut snapshot = {
             let Some(reducer) = state.reducers.get_mut(&id) else {
@@ -303,16 +309,15 @@ fn next_revision(state: &mut HubState, id: SlateId) -> u64 {
 #[derive(Debug, Clone)]
 pub enum ContestScores {
     Upcoming,
-    /// The published snapshot whose attachments are this contest's results.
-    Official(Arc<nfl_data::Snapshot>),
+    Official(Arc<Snapshot>),
     Provisional(Arc<LiveContestSnapshot>),
     Unavailable,
 }
 
 pub async fn load_contest_scores(
-    state: &crate::AppState,
+    state: &AppState,
     contest: SlateId,
-) -> Result<ContestScores, crate::AppError> {
+) -> Result<ContestScores, AppError> {
     let snapshot = state.nfl.snapshot();
     let Some(slate) = snapshot.slate(&contest) else {
         return Ok(ContestScores::Unavailable);
@@ -331,8 +336,6 @@ pub async fn load_contest_scores(
         return Ok(ContestScores::Provisional(snapshot));
     }
 
-    // the slate's games' stats arrived with the snapshot the scores were built
-    // from, so no request-time read can disagree with the attachments
     if snapshot.stats_available(&contest) {
         return Ok(ContestScores::Official(snapshot));
     }
@@ -344,10 +347,10 @@ pub async fn load_contest_scores(
 }
 
 pub(crate) async fn stream_eligible(
-    state: &crate::AppState,
+    state: &AppState,
     contest: SlateId,
     source: &ContestScores,
-) -> Result<bool, crate::AppError> {
+) -> Result<bool, AppError> {
     if !state.live.enabled() || matches!(source, ContestScores::Official(_)) {
         return Ok(false);
     }
@@ -370,11 +373,7 @@ mod tests {
         let hub = LiveContestHub::new(true);
         let one = SlateId(20260011);
         let two = SlateId(20260021);
-        let game = factories::game_at(
-            "2026_01_BUF_KC",
-            1,
-            time::macros::datetime!(2026-09-13 17:00 UTC),
-        );
+        let game = factories::game_at("2026_01_BUF_KC", 1, datetime!(2026-09-13 17:00 UTC));
         let identity = Arc::new(LiveIdentityIndex::from_sources(&[], &[]));
 
         let one_revisions = hub.subscribe(one);
@@ -384,7 +383,7 @@ mod tests {
             vec![game],
             identity,
             &[],
-            time::macros::datetime!(2026-09-13 18:00 UTC),
+            datetime!(2026-09-13 18:00 UTC),
             true,
         );
 

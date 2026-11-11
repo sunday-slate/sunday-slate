@@ -1,21 +1,12 @@
-//! Scoring assembly a handler can call: score a fantasy team's entries from
-//! the published snapshot's stored attachments.
-
+use crate::entries::Lineup;
+use nfl_data::Snapshot;
 use std::collections::HashSet;
 
 use crate::entries::FantasyTeamEntry;
 use nfl_data::slates::SlateId;
 
-/// A lineup's total from the snapshot's stored attachments: the eight players
-/// plus the defense. A pick with no salaried row or no attached week scores
-/// nothing, so an inactive player costs a lineup exactly what it scored.
-///
-/// Eligibility is the caller's: this sums whatever the slate attached.
-pub fn lineup_total(
-    lineup: &crate::entries::Lineup,
-    snapshot: &nfl_data::Snapshot,
-    slate_id: SlateId,
-) -> f64 {
+/// Does not check official eligibility; callers must select eligible slates.
+pub fn lineup_total(lineup: &Lineup, snapshot: &Snapshot, slate_id: SlateId) -> f64 {
     let players: f64 = lineup
         .player_ids()
         .iter()
@@ -30,11 +21,9 @@ pub fn lineup_total(
     players + defense
 }
 
-/// Score one fantasy team's entries: each contest with an official slate gets
-/// its stored total; the rest are skipped. Entry order is preserved.
 pub fn score_entries(
     entries: &[FantasyTeamEntry],
-    snapshot: &nfl_data::Snapshot,
+    snapshot: &Snapshot,
     official_slates: &HashSet<SlateId>,
 ) -> Vec<(SlateId, f64)> {
     entries

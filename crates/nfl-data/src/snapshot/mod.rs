@@ -50,8 +50,7 @@ pub struct Snapshot {
     slates: BTreeMap<SlateId, Slate>,
     games: HashMap<SlateId, Vec<Game>>,
     salaried_players: HashMap<SlateId, SalariedPlayers>,
-    /// Published slates whose every game has both teams' week stats.
-    available_slates: HashSet<SlateId>,
+    stats_available: HashSet<SlateId>,
 }
 
 impl Snapshot {
@@ -84,8 +83,7 @@ impl Snapshot {
             .map(|slate| (slate.id, slate))
             .collect();
 
-        // availability is published with the slates it describes
-        let available_slates = available
+        let stats_available = available
             .into_iter()
             .filter(|slate_id| slates.contains_key(slate_id))
             .collect();
@@ -94,15 +92,13 @@ impl Snapshot {
             slates,
             games,
             salaried_players: salaried,
-            available_slates,
+            stats_available,
         })
     }
 
-    /// Whether every game in this published slate has both teams' week stats
-    /// in the records its scored attachments were built from. Unknown ids and
-    /// unpublished slates are not available.
+    /// Complete team-game coverage in this publication; not a game-finality guarantee.
     pub fn stats_available(&self, slate_id: &SlateId) -> bool {
-        self.available_slates.contains(slate_id)
+        self.stats_available.contains(slate_id)
     }
 
     /// All slates with salaried players in ascending order
