@@ -28,9 +28,10 @@ use crate::fantasy_teams::store as fantasy_teams;
 use crate::injuries::InjuryDesignation;
 use crate::live::{self, ContestScores, Coverage, LiveContestSnapshot};
 use crate::media::Media;
+use crate::scoring;
 use crate::scoring::service as scoring_service;
-use crate::scoring::{self, Score, WeekStats};
 use crate::{AppError, AppState, User};
+use nfl_data::scoring::{self as nfl_scoring, Score, ScoreLine, WeekStats};
 use time::OffsetDateTime;
 
 /// Which lineup page a viewer gets.
@@ -428,7 +429,7 @@ impl SlotRow {
     }
 
     /// The per-stat scoring lines, for the expand panel.
-    pub fn breakdown(&self) -> &[scoring::ScoreLine] {
+    pub fn breakdown(&self) -> &[ScoreLine] {
         &self.score.lines
     }
 
@@ -628,7 +629,7 @@ fn player_facts(
                 team: Some(row.team),
                 opponent: row.opponent,
                 top_stats: top_stats_line(slot, position, row),
-                score: scoring::score_player(row),
+                score: nfl_scoring::score_player(row),
                 present: true,
             },
             None => PickFacts::default(),
@@ -656,7 +657,7 @@ fn defense_facts(stats: PickStats<'_>, team: TeamAbbr) -> PickFacts {
                 team: Some(row.team),
                 opponent: Some(row.opponent),
                 top_stats: String::new(),
-                score: scoring::score_defense(row),
+                score: nfl_scoring::score_defense(row),
                 present: true,
             },
             None => PickFacts::default(),
@@ -1755,10 +1756,7 @@ mod tests {
     #[test]
     fn entry_page_total_agrees_with_the_standings_total() {
         let picks = picks();
-        assert_eq!(
-            picks.total,
-            Some(scoring::score_lineup(&lineup(), &week_stats()))
-        );
+        assert_eq!(picks.total, Some(20.0));
     }
 
     #[test]

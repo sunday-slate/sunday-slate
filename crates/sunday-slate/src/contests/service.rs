@@ -1003,9 +1003,9 @@ mod tests {
     use super::*;
     use crate::entries::Lineup;
     use crate::live::{LiveContestSnapshot, LiveGameState};
-    use crate::scoring::WeekStats;
     use crate::tests::TestApp;
     use crate::tests::factories::{self, TeamOptions};
+    use nfl_data::scoring::WeekStats;
     use nfl_data::{Game, LiveGamePhase, Season, TeamAbbr, Week};
     use sqlx::SqlitePool;
     use time::OffsetDateTime;

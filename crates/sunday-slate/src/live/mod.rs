@@ -17,7 +17,7 @@ use tokio::sync::watch;
 
 use crate::live::identity::LiveIdentityIndex;
 use crate::live::snapshot::SnapshotReducer;
-use crate::scoring::WeekStats;
+use nfl_data::scoring::WeekStats;
 use nfl_data::slates::SlateId;
 
 pub(crate) use coordinator::run_coordinator;

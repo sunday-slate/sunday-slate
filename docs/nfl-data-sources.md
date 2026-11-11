@@ -13,17 +13,21 @@ Not required for Sunday Slate, but useful on gameday. The app considers Nflverse
 
 ## Published Snapshot and Official Results
 
-Requests never score raw weekly rows. Each snapshot build reads every distinct
-week's player and team rows once, attaches the precomputed FanDuel score for a
-slate's own week to each of its salaried players, and records which slates have
-both teams' rows for every one of their games. The contest list, contest
-details, My Team, standings, and entry breakdowns read those attachments: a
-slate is official when it is locked and its games' team rows are in the
-snapshot the scores were built from, and a pick with no attachment scores zero
-without making the slate unavailable. A slate missing one game's team rows
-stays provisional rather than publishing a partial total. New or corrected
-nflverse rows appear only after the next successful publication; a failed
-build leaves the previous snapshot in place.
+Official results read precomputed scores from the published snapshot. Live and
+provisional results score raw rows using the same `nfl-data::scoring` rules and
+`WeekStats` type; Sunday Slate retains live coverage, identity, staleness, and
+ranking policy.
+
+For attachment and availability construction, each snapshot build reads player
+and team rows once per distinct salary-backed week, shared across its slates.
+The separate season-average pass also reads historical weeks. A locked slate
+uses official results when both teams' rows cover every slate game, unless a
+registered development feed takes precedence. Missing player attachments score
+zero without blocking availability. Missing game-side team rows leave results
+provisional if a live snapshot exists, or unavailable otherwise.
+
+New or corrected nflverse rows affect official results only after successful
+snapshot publication; a failed build leaves the previous snapshot in place.
 
 ## Fresh Cache Setup
 
