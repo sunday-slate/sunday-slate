@@ -76,6 +76,8 @@ async fn resolve_salary_player(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use crate::DfsPosition;
     use crate::store::player_link;
     use crate::web::tests::salary_fixture::{
@@ -129,11 +131,11 @@ mod tests {
         );
         let links = player_link::links(state.nfl.store.reader()).await.unwrap();
         assert_eq!(links.get(&999).map(String::as_str), Some("00-roster-only"));
-        let espn = player_link::links_by_espn(state.nfl.store.reader())
-            .await
-            .unwrap();
-        assert!(
-            !espn.values().any(|gsis| gsis == "00-roster-only"),
+        assert_eq!(
+            player_link::links_by_espn(state.nfl.store.reader())
+                .await
+                .unwrap(),
+            HashMap::from([("3918298".to_owned(), "00-1".to_owned())]),
             "a roster-only identity has no cached player ESPN id to store"
         );
         let overview = crate::web::salary_imports::salary_week_overview(
@@ -180,7 +182,14 @@ mod tests {
         let espn = player_link::links_by_espn(state.nfl.store.reader())
             .await
             .unwrap();
-        assert_eq!(espn.get("1111111").map(String::as_str), Some("00-avery"));
+        assert_eq!(
+            espn,
+            HashMap::from([
+                ("3918298".to_owned(), "00-1".to_owned()),
+                ("1111111".to_owned(), "00-avery".to_owned()),
+            ]),
+            "the selected player's cached ESPN id was saved with the manual link"
+        );
     }
 
     #[tokio::test]

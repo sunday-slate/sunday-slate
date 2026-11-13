@@ -60,7 +60,6 @@ pub struct NflData {
     pub(crate) sync_events: Mutex<Option<mpsc::UnboundedReceiver<SyncEvent>>>,
     /// The notification task; aborted on drop.
     pub(crate) update_worker: Mutex<Option<JoinHandle<()>>>,
-    /// Tank01 injury polling, consumer, and latest accepted report.
     pub(crate) injuries: injuries::InjuryState,
 }
 
@@ -86,8 +85,6 @@ impl NflData {
     /// connection error; background work starts only through
     /// [`Self::start_background_tasks`].
     pub async fn connect(config: NflDataConfig) -> Result<Self, NflDataError> {
-        // Validate the optional source before opening any store; connect never
-        // makes an injury request.
         let injuries = match config.tank01.clone() {
             Some(tank01) => {
                 injuries::InjuryState::configured(tank01_data::Tank01Client::new(tank01)?)

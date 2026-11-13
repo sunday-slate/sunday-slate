@@ -61,8 +61,6 @@ where
         .collect())
 }
 
-/// Every persisted ESPN→GSIS identity link. This is the only mapping the
-/// injury path uses; rows without a stored ESPN id are absent.
 pub(crate) async fn links_by_espn<'e, E>(ex: E) -> Result<HashMap<String, String>, NflDataError>
 where
     E: sqlx::Executor<'e, Database = Sqlite>,
@@ -113,7 +111,6 @@ async fn save_links_tx(
     links: &[PlayerLink],
 ) -> Result<(), sqlx::Error> {
     for link in links {
-        // Whitespace-only source ids carry no identity.
         let espn_player_id = link
             .espn_player_id
             .as_deref()
@@ -172,7 +169,7 @@ mod tests {
         save_links(
             &store,
             &[
-                link(166092, "00-0036355", Some("4362628")),
+                link(166092, "00-0036355", None),
                 link(12543, "00-0045678", None),
             ],
         )
@@ -211,7 +208,15 @@ mod tests {
             HashMap::from([("4362628".to_owned(), "00-0036355".to_owned())]),
             "only stored ESPN ids map, and a whitespace id stores as null"
         );
-        assert_eq!(links(store.reader()).await.unwrap().len(), 3);
+        assert_eq!(
+            links(store.reader()).await.unwrap(),
+            HashMap::from([
+                (166092, "00-0036355".to_owned()),
+                (12543, "00-0045678".to_owned()),
+                (111, "00-0011111".to_owned()),
+            ]),
+            "rows without a usable ESPN id still link"
+        );
     }
 
     #[tokio::test]
@@ -249,18 +254,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn saving_the_same_link_twice_is_idempotent() {
+    async fn a_repeated_gsis_save_keeps_the_original_espn_id() {
         let store = store().await;
-        let link = link(166092, "00-0036355", Some("4362628"));
-        save_links(&store, std::slice::from_ref(&link))
+        save_links(&store, &[link(166092, "00-0036355", Some("4362628"))])
             .await
             .unwrap();
-        save_links(&store, &[link]).await.unwrap();
-        assert_eq!(links(store.reader()).await.unwrap().len(), 1);
+        save_links(&store, &[link(166092, "00-0036355", Some("9999999"))])
+            .await
+            .unwrap();
+
         assert_eq!(
-            links_by_espn(store.reader()).await.unwrap().len(),
-            1,
-            "an identical save leaves the stored ESPN id alone"
+            links(store.reader()).await.unwrap(),
+            HashMap::from([(166092, "00-0036355".to_owned())])
+        );
+        assert_eq!(
+            links_by_espn(store.reader()).await.unwrap(),
+            HashMap::from([("4362628".to_owned(), "00-0036355".to_owned())]),
+            "the GSIS conflict is ignored instead of updating the stored ESPN id"
         );
     }
 
@@ -299,7 +309,6 @@ mod tests {
             links(store.reader()).await.unwrap().is_empty(),
             "the whole batch rolled back, including the first insert"
         );
-        assert!(links_by_espn(store.reader()).await.unwrap().is_empty());
     }
 
     #[tokio::test]

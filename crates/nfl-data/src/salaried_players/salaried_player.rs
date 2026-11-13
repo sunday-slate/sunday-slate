@@ -14,9 +14,7 @@ pub struct SalariedPlayer {
     pub salary: u32,
     pub games_played: u8,
     pub fppg: f64,
-    /// The latest Tank01 report status for an eligible slate. This is current
-    /// input, not the player's historical game status or an availability
-    /// guarantee; `None` means no matching report entry.
+    /// Latest report status on the current slate, not historical game status.
     pub injury: Option<InjuryDesignation>,
     pub scored_stats: Option<ScoredStats>,
 }

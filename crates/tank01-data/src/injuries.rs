@@ -34,9 +34,7 @@ struct RawRow {
 }
 
 impl Tank01Client {
-    /// Fetch and classify the current injury report. Every successfully
-    /// normalized source row is kept, in source order; consumers that need
-    /// one row per player deduplicate themselves.
+    /// Preserves duplicate source rows; the legacy trait adapter is last-row-wins.
     pub async fn current_injuries(&self) -> ProviderResponse<InjuryReport> {
         self.request_injuries().await
     }
@@ -82,8 +80,6 @@ impl Tank01Client {
     }
 }
 
-/// Legacy provider responses collapse duplicate ESPN ids: the last row wins,
-/// while unidentified entries stay separate.
 fn dedupe_by_espn_id(entries: Vec<InjuryEntry>) -> Vec<InjuryEntry> {
     let mut out: Vec<InjuryEntry> = Vec::with_capacity(entries.len());
     let mut slots: HashMap<String, usize> = HashMap::new();
@@ -202,56 +198,31 @@ mod tests {
             ProviderOutcome::Value(report) => report,
             other => panic!("expected parsed injuries, got {other:?}"),
         };
+        let observed: Vec<_> = report
+            .entries
+            .iter()
+            .map(|entry| (entry.name.as_str(), entry.designation))
+            .collect();
         assert_eq!(
-            report.entries.len(),
-            5,
-            "conflicting duplicate rows are kept for the caller to judge"
+            observed,
+            [
+                ("Matt Hennessy", InjuryDesignation::InjuredReserve),
+                ("Cooper Kupp", InjuryDesignation::Questionable),
+                ("Jalen Carter", InjuryDesignation::Out),
+                ("Josh Allen", InjuryDesignation::Questionable),
+                ("Cooper Kupp", InjuryDesignation::Doubtful),
+            ],
+            "every normalized row survives, including the conflicting duplicate, in source order"
         );
         assert_eq!(
             report.report_date,
             Some(time::macros::date!(2026 - 09 - 22))
         );
 
-        let kupp: Vec<_> = report
-            .entries
-            .iter()
-            .filter(|entry| entry.name == "Cooper Kupp")
-            .collect();
-        assert_eq!(kupp.len(), 2);
-        assert_eq!(kupp[0].designation, InjuryDesignation::Questionable);
-        assert_eq!(kupp[1].designation, InjuryDesignation::Doubtful);
-        assert_eq!(kupp[0].espn_id, Some(EspnPlayerId("18538".into())));
-        assert_eq!(kupp[0].team, Some(TeamAbbr::SEA));
-        assert_eq!(kupp[0].position.as_deref(), Some("WR"));
-
-        let hennessy = report
-            .entries
-            .iter()
-            .find(|entry| entry.name == "Matt Hennessy")
-            .unwrap();
-        assert_eq!(hennessy.designation, InjuryDesignation::InjuredReserve);
-        assert!(hennessy.espn_id.is_some());
-
-        let allen = report
-            .entries
-            .iter()
-            .find(|entry| entry.name == "Josh Allen")
-            .unwrap();
-        assert_eq!(allen.designation, InjuryDesignation::Questionable);
-
-        let carter = report
-            .entries
-            .iter()
-            .find(|entry| entry.name == "Jalen Carter")
-            .unwrap();
-        assert_eq!(carter.designation, InjuryDesignation::Out);
-
-        assert!(
-            !report
-                .entries
-                .iter()
-                .any(|entry| entry.name == "Marlon Humphrey")
-        );
+        let kupp = &report.entries[1];
+        assert_eq!(kupp.espn_id, Some(EspnPlayerId("18538".into())));
+        assert_eq!(kupp.team, Some(TeamAbbr::SEA));
+        assert_eq!(kupp.position.as_deref(), Some("WR"));
     }
 
     #[tokio::test]
@@ -269,13 +240,16 @@ mod tests {
             .mount(&server)
             .await;
 
-        // Explicit trait call: the inherent method keeps both rows.
         let response = InjuryProvider::current_injuries(&client(&server)).await;
         let report = match &response.outcome {
             ProviderOutcome::Value(report) => report,
             other => panic!("expected parsed injuries, got {other:?}"),
         };
-        assert_eq!(report.entries.len(), 4);
+        assert_eq!(
+            report.entries.len(),
+            4,
+            "the duplicate ESPN id and the unknown designation each drop one row"
+        );
         let kupp: Vec<_> = report
             .entries
             .iter()
@@ -283,6 +257,19 @@ mod tests {
             .collect();
         assert_eq!(kupp.len(), 1);
         assert_eq!(kupp[0].designation, InjuryDesignation::Doubtful);
+        for (name, designation) in [
+            ("Matt Hennessy", InjuryDesignation::InjuredReserve),
+            ("Jalen Carter", InjuryDesignation::Out),
+            ("Josh Allen", InjuryDesignation::Questionable),
+        ] {
+            assert!(
+                report
+                    .entries
+                    .iter()
+                    .any(|entry| { entry.name == name && entry.designation == designation }),
+                "{name} survives with its designation"
+            );
+        }
     }
 
     #[tokio::test]

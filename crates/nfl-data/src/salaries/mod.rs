@@ -109,8 +109,6 @@ pub(crate) async fn reconcile_salary_week(
         })
         .collect();
     let players = nflverse.players().await.map_err(NflDataError::Nflverse)?;
-    // The cached player records are the only ESPN source for new links;
-    // roster-only identities stay without one.
     let espn_by_gsis: HashMap<&str, &str> = players
         .iter()
         .filter_map(|player| {

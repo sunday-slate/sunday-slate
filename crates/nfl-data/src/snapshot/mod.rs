@@ -49,9 +49,6 @@ impl SalariedPlayers {
     }
 }
 
-/// Annotate the eligible slate's rows from the retained report. Resolution is
-/// by persisted ESPN→GSIS link only; a GSIS id with conflicting designations
-/// stays unannotated for this report.
 async fn annotate_injuries(
     nfl: &NflData,
     built: &mut HashMap<SlateId, SalariedPlayersBySlot>,
@@ -90,7 +87,6 @@ async fn annotate_injuries(
             }
             Entry::Occupied(mut slot) => {
                 if *slot.get() != Some(entry.designation) {
-                    // Conflicting source rows stay unresolved permanently.
                     slot.insert(None);
                 }
             }
@@ -101,8 +97,7 @@ async fn annotate_injuries(
     }
 
     if let Some(by_slot) = built.get_mut(&current_id) {
-        // Every bucket, so flex duplicates carry the same annotation before
-        // `SalariedPlayers::new` builds its direct indexes.
+        // Annotate flex copies before building direct indexes.
         for row in by_slot.values_mut().flatten() {
             if let Some(id) = &row.id {
                 row.injury = designations.get(id).copied().flatten();
@@ -136,8 +131,6 @@ impl Snapshot {
         let (built, available) =
             salaried_players::build_salaried_players(nfl, all_slates.as_slice(), &games).await?;
 
-        // `current_slate()` is the greatest populated id; only that slate's
-        // players receive the latest report status.
         let current_id = built
             .iter()
             .filter(|(_, by_slot)| !by_slot.is_empty())

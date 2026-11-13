@@ -1,18 +1,7 @@
 #!/usr/bin/env python3
-"""Backfill persisted ESPN player ids from the cached nflverse players table.
+"""One-time ESPN ID backfill from the local nflverse cache; run after migration.
 
-One explicit run after the NFL data schema migration; never invoked
-automatically. The nflverse database is opened read-only, and the NFL data
-database is only opened for writing when the file already exists, so a typo
-cannot create an empty database.
-
-    python3 scripts/backfill-player-link-espn-ids.py \
-        --nfl-data-db storage/nfl-data.db \
-        --nflverse-db storage/nflverse-data.db
-
-Only unambiguous candidates are written: a target row whose ESPN id is already
-taken by another GSIS row, or an ESPN id claimed by several target rows, is
-reported and skipped.
+Missing or ambiguous identities are reported without being changed.
 """
 
 from __future__ import annotations

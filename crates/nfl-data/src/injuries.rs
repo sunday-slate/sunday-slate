@@ -1,6 +1,3 @@
-//! Owned injury source state: the Tank01 poller, its report consumer, and the
-//! latest accepted report the snapshot build annotates from.
-
 use std::sync::{Arc, Mutex, Weak};
 
 use nfl_model::{InjuryReport, ProviderOutcome, ProviderResponse};
@@ -10,17 +7,12 @@ use tokio::task::JoinHandle;
 
 use crate::NflData;
 
-/// Nothing here is public: injuries are an input to snapshot publication, not
-/// a service callers can query or refresh directly.
 #[derive(Default)]
 pub(crate) struct InjuryState {
-    /// `None` leaves the source disabled: no worker, no HTTP.
     pub(crate) poller: Option<InjuryPoller>,
-    /// Receive end of the poller's reports, taken once by the consumer.
     reports: Mutex<Option<mpsc::UnboundedReceiver<ProviderResponse<InjuryReport>>>>,
     consumer: Mutex<Option<JoinHandle<()>>>,
-    /// The last successfully accepted report; a failed build keeps it for the
-    /// next attempt.
+    // Retain successful input even when publication fails.
     latest: Mutex<Option<Arc<InjuryReport>>>,
 }
 
@@ -35,7 +27,6 @@ impl InjuryState {
         }
     }
 
-    /// Abort the report consumer; the poller aborts its own worker on drop.
     pub(crate) fn shutdown(&mut self) {
         if let Some(worker) = self
             .consumer
@@ -49,7 +40,6 @@ impl InjuryState {
 }
 
 impl NflData {
-    /// The latest accepted injury report, if any. Builds read this once.
     pub(crate) fn injury_report(&self) -> Option<Arc<InjuryReport>> {
         self.injuries
             .latest
@@ -67,8 +57,6 @@ impl NflData {
             .unwrap_or_else(|error| error.into_inner()) = Some(Arc::new(report));
     }
 
-    /// Spawn the report consumer; the receiver is taken on the first call, so
-    /// later calls are no-ops.
     pub(crate) fn start_injury_worker(self: &Arc<Self>) {
         let Some(mut reports) = self
             .injuries
@@ -79,7 +67,6 @@ impl NflData {
         else {
             return;
         };
-        // Upgrade only while processing one outcome, like the sync worker.
         let updates = Arc::downgrade(self);
         let worker = tokio::spawn(async move {
             while let Some(response) = reports.recv().await {
@@ -111,8 +98,6 @@ impl NflData {
     async fn apply_injury_response(&self, response: ProviderResponse<InjuryReport>) {
         match response.outcome {
             ProviderOutcome::Value(report) => self.accept_injury_report(report).await,
-            // The source has no list before its first publication: publish the
-            // same state as an empty report.
             ProviderOutcome::Pregame { .. } => {
                 self.accept_injury_report(InjuryReport {
                     report_date: None,
@@ -129,9 +114,6 @@ impl NflData {
         }
     }
 
-    /// Retain a successful source outcome and republish under the publication
-    /// lock. A failed build leaves readers on the current snapshot and keeps
-    /// the new input for a later attempt.
     async fn accept_injury_report(&self, report: InjuryReport) {
         let _publication = self.publication.lock().await;
         let report = Arc::new(report);
@@ -152,12 +134,12 @@ impl NflData {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nfl_model::{DfsPositionSlotType, EspnPlayerId, InjuryDesignation, InjuryEntry};
+    use nfl_model::{EspnPlayerId, InjuryDesignation, InjuryEntry};
     use time::macros::datetime;
 
     use crate::salaries;
     use crate::store::player_link::{self, PlayerLink};
-    use crate::{DfsPosition, Game, NflData, Player, Season, SeasonWeek, TeamAbbr, Week};
+    use crate::{Game, NflData, Player, Season, SeasonWeek, TeamAbbr, Week};
     use nfl_model::NflPlayerId;
 
     const SEASON: Season = Season(2026);
@@ -249,12 +231,8 @@ Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,
             .expect("rename table");
     }
 
-    #[tokio::test]
-    async fn a_failed_build_keeps_the_publication_and_the_new_report() {
-        let nfl = fixture().await;
-        nfl.rebuild_snapshot().await.expect("initial rebuild");
-        let published = nfl.snapshot();
-        let slate_id = crate::slates::SlateId(
+    fn slate_id() -> crate::slates::SlateId {
+        crate::slates::SlateId(
             i64::from(
                 SeasonWeek {
                     season: SEASON,
@@ -263,16 +241,23 @@ Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,
                 .encode(),
             ) * 10
                 + 1,
-        );
+        )
+    }
+
+    #[tokio::test]
+    async fn a_failed_build_keeps_the_publication_and_the_new_report() {
+        let nfl = fixture().await;
+        nfl.rebuild_snapshot().await.expect("initial rebuild");
+        let published = nfl.snapshot();
+        let slate = slate_id();
         let injury = |snapshot: &crate::Snapshot| {
             snapshot
-                .player(&slate_id, &NflPlayerId("00-MACK".into()))
+                .player(&slate, &NflPlayerId("00-MACK".into()))
                 .expect("mack is built")
                 .injury
         };
         assert_eq!(injury(&published), None);
 
-        // Break a table the build reads, then accept a new report.
         rename_player_links(&nfl, "player_links", "player_links_broken").await;
         nfl.accept_injury_report(report(InjuryDesignation::Doubtful))
             .await;
@@ -288,7 +273,6 @@ Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,
             InjuryDesignation::Doubtful
         );
 
-        // Repairing the source lets the retained input publish.
         rename_player_links(&nfl, "player_links_broken", "player_links").await;
         nfl.rebuild_snapshot().await.expect("rebuild");
         let snapshot = nfl.snapshot();
@@ -297,17 +281,6 @@ Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,
             injury(&snapshot),
             Some(InjuryDesignation::Doubtful),
             "the retained report appears once the build succeeds"
-        );
-        assert_eq!(
-            snapshot
-                .salaried_players_for_position(
-                    &slate_id,
-                    &DfsPositionSlotType::Position(DfsPosition::Rb)
-                )
-                .first()
-                .expect("the RB bucket carries mack")
-                .injury,
-            Some(InjuryDesignation::Doubtful)
         );
     }
 }

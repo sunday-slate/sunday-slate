@@ -117,6 +117,8 @@ async fn import_salary_csv(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use crate::web::tests::salary_fixture::{
         admin_slate_id, admin_state, admin_state_in_season, upload_form,
     };
@@ -161,9 +163,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            links.get("3918298").map(String::as_str),
-            Some("00-1"),
-            "the worker stored the matcher's identity link with its ESPN id"
+            links,
+            HashMap::from([("3918298".to_owned(), "00-1".to_owned())]),
+            "the import stored the matched player's identity link with its ESPN id"
         );
     }
 

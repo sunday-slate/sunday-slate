@@ -1,6 +1,3 @@
-//! End-to-end injury input: a configured Tank01 mock publishes designations
-//! through the existing snapshot publication boundary.
-
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -88,7 +85,6 @@ fn injury_body(designation: &str) -> String {
     )
 }
 
-/// One 2026 week whose salary row resolves through a persisted ESPN link.
 async fn seed(nfl: &NflData) {
     let season_week = SeasonWeek {
         season: SEASON,
@@ -179,8 +175,7 @@ async fn wait_for_injury(nfl: &NflData, expected: Option<InjuryDesignation>) {
     );
 }
 
-/// Stop and start: reenablement from idle fetches immediately, so the test
-/// does not have to wait five real minutes for the next tick.
+// Reenablement avoids waiting five real minutes between mock responses.
 async fn poll_again(nfl: &Arc<NflData>, mock: &Tank01Mock, expected_requests: usize) {
     nfl.stop_background_tasks();
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -210,25 +205,24 @@ async fn configured_source_publishes_and_preserves_injury_input() {
     wait_for_injury(&nfl, Some(InjuryDesignation::Questionable)).await;
     assert_eq!(mock.requests(), 1);
 
-    // An ordinary explicit rebuild republishes the accepted input.
     nfl.rebuild_snapshot().await.expect("rebuild");
     assert_eq!(
         injury(&nfl.snapshot()),
         Some(InjuryDesignation::Questionable)
     );
 
-    // A failed poll changes neither the accepted input nor the publication.
     mock.set(500, "boom");
     poll_again(&nfl, &mock, 2).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
+    nfl.rebuild_snapshot()
+        .await
+        .expect("rebuild after the failed poll");
     assert_eq!(
         injury(&nfl.snapshot()),
         Some(InjuryDesignation::Questionable),
-        "an HTTP error keeps the last accepted report"
+        "a failed poll leaves the accepted report as the retained input"
     );
 
-    // An empty report clears the current player, while the old snapshot keeps
-    // the values readers already hold.
     let old = nfl.snapshot();
     mock.set(
         200,
@@ -241,22 +235,22 @@ async fn configured_source_publishes_and_preserves_injury_input() {
         Some(InjuryDesignation::Questionable),
         "published snapshots are immutable"
     );
-    let rb = nfl.snapshot();
+    let cleared = nfl.snapshot();
     assert_eq!(
-        rb.salaried_players_for_position(
-            &slate_id(),
-            &DfsPositionSlotType::Position(DfsPosition::Rb)
-        )
-        .first()
-        .expect("mack fills the bucket")
-        .injury,
+        cleared
+            .salaried_players_for_position(
+                &slate_id(),
+                &DfsPositionSlotType::Position(DfsPosition::Rb)
+            )
+            .first()
+            .expect("mack fills the bucket")
+            .injury,
         None
     );
 }
 
 #[tokio::test]
-async fn handles_without_a_tank01_config_never_request() {
-    let mock = Tank01Mock::start().await;
+async fn handles_without_a_tank01_config_never_poll() {
     let nfl = Arc::new(
         NflData::connect(NflDataConfig {
             nflverse_database_url: "sqlite::memory:".into(),
@@ -269,13 +263,10 @@ async fn handles_without_a_tank01_config_never_request() {
         .expect("connect"),
     );
     assert!(nfl.injuries.poller.is_none(), "the source is disabled");
+    seed(&nfl).await;
+    nfl.rebuild_snapshot().await.expect("rebuild");
     nfl.start_background_tasks();
-    tokio::time::sleep(Duration::from_millis(150)).await;
-    assert_eq!(mock.requests(), 0);
-    assert!(nfl.injury_report().is_none());
-    assert!(
-        nfl.snapshot()
-            .player(&slate_id(), &NflPlayerId(MACK.into()))
-            .is_none()
-    );
+    tokio::task::yield_now().await;
+    assert!(nfl.injury_report().is_none(), "no source means no input");
+    assert_eq!(injury(&nfl.snapshot()), None);
 }

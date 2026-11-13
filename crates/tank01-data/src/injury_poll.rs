@@ -1,9 +1,3 @@
-//! Tank01 injury polling lifecycle.
-//!
-//! One persistent worker fetches the source every five minutes while enabled.
-//! The poller owns no generic scheduling machinery: [`crate::poll::SlatePoller`]
-//! remains the live-game path.
-
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -15,10 +9,8 @@ use tracing::Instrument;
 
 use crate::client::Tank01Client;
 
-/// The source's injury list changes slowly; five minutes matches its refresh.
 const INJURY_POLL_INTERVAL: Duration = Duration::from_secs(300);
 
-/// Owns the single injury polling worker and its enable/disable signal.
 pub struct InjuryPoller {
     client: Tank01Client,
     reports: mpsc::UnboundedSender<ProviderResponse<InjuryReport>>,
@@ -34,19 +26,17 @@ impl Drop for InjuryPoller {
             .unwrap_or_else(|error| error.into_inner())
             .take()
         {
-            // A detached worker would keep the client and sender alive.
             worker.abort();
         }
     }
 }
 
 impl InjuryPoller {
-    /// Build the poller without starting any task.
+    /// Does not spawn until [`Self::start`].
     pub fn new(
         client: Tank01Client,
         reports: mpsc::UnboundedSender<ProviderResponse<InjuryReport>>,
     ) -> Self {
-        // `send_replace` still records enablement before a worker exists.
         let (enabled, _) = watch::channel(false);
         Self {
             client,
@@ -56,21 +46,22 @@ impl InjuryPoller {
         }
     }
 
-    /// Enable polling, spawning the worker on first use. Returns true only on a
-    /// disabled-to-enabled transition; repeated starts are no-ops.
+    /// Returns true only on a disabled-to-enabled transition.
+    /// Idle restarts fetch immediately; restarts during a fetch retain its cadence.
     pub fn start(&self) -> bool {
         let mut worker = self
             .worker
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        let was_enabled = self.enabled.send_replace(true);
+        let was_enabled = *self.enabled.borrow();
+        if !was_enabled {
+            self.enabled.send_replace(true);
+        }
         if let Some(task) = worker.as_ref() {
             if !task.is_finished() {
                 return !was_enabled;
             }
             if self.reports.is_closed() {
-                // A finished worker restarted without a consumer would only
-                // fetch to fail its send.
                 self.enabled.send_replace(false);
                 return false;
             }
@@ -93,14 +84,12 @@ impl InjuryPoller {
         let client = self.client.clone();
         let reports = self.reports.clone();
         let mut enabled = self.enabled.subscribe();
-        // Root the span: the worker outlives any caller's request context.
         let span = tracing::info_span!(parent: None, "tank01_injury_poller");
         tokio::spawn(
             async move {
                 let mut interval: Option<tokio::time::Interval> = None;
                 loop {
                     if !*enabled.borrow_and_update() {
-                        // Reenablement starts a fresh immediate-first interval.
                         interval = None;
                         tokio::select! {
                             changed = enabled.changed() => {
@@ -119,13 +108,13 @@ impl InjuryPoller {
                         interval
                     });
                     tokio::select! {
+                        biased;
                         _ = reports.closed() => return,
                         changed = enabled.changed() => {
                             if changed.is_err() {
                                 return;
                             }
-                            // A stop, or a stop followed by a start, is handled
-                            // at the top of the loop before any fetch.
+                            interval = None;
                             continue;
                         }
                         _ = tick.tick() => {}
@@ -134,9 +123,7 @@ impl InjuryPoller {
                         continue;
                     }
 
-                    // Await the fetch and send outside the control select: a
-                    // stop never cancels an in-flight request, and a restart
-                    // during it never overlaps a second fetch.
+                    // Stop must not cancel an in-flight fetch.
                     let response = client.current_injuries().await;
                     if reports.send(response).is_err() {
                         return;
@@ -210,10 +197,7 @@ mod tests {
         count.load(Ordering::SeqCst)
     }
 
-    /// Wait until the mock server has seen `expected` requests, so a delayed
-    /// response's timer is registered before the test advances paused time.
-    /// Deliberately yield rather than await a channel: an idle runtime would
-    /// auto-advance the paused clock and fire unrelated timers.
+    // Awaiting a channel here could auto-advance paused time to a client timeout.
     async fn wait_for_requests(count: &AtomicUsize, expected: usize) {
         for _ in 0..200_000 {
             if request_count(count) >= expected {
@@ -224,7 +208,6 @@ mod tests {
         panic!("mock server never saw request {expected}");
     }
 
-    /// Keep the runtime busy so paused time does not auto-advance past a timer.
     async fn spin(ticks: usize) {
         for _ in 0..ticks {
             tokio::task::yield_now().await;
@@ -275,17 +258,26 @@ mod tests {
         tokio::time::advance(Duration::from_secs(1)).await;
         response(&mut reports).await;
         assert_eq!(request_count(&count), 2);
+        tokio::time::advance(Duration::from_secs(60)).await;
+        spin(1_000).await;
+        assert!(poller.stop());
+        assert!(
+            poller.start(),
+            "back-to-back idle restart fetches immediately"
+        );
+        response(&mut reports).await;
+        assert_eq!(request_count(&count), 3);
 
         assert!(poller.stop());
         tokio::time::advance(Duration::from_secs(600)).await;
         assert_silent(&mut reports).await;
-        assert_eq!(request_count(&count), 2, "stopped adds no triggers");
+        assert_eq!(request_count(&count), 3, "stopped adds no triggers");
 
         assert!(poller.start(), "reenabled from idle");
         response(&mut reports).await;
         assert_eq!(
             request_count(&count),
-            3,
+            4,
             "reenablement starts a fresh immediate-first interval"
         );
     }
@@ -312,17 +304,14 @@ mod tests {
             "unexpected outcome: {:?}",
             first.outcome
         );
+        assert_silent(&mut reports).await;
         assert_eq!(
             request_count(&count),
             1,
             "the restart did not begin a parallel fetch"
         );
 
-        // Restarting after the outstanding result begins a fresh fetch. Yield
-        // first so the worker observes the stop while idle, not coalesced with
-        // the start.
         assert!(poller.stop());
-        spin(1_000).await;
         assert!(poller.start(), "restart resumes polling");
         wait_for_requests(&count, 2).await;
         response(&mut reports).await;
@@ -332,19 +321,37 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_closed_report_channel_terminates_and_blocks_restart() {
         let server = MockServer::start().await;
-        let _count = mount(&server, Duration::ZERO).await;
-        let (sender, reports) = mpsc::unbounded_channel();
-        drop(reports);
+        let count = mount(&server, Duration::ZERO).await;
+        let (sender, mut reports) = mpsc::unbounded_channel();
         let poller = InjuryPoller::new(client(&server), sender);
+        assert!(poller.start());
+        response(&mut reports).await;
+        drop(reports);
 
-        assert!(poller.start(), "the first start still transitions");
-        spin(50_000).await;
-
-        poller.stop();
+        for _ in 0..5_000 {
+            if poller
+                .worker
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .is_finished()
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
         assert!(
-            !poller.start(),
-            "a closed channel must not spawn another worker"
+            poller
+                .worker
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .is_finished()
         );
+        assert!(!poller.start(), "closed receiver prevents worker restart");
+        assert_eq!(request_count(&count), 1);
     }
 
     #[tokio::test(start_paused = true)]

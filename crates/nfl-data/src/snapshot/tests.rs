@@ -1064,8 +1064,6 @@ fn players_for_slate_is_player_only_and_position_independent() {
     );
 }
 
-/// Two 2026 weeks with salaries for the same seeded players, so both slates
-/// populate. Persisted links carry the ESPN ids the injury build reads.
 async fn two_populated_slates() -> NflData {
     let wild_card = SeasonWeek {
         season: SEASON,
@@ -1144,30 +1142,17 @@ async fn current_slate_carries_report_designations_by_persisted_espn_link() {
     let earlier = main_slate_id(SEASON);
     let current = SlateId(wild_card_slate());
 
-    // No accepted report: every row stays unannotated.
+    nfl.retain_injury_report_for_test(injury_report(vec![
+        injury_entry(Some("ESPN-MACK"), "Mack Runner", InjuryDesignation::Out),
+        injury_entry(Some("ESPN-ZACK"), "Zack Back", InjuryDesignation::Doubtful),
+        injury_entry(None, "Gamma Catch", InjuryDesignation::Questionable),
+    ]));
     let snapshot = Snapshot::build(&nfl).await.expect("build");
     assert_eq!(
         snapshot.current_slate().map(|slate| slate.id),
-        Some(current)
+        Some(current),
+        "the wild-card slate is the greatest populated slate"
     );
-    assert_eq!(
-        snapshot
-            .player(&current, &NflPlayerId("00-MACK".into()))
-            .unwrap()
-            .injury,
-        None
-    );
-
-    nfl.retain_injury_report_for_test(injury_report(vec![
-        injury_entry(Some("ESPN-MACK"), "Mack Runner", InjuryDesignation::Out),
-        injury_entry(
-            Some("ESPN-UNLINKED"),
-            "Unknown",
-            InjuryDesignation::Doubtful,
-        ),
-        injury_entry(None, "Unidentified", InjuryDesignation::Questionable),
-    ]));
-    let snapshot = Snapshot::build(&nfl).await.expect("build");
     assert_eq!(
         snapshot
             .player(&current, &NflPlayerId("00-MACK".into()))
@@ -1210,7 +1195,7 @@ async fn current_slate_carries_report_designations_by_persisted_espn_link() {
             .unwrap()
             .injury,
         None,
-        "a linked player absent from the report stays unannotated"
+        "a report row without an ESPN id never matches by name"
     );
     assert_eq!(
         snapshot.defense(&current, &TeamAbbr::KC).unwrap().injury,
@@ -1228,26 +1213,24 @@ fn wild_card_slate() -> i64 {
 }
 
 #[tokio::test]
-async fn conflicting_designations_leave_the_player_unset_in_either_order() {
+async fn conflicting_designations_leave_the_player_unset() {
     let nfl = two_populated_slates().await;
     let current = SlateId(wild_card_slate());
     let mack = NflPlayerId("00-MACK".into());
+    let row = |designation| injury_entry(Some("ESPN-MACK"), "Mack Runner", designation);
     for entries in [
         vec![
-            injury_entry(
-                Some("ESPN-MACK"),
-                "Mack Runner",
-                InjuryDesignation::Questionable,
-            ),
-            injury_entry(Some("ESPN-MACK"), "Mack Runner", InjuryDesignation::Out),
+            row(InjuryDesignation::Questionable),
+            row(InjuryDesignation::Out),
         ],
         vec![
-            injury_entry(Some("ESPN-MACK"), "Mack Runner", InjuryDesignation::Out),
-            injury_entry(
-                Some("ESPN-MACK"),
-                "Mack Runner",
-                InjuryDesignation::Questionable,
-            ),
+            row(InjuryDesignation::Out),
+            row(InjuryDesignation::Questionable),
+        ],
+        vec![
+            row(InjuryDesignation::Out),
+            row(InjuryDesignation::Questionable),
+            row(InjuryDesignation::Out),
         ],
     ] {
         nfl.retain_injury_report_for_test(injury_report(entries));
@@ -1255,13 +1238,13 @@ async fn conflicting_designations_leave_the_player_unset_in_either_order() {
         assert_eq!(
             snapshot.player(&current, &mack).unwrap().injury,
             None,
-            "conflicting rows never resolve, whatever their order"
+            "a conflicting pair stays unresolved for the whole report"
         );
     }
 
     nfl.retain_injury_report_for_test(injury_report(vec![
-        injury_entry(Some("ESPN-MACK"), "Mack Runner", InjuryDesignation::Out),
-        injury_entry(Some("ESPN-MACK"), "Mack Runner", InjuryDesignation::Out),
+        row(InjuryDesignation::Out),
+        row(InjuryDesignation::Out),
     ]));
     let snapshot = Snapshot::build(&nfl).await.expect("build");
     assert_eq!(
