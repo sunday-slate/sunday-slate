@@ -42,6 +42,8 @@ impl NflData {
             self.nflverse.start_scheduler(interval);
         }
         self.start_update_worker();
+        self.start_injury_worker();
+        self.start_injury_polling();
     }
 
     /// Stop future automatic task triggers without cancelling an active
@@ -49,6 +51,7 @@ impl NflData {
     /// make a later start unable to restore its receiver.
     pub fn stop_background_tasks(&self) {
         self.nflverse.stop_scheduler();
+        self.stop_injury_polling();
     }
 
     /// Spawn the notification task; the receiver is taken on the first call, so

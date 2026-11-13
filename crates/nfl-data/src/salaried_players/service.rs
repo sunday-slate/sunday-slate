@@ -270,6 +270,7 @@ impl PlayerFacts {
                 salary: salary.salary,
                 games_played,
                 fppg,
+                injury: None,
                 scored_stats: None,
             });
         }
@@ -292,6 +293,7 @@ impl PlayerFacts {
             salary: salary.salary,
             games_played,
             fppg,
+            injury: None,
             scored_stats: None,
         })
     }

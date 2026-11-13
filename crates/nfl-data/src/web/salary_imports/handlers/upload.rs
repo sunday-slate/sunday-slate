@@ -117,6 +117,8 @@ async fn import_salary_csv(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use crate::web::tests::salary_fixture::{
         admin_slate_id, admin_state, admin_state_in_season, upload_form,
     };
@@ -144,6 +146,26 @@ mod tests {
         assert_eq!(
             response.header("location").to_str().unwrap(),
             "/nfl-data-admin/salary-imports/2025001"
+        );
+    }
+
+    #[tokio::test]
+    async fn upload_persists_the_cached_espn_id_with_the_link() {
+        let state = admin_state().await;
+        state
+            .server
+            .post("/nfl-data-admin/salary-imports")
+            .multipart(upload_form())
+            .await
+            .assert_status(StatusCode::SEE_OTHER);
+
+        let links = crate::store::player_link::links_by_espn(state.nfl.store.reader())
+            .await
+            .unwrap();
+        assert_eq!(
+            links,
+            HashMap::from([("3918298".to_owned(), "00-1".to_owned())]),
+            "the import stored the matched player's identity link with its ESPN id"
         );
     }
 

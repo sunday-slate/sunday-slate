@@ -14,4 +14,6 @@ pub enum NflDataError {
     Database(#[from] sqlx::Error),
     #[error("NFL data store migration failed: {0}")]
     Migration(#[from] sqlx::migrate::MigrateError),
+    #[error("Tank01 configuration failed: {0}")]
+    Tank01Configuration(#[from] tank01_data::Tank01ClientError),
 }

@@ -188,6 +188,7 @@ mod tests {
             salary,
             games_played: pace.map_or(0, |(_, games)| u8::try_from(games).unwrap_or(0)),
             fppg: pace.map_or(0.0, |(avg, _)| avg),
+            injury: None,
             scored_stats: None,
         }
     }

@@ -235,6 +235,7 @@ Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,
             &[PlayerLink {
                 fd_player_id: 1,
                 gsis_player_id: "00-MACK".into(),
+                espn_player_id: None,
             }],
         )
         .await

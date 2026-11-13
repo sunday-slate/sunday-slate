@@ -1,7 +1,11 @@
 use crate::salaried_players::{self, SalariedPlayer, SalariedPlayersBySlot};
 use crate::slates::{self, Slate, SlateId};
+use crate::store::player_link;
 use crate::{NflData, NflDataError};
-use nfl_model::{DfsPositionSlotType, Game, NflPlayerId, PlayerOrDefenseId, TeamAbbr};
+use nfl_model::{
+    DfsPositionSlotType, Game, InjuryDesignation, NflPlayerId, PlayerOrDefenseId, TeamAbbr,
+};
+use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 #[cfg(test)]
@@ -45,6 +49,64 @@ impl SalariedPlayers {
     }
 }
 
+async fn annotate_injuries(
+    nfl: &NflData,
+    built: &mut HashMap<SlateId, SalariedPlayersBySlot>,
+    current_id: SlateId,
+) -> Result<(), NflDataError> {
+    let Some(report) = nfl
+        .injury_report()
+        .filter(|report| !report.entries.is_empty())
+    else {
+        return Ok(());
+    };
+    let eligible_rows = built
+        .get(&current_id)
+        .is_some_and(|by_slot| by_slot.values().flatten().any(|row| row.id.is_some()));
+    if !eligible_rows {
+        return Ok(());
+    }
+
+    let links_by_espn = player_link::links_by_espn(nfl.store.reader()).await?;
+    let mut designations: HashMap<NflPlayerId, Option<InjuryDesignation>> = HashMap::new();
+    for entry in &report.entries {
+        let Some(espn_id) = entry
+            .espn_id
+            .as_ref()
+            .map(|espn| espn.0.trim())
+            .filter(|espn| !espn.is_empty())
+        else {
+            continue;
+        };
+        let Some(gsis_id) = links_by_espn.get(espn_id) else {
+            continue;
+        };
+        match designations.entry(NflPlayerId(gsis_id.clone())) {
+            Entry::Vacant(slot) => {
+                slot.insert(Some(entry.designation));
+            }
+            Entry::Occupied(mut slot) => {
+                if *slot.get() != Some(entry.designation) {
+                    slot.insert(None);
+                }
+            }
+        }
+    }
+    if designations.is_empty() {
+        return Ok(());
+    }
+
+    if let Some(by_slot) = built.get_mut(&current_id) {
+        // Annotate flex copies before building direct indexes.
+        for row in by_slot.values_mut().flatten() {
+            if let Some(id) = &row.id {
+                row.injury = designations.get(id).copied().flatten();
+            }
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Default)]
 pub struct Snapshot {
     slates: BTreeMap<SlateId, Slate>,
@@ -68,6 +130,16 @@ impl Snapshot {
 
         let (built, available) =
             salaried_players::build_salaried_players(nfl, all_slates.as_slice(), &games).await?;
+
+        let current_id = built
+            .iter()
+            .filter(|(_, by_slot)| !by_slot.is_empty())
+            .map(|(slate_id, _)| *slate_id)
+            .max();
+        let mut built = built;
+        if let Some(current_id) = current_id {
+            annotate_injuries(nfl, &mut built, current_id).await?;
+        }
 
         // stored slates exist for every week, even those without games or
         // salaries; only the ones that resolve to players belong in a snapshot

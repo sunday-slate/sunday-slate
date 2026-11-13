@@ -2,6 +2,7 @@ mod config;
 mod data_revision;
 mod error;
 mod identity;
+mod injuries;
 mod nflverse;
 pub mod salaried_players;
 mod salaries;
@@ -39,6 +40,7 @@ pub use nfl_model::{
 pub(crate) use salaries::SalaryWeekOverview;
 pub use snapshot::Snapshot;
 pub(crate) use store::PlayerLink;
+pub use tank01_data::Tank01Config;
 pub use web::AdminConfig;
 pub use web::router as admin_router;
 
@@ -58,6 +60,7 @@ pub struct NflData {
     pub(crate) sync_events: Mutex<Option<mpsc::UnboundedReceiver<SyncEvent>>>,
     /// The notification task; aborted on drop.
     pub(crate) update_worker: Mutex<Option<JoinHandle<()>>>,
+    pub(crate) injuries: injuries::InjuryState,
 }
 
 impl Drop for NflData {
@@ -72,6 +75,7 @@ impl Drop for NflData {
             // clones and would outlive the handle.
             worker.abort();
         }
+        self.injuries.shutdown();
     }
 }
 
@@ -81,6 +85,12 @@ impl NflData {
     /// connection error; background work starts only through
     /// [`Self::start_background_tasks`].
     pub async fn connect(config: NflDataConfig) -> Result<Self, NflDataError> {
+        let injuries = match config.tank01.clone() {
+            Some(tank01) => {
+                injuries::InjuryState::configured(tank01_data::Tank01Client::new(tank01)?)
+            }
+            None => injuries::InjuryState::default(),
+        };
         let refresh_interval = config
             .refresh_interval
             .filter(|interval| !interval.is_zero());
@@ -105,6 +115,7 @@ impl NflData {
             publication: tokio::sync::Mutex::new(()),
             sync_events: Mutex::new(Some(sync_events_receiver)),
             update_worker: Mutex::new(None),
+            injuries,
         };
 
         // The initial build reads stored slates, so reconcile them first.
@@ -141,6 +152,7 @@ impl NflData {
             publication: tokio::sync::Mutex::new(()),
             sync_events: Mutex::new(None),
             update_worker: Mutex::new(None),
+            injuries: injuries::InjuryState::default(),
         })
     }
 

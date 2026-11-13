@@ -36,6 +36,7 @@ async fn server() -> (TestServer, MockServer) {
         earliest_season: 2025,
         github_api_base: upstream.uri(),
         refresh_interval: None,
+        tank01: None,
     })
     .await
     .unwrap();
@@ -94,6 +95,7 @@ async fn nflverse_setup_errors_are_generic_500_responses() {
         github_token: None,
         github_api_base: upstream.uri(),
         refresh_interval: None,
+        tank01: None,
     })
     .await
     .unwrap();
@@ -158,6 +160,7 @@ async fn nflverse_post_and_scheduled_refresh_are_single_flight() {
             earliest_season: 2025,
             github_api_base: upstream.uri(),
             refresh_interval: Some(interval),
+            tank01: None,
         })
         .await
         .unwrap(),
