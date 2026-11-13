@@ -102,6 +102,7 @@ mod tests {
             github_token: Some(Secret::new("sentinel")),
             github_api_base: server.uri(),
             refresh_interval: None,
+            tank01: None,
         })
         .await
         .unwrap();

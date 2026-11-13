@@ -119,6 +119,7 @@ mod tests {
             &[PlayerLink {
                 fd_player_id: 1,
                 gsis_player_id: "00-1".into(),
+                espn_player_id: None,
             }],
         )
         .await
@@ -129,6 +130,7 @@ mod tests {
             &[PlayerLink {
                 fd_player_id: 2,
                 gsis_player_id: "00-2".into(),
+                espn_player_id: None,
             }],
         )
         .await
@@ -172,6 +174,7 @@ mod tests {
             &[PlayerLink {
                 fd_player_id: 1,
                 gsis_player_id: "00-1".into(),
+                espn_player_id: None,
             }],
         )
         .await

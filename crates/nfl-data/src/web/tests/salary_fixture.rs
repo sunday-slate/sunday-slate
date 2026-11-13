@@ -46,7 +46,7 @@ async fn seed_admin_slate(nfl: &NflData) {
         &[
             crate::Player {
                 gsis_id: "00-1".into(),
-                espn_id: None,
+                espn_id: Some("3918298".into()),
                 full_name: "Josh Allen".into(),
                 first_name: Some("Josh".into()),
                 last_name: Some("Allen".into()),
@@ -56,7 +56,7 @@ async fn seed_admin_slate(nfl: &NflData) {
             },
             crate::Player {
                 gsis_id: "00-avery".into(),
-                espn_id: None,
+                espn_id: Some("1111111".into()),
                 full_name: "Avery Smith".into(),
                 first_name: Some("Avery".into()),
                 last_name: Some("Smith".into()),

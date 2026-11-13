@@ -109,6 +109,19 @@ pub(crate) async fn reconcile_salary_week(
         })
         .collect();
     let players = nflverse.players().await.map_err(NflDataError::Nflverse)?;
+    // The cached player records are the only ESPN source for new links;
+    // roster-only identities stay without one.
+    let espn_by_gsis: HashMap<&str, &str> = players
+        .iter()
+        .filter_map(|player| {
+            player
+                .espn_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|espn| !espn.is_empty())
+                .map(|espn| (player.gsis_id.as_str(), espn))
+        })
+        .collect();
     let player_index = PlayerIndex::build(&players);
     let mut roster_entries = Vec::new();
     let mut teams = BTreeSet::new();
@@ -157,6 +170,9 @@ pub(crate) async fn reconcile_salary_week(
             let fd_id = salary.player.as_ref().expect("player row").id;
             mapped.push(PlayerLink {
                 fd_player_id: fd_id,
+                espn_player_id: espn_by_gsis
+                    .get(gsis_player_id.as_str())
+                    .map(|espn| (*espn).to_owned()),
                 gsis_player_id,
             });
         }

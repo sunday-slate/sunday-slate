@@ -1666,6 +1666,7 @@ mod tests {
             salary,
             games_played,
             fppg,
+            injury: None,
             scored_stats: None,
         }
     }

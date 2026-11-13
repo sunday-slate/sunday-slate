@@ -21,7 +21,10 @@ use crate::{
     Game, NflData, NflDataConfig, Player, PlayerWeekStats, Season, SeasonWeek, TeamAbbr,
     TeamWeekStats, Week,
 };
-use nfl_model::{DfsPosition, DfsPositionSlotType, NflPlayerId, PlayerOrDefenseId};
+use nfl_model::{
+    DfsPosition, DfsPositionSlotType, EspnPlayerId, InjuryDesignation, InjuryEntry, InjuryReport,
+    NflPlayerId, PlayerOrDefenseId,
+};
 
 const SEASON: Season = Season(2026);
 const PREVIOUS_SEASON: Season = Season(2025);
@@ -112,14 +115,17 @@ fn seeded_links() -> Vec<PlayerLink> {
         PlayerLink {
             fd_player_id: 1,
             gsis_player_id: "00-MACK".into(),
+            espn_player_id: None,
         },
         PlayerLink {
             fd_player_id: 2,
             gsis_player_id: "00-ZACK".into(),
+            espn_player_id: None,
         },
         PlayerLink {
             fd_player_id: 3,
             gsis_player_id: "00-GAMMA".into(),
+            espn_player_id: None,
         },
     ]
 }
@@ -978,6 +984,7 @@ fn salaried(
         salary,
         games_played: 0,
         fppg: 0.0,
+        injury: None,
         scored_stats: None,
     }
 }
@@ -1054,5 +1061,212 @@ fn players_for_slate_is_player_only_and_position_independent() {
     assert!(
         snapshot.players_for_slate(&SlateId(99)).is_none(),
         "an unknown slate has no player map"
+    );
+}
+
+/// Two 2026 weeks with salaries for the same seeded players, so both slates
+/// populate. Persisted links carry the ESPN ids the injury build reads.
+async fn two_populated_slates() -> NflData {
+    let wild_card = SeasonWeek {
+        season: SEASON,
+        week: Week(19),
+    };
+    let nfl = NflData::in_memory().await.expect("in-memory handle");
+    let mut games = seeded_games();
+    games.retain(|game| game.season_week == SEASON_WEEK_5);
+    games.push(Game {
+        game_id: "2026_19_BUF_KC".into(),
+        season_week: wild_card,
+        kickoff: Some(datetime!(2027-01-09 21:00 UTC)),
+        home_team: TeamAbbr::BUF,
+        away_team: TeamAbbr::KC,
+        home_score: None,
+        away_score: None,
+    });
+    nfl.seed_for_test(&seeded_players(), &games)
+        .await
+        .expect("seed nflverse");
+    for week in [SEASON_WEEK_5, wild_card] {
+        let rows = salaries::parse_fanduel_csv(&nfl.fanduel, week, SALARIES_CSV.as_bytes())
+            .expect("parse salaries");
+        salaries::save_fanduel_salaries(&nfl.fanduel, &rows)
+            .await
+            .expect("save salaries");
+    }
+    player_link::save_links(
+        &nfl.store,
+        &[
+            PlayerLink {
+                fd_player_id: 1,
+                gsis_player_id: "00-MACK".into(),
+                espn_player_id: Some("ESPN-MACK".into()),
+            },
+            PlayerLink {
+                fd_player_id: 2,
+                gsis_player_id: "00-ZACK".into(),
+                espn_player_id: None,
+            },
+            PlayerLink {
+                fd_player_id: 3,
+                gsis_player_id: "00-GAMMA".into(),
+                espn_player_id: Some("ESPN-GAMMA".into()),
+            },
+        ],
+    )
+    .await
+    .expect("save links");
+    slates::populate_at(&nfl.nflverse, &nfl.store, SEASON, PINNED_NOW)
+        .await
+        .expect("populate slates");
+    nfl
+}
+
+fn injury_entry(espn_id: Option<&str>, name: &str, designation: InjuryDesignation) -> InjuryEntry {
+    InjuryEntry {
+        espn_id: espn_id.map(|id| EspnPlayerId(id.into())),
+        name: name.into(),
+        team: None,
+        position: None,
+        designation,
+    }
+}
+
+fn injury_report(entries: Vec<InjuryEntry>) -> InjuryReport {
+    InjuryReport {
+        report_date: None,
+        entries,
+    }
+}
+
+#[tokio::test]
+async fn current_slate_carries_report_designations_by_persisted_espn_link() {
+    let nfl = two_populated_slates().await;
+    let earlier = main_slate_id(SEASON);
+    let current = SlateId(wild_card_slate());
+
+    // No accepted report: every row stays unannotated.
+    let snapshot = Snapshot::build(&nfl).await.expect("build");
+    assert_eq!(
+        snapshot.current_slate().map(|slate| slate.id),
+        Some(current)
+    );
+    assert_eq!(
+        snapshot
+            .player(&current, &NflPlayerId("00-MACK".into()))
+            .unwrap()
+            .injury,
+        None
+    );
+
+    nfl.retain_injury_report_for_test(injury_report(vec![
+        injury_entry(Some("ESPN-MACK"), "Mack Runner", InjuryDesignation::Out),
+        injury_entry(
+            Some("ESPN-UNLINKED"),
+            "Unknown",
+            InjuryDesignation::Doubtful,
+        ),
+        injury_entry(None, "Unidentified", InjuryDesignation::Questionable),
+    ]));
+    let snapshot = Snapshot::build(&nfl).await.expect("build");
+    assert_eq!(
+        snapshot
+            .player(&current, &NflPlayerId("00-MACK".into()))
+            .unwrap()
+            .injury,
+        Some(InjuryDesignation::Out),
+        "the greatest populated slate resolves the direct lookup"
+    );
+    for slot in [
+        DfsPositionSlotType::Position(DfsPosition::Rb),
+        DfsPositionSlotType::Flex,
+    ] {
+        let rows = snapshot.salaried_players_for_position(&current, &slot);
+        let mack = rows
+            .iter()
+            .find(|row| row.name == "Mack Runner")
+            .expect("mack fills the bucket");
+        assert_eq!(mack.injury, Some(InjuryDesignation::Out));
+    }
+
+    assert_eq!(
+        snapshot
+            .player(&earlier, &NflPlayerId("00-MACK".into()))
+            .unwrap()
+            .injury,
+        None,
+        "an earlier populated slate is not eligible"
+    );
+    assert_eq!(
+        snapshot
+            .player(&current, &NflPlayerId("00-ZACK".into()))
+            .unwrap()
+            .injury,
+        None,
+        "no persisted ESPN link means no designation"
+    );
+    assert_eq!(
+        snapshot
+            .player(&current, &NflPlayerId("00-GAMMA".into()))
+            .unwrap()
+            .injury,
+        None,
+        "a linked player absent from the report stays unannotated"
+    );
+    assert_eq!(
+        snapshot.defense(&current, &TeamAbbr::KC).unwrap().injury,
+        None,
+        "defenses are not annotated"
+    );
+}
+
+fn wild_card_slate() -> i64 {
+    let week = SeasonWeek {
+        season: SEASON,
+        week: Week(19),
+    };
+    i64::from(week.encode()) * 10 + 1
+}
+
+#[tokio::test]
+async fn conflicting_designations_leave_the_player_unset_in_either_order() {
+    let nfl = two_populated_slates().await;
+    let current = SlateId(wild_card_slate());
+    let mack = NflPlayerId("00-MACK".into());
+    for entries in [
+        vec![
+            injury_entry(
+                Some("ESPN-MACK"),
+                "Mack Runner",
+                InjuryDesignation::Questionable,
+            ),
+            injury_entry(Some("ESPN-MACK"), "Mack Runner", InjuryDesignation::Out),
+        ],
+        vec![
+            injury_entry(Some("ESPN-MACK"), "Mack Runner", InjuryDesignation::Out),
+            injury_entry(
+                Some("ESPN-MACK"),
+                "Mack Runner",
+                InjuryDesignation::Questionable,
+            ),
+        ],
+    ] {
+        nfl.retain_injury_report_for_test(injury_report(entries));
+        let snapshot = Snapshot::build(&nfl).await.expect("build");
+        assert_eq!(
+            snapshot.player(&current, &mack).unwrap().injury,
+            None,
+            "conflicting rows never resolve, whatever their order"
+        );
+    }
+
+    nfl.retain_injury_report_for_test(injury_report(vec![
+        injury_entry(Some("ESPN-MACK"), "Mack Runner", InjuryDesignation::Out),
+        injury_entry(Some("ESPN-MACK"), "Mack Runner", InjuryDesignation::Out),
+    ]));
+    let snapshot = Snapshot::build(&nfl).await.expect("build");
+    assert_eq!(
+        snapshot.player(&current, &mack).unwrap().injury,
+        Some(InjuryDesignation::Out),
+        "identical duplicates keep the designation"
     );
 }

@@ -16,6 +16,8 @@ pub struct NflDataConfig {
     pub github_api_base: String,
     /// Background refresh cadence; `None` disables it.
     pub refresh_interval: Option<Duration>,
+    /// Independent live injury source; `None` disables injury polling.
+    pub tank01: Option<crate::Tank01Config>,
 }
 
 impl From<NflDataConfig> for nflverse_data::NflverseDataConfig {
@@ -41,6 +43,7 @@ impl Default for NflDataConfig {
             github_token: config.github_token,
             github_api_base: config.github_api_base,
             refresh_interval: None,
+            tank01: None,
         }
     }
 }
@@ -77,6 +80,7 @@ mod tests {
             github_token: Some(Secret::new("sentinel")),
             github_api_base: "https://api.example.test".into(),
             refresh_interval: Some(std::time::Duration::from_secs(30)),
+            tank01: None,
         }
         .into();
         assert_eq!(nflverse.database_url, "sqlite://cache.db");

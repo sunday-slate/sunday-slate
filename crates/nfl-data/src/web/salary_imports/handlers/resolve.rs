@@ -52,11 +52,21 @@ async fn resolve_salary_player(
     }) {
         return Err(NflDataError::Schedule);
     }
+    let espn_player_id = state
+        .nfl
+        .nflverse
+        .players_by_gsis(&[nfl_model::NflPlayerId(gsis_player_id.to_owned())])
+        .await?
+        .remove(gsis_player_id)
+        .and_then(|player| player.espn_id)
+        .map(|espn| espn.trim().to_owned())
+        .filter(|espn| !espn.is_empty());
     player_link::save_player_links(
         &state.nfl.store,
         &[PlayerLink {
             fd_player_id,
             gsis_player_id: gsis_player_id.to_owned(),
+            espn_player_id,
         }],
     )
     .await?;
@@ -119,6 +129,13 @@ mod tests {
         );
         let links = player_link::links(state.nfl.store.reader()).await.unwrap();
         assert_eq!(links.get(&999).map(String::as_str), Some("00-roster-only"));
+        let espn = player_link::links_by_espn(state.nfl.store.reader())
+            .await
+            .unwrap();
+        assert!(
+            !espn.values().any(|gsis| gsis == "00-roster-only"),
+            "a roster-only identity has no cached player ESPN id to store"
+        );
         let overview = crate::web::salary_imports::salary_week_overview(
             &crate::web::AdminState {
                 nfl: std::sync::Arc::clone(&state.nfl),
@@ -142,6 +159,28 @@ mod tests {
             .await;
         page.assert_text_contains("Second Receiver");
         assert!(!page.text().contains("All player IDs are resolved"));
+    }
+
+    #[tokio::test]
+    async fn manual_resolution_carries_the_cached_espn_id() {
+        let state = admin_state().await;
+        state
+            .server
+            .post("/nfl-data-admin/salary-imports")
+            .multipart(upload_form())
+            .await
+            .assert_status(StatusCode::SEE_OTHER);
+
+        state
+            .server
+            .post("/nfl-data-admin/salary-imports/2025001/players/999/resolve")
+            .form(&[("gsis_player_id", "00-avery")])
+            .await
+            .assert_status(StatusCode::SEE_OTHER);
+        let espn = player_link::links_by_espn(state.nfl.store.reader())
+            .await
+            .unwrap();
+        assert_eq!(espn.get("1111111").map(String::as_str), Some("00-avery"));
     }
 
     #[tokio::test]

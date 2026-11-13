@@ -8,6 +8,7 @@ use std::collections::HashMap;
 pub(crate) struct PlayerLink {
     pub fd_player_id: u32,
     pub gsis_player_id: String,
+    pub espn_player_id: Option<String>,
 }
 
 /// Every persisted link as a FanDuel-id → GSIS-id map.
@@ -60,6 +61,26 @@ where
         .collect())
 }
 
+/// Every persisted ESPN→GSIS identity link. This is the only mapping the
+/// injury path uses; rows without a stored ESPN id are absent.
+pub(crate) async fn links_by_espn<'e, E>(ex: E) -> Result<HashMap<String, String>, NflDataError>
+where
+    E: sqlx::Executor<'e, Database = Sqlite>,
+{
+    let rows = sqlx::query!(
+        r#"SELECT espn_player_id AS "espn_player_id!: String",
+                  gsis_player_id AS "gsis_player_id: String"
+               FROM player_links
+               WHERE espn_player_id IS NOT NULL"#
+    )
+    .fetch_all(ex)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| (row.espn_player_id, row.gsis_player_id))
+        .collect())
+}
+
 /// Every linked GSIS id, deduplicated and sorted.
 pub(crate) async fn gsis_ids<'e, E>(ex: E) -> Result<Vec<String>, NflDataError>
 where
@@ -92,11 +113,19 @@ async fn save_links_tx(
     links: &[PlayerLink],
 ) -> Result<(), sqlx::Error> {
     for link in links {
+        // Whitespace-only source ids carry no identity.
+        let espn_player_id = link
+            .espn_player_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty());
         sqlx::query!(
-            r#"INSERT INTO player_links (fd_player_id, gsis_player_id) VALUES (?, ?)
+            r#"INSERT INTO player_links (fd_player_id, gsis_player_id, espn_player_id)
+               VALUES (?, ?, ?)
                ON CONFLICT (gsis_player_id) DO NOTHING"#,
             i64::from(link.fd_player_id),
             link.gsis_player_id,
+            espn_player_id,
         )
         .execute(&mut *conn)
         .await?;
@@ -127,6 +156,14 @@ mod tests {
         Store::in_memory().await.expect("in-memory store")
     }
 
+    fn link(fd_player_id: u32, gsis_player_id: &str, espn_player_id: Option<&str>) -> PlayerLink {
+        PlayerLink {
+            fd_player_id,
+            gsis_player_id: gsis_player_id.into(),
+            espn_player_id: espn_player_id.map(str::to_owned),
+        }
+    }
+
     #[tokio::test]
     async fn links_round_trip_through_the_store() {
         let store = store().await;
@@ -135,14 +172,8 @@ mod tests {
         save_links(
             &store,
             &[
-                PlayerLink {
-                    fd_player_id: 166092,
-                    gsis_player_id: "00-0036355".into(),
-                },
-                PlayerLink {
-                    fd_player_id: 12543,
-                    gsis_player_id: "00-0045678".into(),
-                },
+                link(166092, "00-0036355", Some("4362628")),
+                link(12543, "00-0045678", None),
             ],
         )
         .await
@@ -162,19 +193,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn espn_links_round_trip_and_missing_ids_coexist() {
+        let store = store().await;
+        save_links(
+            &store,
+            &[
+                link(166092, "00-0036355", Some("4362628")),
+                link(12543, "00-0045678", None),
+                link(111, "00-0011111", Some("  ")),
+            ],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            links_by_espn(store.reader()).await.unwrap(),
+            HashMap::from([("4362628".to_owned(), "00-0036355".to_owned())]),
+            "only stored ESPN ids map, and a whitespace id stores as null"
+        );
+        assert_eq!(links(store.reader()).await.unwrap().len(), 3);
+    }
+
+    #[tokio::test]
     async fn links_for_fd_ids_only_returns_the_requested_links() {
         let store = store().await;
         save_links(
             &store,
             &[
-                PlayerLink {
-                    fd_player_id: 166092,
-                    gsis_player_id: "00-0036355".into(),
-                },
-                PlayerLink {
-                    fd_player_id: 12543,
-                    gsis_player_id: "00-0045678".into(),
-                },
+                link(166092, "00-0036355", None),
+                link(12543, "00-0045678", None),
             ],
         )
         .await
@@ -204,42 +251,55 @@ mod tests {
     #[tokio::test]
     async fn saving_the_same_link_twice_is_idempotent() {
         let store = store().await;
-        let link = PlayerLink {
-            fd_player_id: 166092,
-            gsis_player_id: "00-0036355".into(),
-        };
+        let link = link(166092, "00-0036355", Some("4362628"));
         save_links(&store, std::slice::from_ref(&link))
             .await
             .unwrap();
         save_links(&store, &[link]).await.unwrap();
         assert_eq!(links(store.reader()).await.unwrap().len(), 1);
+        assert_eq!(
+            links_by_espn(store.reader()).await.unwrap().len(),
+            1,
+            "an identical save leaves the stored ESPN id alone"
+        );
     }
 
     #[tokio::test]
     async fn a_conflicting_fd_id_does_not_move_an_existing_gsis_link() {
         let store = store().await;
-        save_links(
-            &store,
-            &[PlayerLink {
-                fd_player_id: 111,
-                gsis_player_id: "00-x".into(),
-            }],
-        )
-        .await
-        .unwrap();
-        save_links(
-            &store,
-            &[PlayerLink {
-                fd_player_id: 222,
-                gsis_player_id: "00-x".into(),
-            }],
-        )
-        .await
-        .unwrap();
+        save_links(&store, &[link(111, "00-x", None)])
+            .await
+            .unwrap();
+        save_links(&store, &[link(222, "00-x", None)])
+            .await
+            .unwrap();
         assert_eq!(
             links(store.reader()).await.unwrap(),
             HashMap::from([(111, "00-x".to_owned())])
         );
+    }
+
+    #[tokio::test]
+    async fn a_conflicting_espn_id_rolls_back_the_batch() {
+        let store = store().await;
+        let error = save_links(
+            &store,
+            &[
+                link(111, "00-a", Some("999")),
+                link(222, "00-b", Some("999")),
+            ],
+        )
+        .await
+        .expect_err("one ESPN id cannot map to two GSIS ids");
+        assert!(
+            error.to_string().contains("UNIQUE"),
+            "the ESPN index rejects the second row: {error}"
+        );
+        assert!(
+            links(store.reader()).await.unwrap().is_empty(),
+            "the whole batch rolled back, including the first insert"
+        );
+        assert!(links_by_espn(store.reader()).await.unwrap().is_empty());
     }
 
     #[tokio::test]

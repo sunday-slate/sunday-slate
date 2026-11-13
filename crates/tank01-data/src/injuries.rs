@@ -34,6 +34,28 @@ struct RawRow {
 }
 
 impl Tank01Client {
+    /// Fetch and classify the current injury report. Every successfully
+    /// normalized source row is kept, in source order; consumers that need
+    /// one row per player deduplicate themselves.
+    pub async fn current_injuries(&self) -> ProviderResponse<InjuryReport> {
+        self.request_injuries().await
+    }
+
+    async fn request_injuries(&self) -> ProviderResponse<InjuryReport> {
+        let observation = self.request(INJURIES_ENDPOINT, &[]).await;
+        let parsed = Tank01Client::classify_http(&observation).and_then(Tank01Client::parse);
+        match parsed {
+            Ok(report) => Tank01Client::response(observation, ProviderOutcome::Value(report)),
+            Err(LiveProviderError::Normalization { .. }) => Tank01Client::response(
+                observation,
+                ProviderOutcome::Pregame {
+                    message: "injuries body unavailable".into(),
+                },
+            ),
+            Err(error) => Tank01Client::response(observation, ProviderOutcome::Error(error)),
+        }
+    }
+
     fn parse(value: &Value) -> Result<InjuryReport, LiveProviderError> {
         let body = value
             .get("body")
@@ -50,32 +72,34 @@ impl Tank01Client {
                 message: "injList missing".into(),
             })?;
 
-        let mut entries: Vec<InjuryEntry> = Vec::new();
-        let mut slots: HashMap<String, usize> = HashMap::new();
-        for raw in &inj_list {
-            let Some(entry) = map_row(raw) else {
-                continue;
-            };
-            match entry.espn_id.as_ref() {
-                Some(EspnPlayerId(key)) => match slots.get(key).copied() {
-                    Some(slot) => entries[slot] = entry,
-                    None => {
-                        slots.insert(key.clone(), entries.len());
-                        entries.push(entry);
-                    }
-                },
-                None => entries.push(entry),
-            }
-        }
-
         Ok(InjuryReport {
             report_date: raw
                 .inj_date
                 .as_deref()
                 .and_then(|raw| Date::parse(raw, COMPACT_DATE).ok()),
-            entries,
+            entries: inj_list.iter().filter_map(map_row).collect(),
         })
     }
+}
+
+/// Legacy provider responses collapse duplicate ESPN ids: the last row wins,
+/// while unidentified entries stay separate.
+fn dedupe_by_espn_id(entries: Vec<InjuryEntry>) -> Vec<InjuryEntry> {
+    let mut out: Vec<InjuryEntry> = Vec::with_capacity(entries.len());
+    let mut slots: HashMap<String, usize> = HashMap::new();
+    for entry in entries {
+        match entry.espn_id.as_ref() {
+            Some(EspnPlayerId(key)) => match slots.get(key).copied() {
+                Some(slot) => out[slot] = entry,
+                None => {
+                    slots.insert(key.clone(), out.len());
+                    out.push(entry);
+                }
+            },
+            None => out.push(entry),
+        }
+    }
+    out
 }
 
 fn map_row(raw: &RawRow) -> Option<InjuryEntry> {
@@ -115,18 +139,11 @@ fn map_row(raw: &RawRow) -> Option<InjuryEntry> {
 
 impl InjuryProvider for Tank01Client {
     async fn current_injuries(&self) -> ProviderResponse<InjuryReport> {
-        let observation = self.request(INJURIES_ENDPOINT, &[]).await;
-        let parsed = Tank01Client::classify_http(&observation).and_then(Tank01Client::parse);
-        match parsed {
-            Ok(report) => Tank01Client::response(observation, ProviderOutcome::Value(report)),
-            Err(LiveProviderError::Normalization { .. }) => Tank01Client::response(
-                observation,
-                ProviderOutcome::Pregame {
-                    message: "injuries body unavailable".into(),
-                },
-            ),
-            Err(error) => Tank01Client::response(observation, ProviderOutcome::Error(error)),
+        let mut response = Tank01Client::current_injuries(self).await;
+        if let ProviderOutcome::Value(report) = &mut response.outcome {
+            report.entries = dedupe_by_espn_id(std::mem::take(&mut report.entries));
         }
+        response
     }
 }
 
@@ -165,7 +182,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn parses_entries_drops_unknown_and_keeps_later_duplicate() {
+    async fn concrete_injuries_keep_every_normalized_row_in_source_order() {
         let server = MockServer::start().await;
         let body = bodies()[0].clone();
         Mock::given(method("GET"))
@@ -185,21 +202,27 @@ mod tests {
             ProviderOutcome::Value(report) => report,
             other => panic!("expected parsed injuries, got {other:?}"),
         };
-        assert_eq!(report.entries.len(), 4);
+        assert_eq!(
+            report.entries.len(),
+            5,
+            "conflicting duplicate rows are kept for the caller to judge"
+        );
         assert_eq!(
             report.report_date,
             Some(time::macros::date!(2026 - 09 - 22))
         );
 
-        let kupp = report
+        let kupp: Vec<_> = report
             .entries
             .iter()
-            .find(|entry| entry.name == "Cooper Kupp")
-            .unwrap();
-        assert_eq!(kupp.designation, InjuryDesignation::Doubtful);
-        assert_eq!(kupp.espn_id, Some(EspnPlayerId("18538".into())));
-        assert_eq!(kupp.team, Some(TeamAbbr::SEA));
-        assert_eq!(kupp.position.as_deref(), Some("WR"));
+            .filter(|entry| entry.name == "Cooper Kupp")
+            .collect();
+        assert_eq!(kupp.len(), 2);
+        assert_eq!(kupp[0].designation, InjuryDesignation::Questionable);
+        assert_eq!(kupp[1].designation, InjuryDesignation::Doubtful);
+        assert_eq!(kupp[0].espn_id, Some(EspnPlayerId("18538".into())));
+        assert_eq!(kupp[0].team, Some(TeamAbbr::SEA));
+        assert_eq!(kupp[0].position.as_deref(), Some("WR"));
 
         let hennessy = report
             .entries
@@ -229,6 +252,37 @@ mod tests {
                 .iter()
                 .any(|entry| entry.name == "Marlon Humphrey")
         );
+    }
+
+    #[tokio::test]
+    async fn legacy_provider_deduplicates_with_the_later_row_winning() {
+        let server = MockServer::start().await;
+        let body = bodies()[0].clone();
+        Mock::given(method("GET"))
+            .and(path("/getNFLInjuriesByDate"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "application/json")
+                    .set_body_json(body),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        // Explicit trait call: the inherent method keeps both rows.
+        let response = InjuryProvider::current_injuries(&client(&server)).await;
+        let report = match &response.outcome {
+            ProviderOutcome::Value(report) => report,
+            other => panic!("expected parsed injuries, got {other:?}"),
+        };
+        assert_eq!(report.entries.len(), 4);
+        let kupp: Vec<_> = report
+            .entries
+            .iter()
+            .filter(|entry| entry.name == "Cooper Kupp")
+            .collect();
+        assert_eq!(kupp.len(), 1);
+        assert_eq!(kupp[0].designation, InjuryDesignation::Doubtful);
     }
 
     #[tokio::test]

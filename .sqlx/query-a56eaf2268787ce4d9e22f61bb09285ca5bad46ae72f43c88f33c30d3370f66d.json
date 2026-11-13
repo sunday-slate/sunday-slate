@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT espn_player_id AS \"espn_player_id!: String\",\n                  gsis_player_id AS \"gsis_player_id: String\"\n               FROM player_links\n               WHERE espn_player_id IS NOT NULL",
+  "describe": {
+    "columns": [
+      {
+        "name": "espn_player_id!: String",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "player_links",
+            "name": "espn_player_id"
+          }
+        }
+      },
+      {
+        "name": "gsis_player_id: String",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "player_links",
+            "name": "gsis_player_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "a56eaf2268787ce4d9e22f61bb09285ca5bad46ae72f43c88f33c30d3370f66d"
+}

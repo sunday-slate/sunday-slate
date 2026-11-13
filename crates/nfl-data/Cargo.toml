@@ -33,6 +33,7 @@ thiserror = { workspace = true }
 fanduel-data = { path = "../fanduel-data" }
 nflverse-data = { path = "../nflverse-data" }
 nfl-model = { path = "../nfl-model" }
+tank01-data = { path = "../tank01-data" }
 utils = { path = "../utils" }
 tokio = { workspace = true }
 time = { workspace = true }
@@ -43,3 +44,4 @@ axum-test = { workspace = true }
 tempfile = { workspace = true }
 wiremock = { workspace = true }
 sqlx = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }

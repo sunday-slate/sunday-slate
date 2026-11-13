@@ -148,6 +148,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn upload_persists_the_cached_espn_id_with_the_link() {
+        let state = admin_state().await;
+        state
+            .server
+            .post("/nfl-data-admin/salary-imports")
+            .multipart(upload_form())
+            .await
+            .assert_status(StatusCode::SEE_OTHER);
+
+        let links = crate::store::player_link::links_by_espn(state.nfl.store.reader())
+            .await
+            .unwrap();
+        assert_eq!(
+            links.get("3918298").map(String::as_str),
+            Some("00-1"),
+            "the worker stored the matcher's identity link with its ESPN id"
+        );
+    }
+
+    #[tokio::test]
     async fn postseason_upload_redirects_to_the_complete_week() {
         let state = admin_state().await;
         state
