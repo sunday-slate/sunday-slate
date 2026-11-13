@@ -172,10 +172,6 @@ impl LiveIdentityIndex {
         self.by_gsis.contains_key(gsis_id)
     }
 
-    pub fn player_ids(&self) -> impl Iterator<Item = &NflPlayerId> {
-        self.by_gsis.keys()
-    }
-
     pub fn scheduled_team(&self, gsis_id: &NflPlayerId) -> Option<&TeamAbbr> {
         self.record(gsis_id).and_then(|record| record.team.as_ref())
     }

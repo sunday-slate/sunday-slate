@@ -333,14 +333,6 @@ async fn run_inner(state: &AppState) -> Result<(), AppError> {
         teams.sort_by(|a, b| a.as_str().cmp(b.as_str()));
         teams.dedup_by(|a, b| a == b);
         let identity = Arc::new(LiveIdentityIndex::build(&state.nfl, *season_week, &teams).await?);
-        state.injuries.publish(
-            *season_week,
-            crate::injuries::SlateInjuries {
-                by_gsis: crate::injuries::synthetic_dev(identity.player_ids()),
-                report_date: None,
-                attempted_at: Some(now),
-            },
-        );
         state.live.notify(*contest);
         state.live.rebase_contest(
             *contest,
