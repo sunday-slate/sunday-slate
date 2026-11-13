@@ -4,6 +4,7 @@ use nfl_model::{InjuryReport, ProviderOutcome, ProviderResponse};
 use tank01_data::{InjuryPoller, Tank01Client};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
+use tracing::Instrument;
 
 use crate::NflData;
 
@@ -106,28 +107,33 @@ impl NflData {
                 .await;
             }
             ProviderOutcome::Error(error) => {
-                tracing::warn!(
-                    error = %error,
-                    "tank01 injury poll failed; keeping the last report"
-                );
+                tracing::debug!(error = %error, "injury update skipped; retaining the last report");
             }
         }
     }
 
     async fn accept_injury_report(&self, report: InjuryReport) {
-        let _publication = self.publication.lock().await;
-        let report = Arc::new(report);
-        *self
-            .injuries
-            .latest
-            .lock()
-            .unwrap_or_else(|error| error.into_inner()) = Some(Arc::clone(&report));
-        if let Err(error) = self.build_and_publish().await {
-            tracing::error!(
-                error = %error,
-                "injury snapshot update failed; keeping the last published snapshot"
-            );
+        let span = tracing::info_span!(
+            parent: None,
+            "snapshot_update",
+            season = self.season.0,
+            trigger = "injury_report",
+            entries = report.entries.len(),
+            report_date = ?report.report_date,
+        );
+        async {
+            tracing::info!("snapshot update started");
+            let _publication = self.publication.lock().await;
+            let report = Arc::new(report);
+            *self
+                .injuries
+                .latest
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()) = Some(Arc::clone(&report));
+            drop(self.build_and_publish().await);
         }
+        .instrument(span)
+        .await;
     }
 }
 

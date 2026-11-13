@@ -1,7 +1,7 @@
 use std::sync::Mutex;
 use std::time::Duration;
 
-use nfl_model::{InjuryReport, ProviderResponse};
+use nfl_model::{InjuryReport, ProviderOutcome, ProviderResponse};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio::time::MissedTickBehavior;
@@ -124,7 +124,41 @@ impl InjuryPoller {
                     }
 
                     // Stop must not cancel an in-flight fetch.
-                    let response = client.current_injuries().await;
+                    let response = async {
+                        tracing::info!("tank01 injury poll started");
+                        let response = client.current_injuries().await;
+                        match &response.outcome {
+                            ProviderOutcome::Value(report) => tracing::info!(
+                                outcome = "value",
+                                duration_ms = response.elapsed_ms,
+                                http_status = ?response.http_status,
+                                entries = report.entries.len(),
+                                report_date = ?report.report_date,
+                                "tank01 injury poll completed"
+                            ),
+                            ProviderOutcome::Pregame { message } => tracing::info!(
+                                outcome = "pregame",
+                                duration_ms = response.elapsed_ms,
+                                http_status = ?response.http_status,
+                                entries = 0,
+                                message = %message,
+                                "tank01 injury poll completed"
+                            ),
+                            ProviderOutcome::Error(error) => tracing::warn!(
+                                outcome = "error",
+                                duration_ms = response.elapsed_ms,
+                                http_status = ?response.http_status,
+                                error = %error,
+                                "tank01 injury poll failed"
+                            ),
+                        }
+                        response
+                    }
+                    .instrument(tracing::info_span!(
+                        "background_job",
+                        job = "tank01_injuries"
+                    ))
+                    .await;
                     if reports.send(response).is_err() {
                         return;
                     }
