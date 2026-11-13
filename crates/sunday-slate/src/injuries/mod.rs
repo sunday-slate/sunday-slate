@@ -1,6 +1,3 @@
-//! Injury-badge presentation. nfl-data attaches a designation to each
-//! salaried row; this module only maps it to the badge the pages render.
-
 use nfl_data::InjuryDesignation;
 
 pub struct InjuryChip {

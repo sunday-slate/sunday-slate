@@ -212,16 +212,12 @@ pub(crate) fn silhouette_url() -> String {
     assets::versioned(SILHOUETTE)
 }
 
-/// The pre-kickoff pick block every lineup page renders the same way: the
-/// pick's slate facts plus the local avatar the page supplies.
 pub struct PickInfo {
     salaried: SalariedPlayer,
     avatar: Avatar,
 }
 
 impl PickInfo {
-    /// A pick from its salaried slate row, with the local headshot or logo.
-    /// Any injury badge comes attached to that row.
     pub(crate) fn new(salaried: SalariedPlayer, media: Option<&Media>) -> Self {
         let avatar = if salaried.position.is_defense() {
             Avatar::TeamLogo(media.map_or_else(|| SILHOUETTE.to_string(), |media| media.url()))
@@ -234,7 +230,6 @@ impl PickInfo {
         Self { salaried, avatar }
     }
 
-    /// The pick's injury badge, when nfl-data attached a designation.
     pub fn injury(&self) -> Option<InjuryChip> {
         self.salaried.injury.map(injuries::chip)
     }
@@ -681,11 +676,6 @@ fn stored_week<'a>(
     Some((&scored.stats, &scored.score))
 }
 
-/// Score the lineup into the nine display rows, in roster order. `names` is
-/// keyed by gsis id; a pick in neither nfl-data source is named by its raw
-/// id. The named team is the matchup fallback for a slot with no stat row
-/// that week. `salaried` is the one slate publication that supplies both the
-/// price and the attached injury designation.
 #[allow(clippy::too_many_arguments)]
 pub fn build_picks<'a>(
     lineup: &Lineup,
