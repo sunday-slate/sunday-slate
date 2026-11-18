@@ -48,6 +48,7 @@ impl App {
                 season: nfl_model::Season(config.season),
                 github_token: config.nflverse_github_token.clone(),
                 refresh_interval: config.nflverse_sync_interval(),
+                tank01: config.tank01_api_key.clone().map(Tank01Config::new),
                 ..Default::default()
             })
             .await
@@ -65,7 +66,6 @@ impl App {
             nfl,
             avatar_runner,
             live,
-            injuries: Arc::new(crate::injuries::InjuryReports::new()),
         };
 
         Ok(Self {

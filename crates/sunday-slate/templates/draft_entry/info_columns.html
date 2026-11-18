@@ -14,26 +14,13 @@
 {% endmacro %}
 {% macro pick_header(badge_class, badge, info, over_cap) %}
 <div class="pick-header flex items-baseline justify-between gap-2">
-  <div class="min-w-0 truncate">
-    {% call pick_name(badge_class, badge, info) %}{% endcall %}
-  </div>
-  <div class="text-base font-bold tnum{% if over_cap %} text-error{% endif %}">{{ info.salary_str() }}</div>
-</div>
-{% endmacro %}
-
-{# The pick-list header with the row's injury chip after the name. `choice` is
-   a `draft_entry::service::SlotChoice`; existing pages without one use
-   `pick_header`. The chip sits outside the name's truncating wrapper, mirroring
-   editor.html, so long names ellipsize without clipping the badge. #}
-{% macro pick_header_with_chip(badge_class, choice, over_cap) %}
-<div class="pick-header flex items-baseline justify-between gap-2">
   <div class="flex min-w-0 items-baseline gap-1">
     <div class="min-w-0 truncate">
-      {% call pick_name(badge_class, choice.info.badge(), choice.info) %}{% endcall %}
+      {% call pick_name(badge_class, badge, info) %}{% endcall %}
     </div>
-    {% match choice.info.injury() %}{% when Some with (c) %}{% call injuries::chip(c) %}{% endcall %}{% when None %}{% endmatch %}
+    {% match info.injury() %}{% when Some with (c) %}{% call injuries::chip(c) %}{% endcall %}{% when None %}{% endmatch %}
   </div>
-  <div class="text-base font-bold tnum{% if over_cap %} text-error{% endif %}">{{ choice.info.salary_str() }}</div>
+  <div class="text-base font-bold tnum{% if over_cap %} text-error{% endif %}">{{ info.salary_str() }}</div>
 </div>
 {% endmacro %}
 

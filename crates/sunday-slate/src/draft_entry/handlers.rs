@@ -160,10 +160,9 @@ mod tests {
     use crate::draft_entry::service::EditorSlotRow;
     use crate::entries::service::PickInfo;
     use crate::entries::{NflPlayerId, RosterSlot};
-    use crate::injuries::InjuryDesignation;
     use crate::tests::factories;
     use nfl_data::salaried_players::SalariedPlayer;
-    use nfl_data::{DfsPosition, TeamAbbr};
+    use nfl_data::{DfsPosition, InjuryDesignation, TeamAbbr};
     use std::sync::Arc;
     use strum::IntoEnumIterator;
     use time::macros::datetime;
@@ -194,11 +193,7 @@ mod tests {
     }
 
     fn player_info(name: &str, salary: i64, pace: Option<(f64, u32)>) -> PickInfo {
-        PickInfo::new(
-            salaried(name, DfsPosition::Qb, salary as u32, pace),
-            None,
-            None,
-        )
+        PickInfo::new(salaried(name, DfsPosition::Qb, salary as u32, pace), None)
     }
 
     fn empty_page() -> EditorPage {
@@ -349,11 +344,7 @@ mod tests {
 
     #[test]
     fn picks_renders_the_def_slot() {
-        let info = PickInfo::new(
-            salaried("KC DST", DfsPosition::Dst, 4_000, None),
-            None,
-            None,
-        );
+        let info = PickInfo::new(salaried("KC DST", DfsPosition::Dst, 4_000, None), None);
         PickView {
             chrome: Chrome::focused("Select DEF", "/contests/1/draft-entry"),
             contest_id: 1,
@@ -370,24 +361,25 @@ mod tests {
 
     #[test]
     fn pick_rows_show_the_report_designation() {
+        let info = |name: &str, injury: Option<InjuryDesignation>| {
+            PickInfo::new(
+                SalariedPlayer {
+                    injury,
+                    ..salaried(name, DfsPosition::Qb, 7_500, None)
+                },
+                None,
+            )
+        };
         let html = pick_view(
             RosterSlot::Qb,
             vec![
                 qb_choice("Adjusted"),
                 SlotChoice {
-                    info: PickInfo::new(
-                        salaried("Questionable", DfsPosition::Qb, 7_500, None),
-                        None,
-                        Some(InjuryDesignation::Questionable),
-                    ),
+                    info: info("Questionable", Some(InjuryDesignation::Questionable)),
                     ..qb_choice("Questionable")
                 },
                 SlotChoice {
-                    info: PickInfo::new(
-                        salaried("Benched", DfsPosition::Qb, 7_500, None),
-                        None,
-                        Some(InjuryDesignation::InjuredReserve),
-                    ),
+                    info: info("Benched", Some(InjuryDesignation::InjuredReserve)),
                     ..qb_choice("Benched")
                 },
             ],

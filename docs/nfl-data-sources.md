@@ -29,6 +29,15 @@ provisional if a live snapshot exists, or unavailable otherwise.
 New or corrected nflverse rows affect official results only after successful
 snapshot publication; a failed build leaves the previous snapshot in place.
 
+## Injury Designations
+
+With `SUNDAY_SLATE__TANK01_API_KEY` configured, `nfl-data` polls Tank01 injuries
+and publishes the latest designations on the greatest populated slate's
+salaried players, resolving identities through the stored ESPN-to-GSIS links.
+These are current reports, not historical game statuses. Sunday Slate renders
+the attached designation in player selection, the editor, the saved pre-kickoff
+lineup preview, and the scored lineup; rows without a designation have no badge.
+
 ## Fresh Cache Setup
 
 The nflverse stores its rebuildable, disposable source cache in

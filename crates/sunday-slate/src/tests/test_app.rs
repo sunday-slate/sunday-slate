@@ -1,4 +1,4 @@
-use crate::{avatars::AvatarFetchRunner, injuries::InjuryReports, live::LiveContestHub};
+use crate::{avatars::AvatarFetchRunner, live::LiveContestHub};
 use crate::{router, sessions, tests::utils};
 use axum::Router;
 use axum_test::multipart::{MultipartForm, Part};
@@ -107,7 +107,6 @@ impl TestApp {
             nfl: nfl.clone(),
             avatar_runner,
             live: Arc::new(LiveContestHub::new(true)),
-            injuries: Arc::new(InjuryReports::new()),
         };
 
         // Cookie jar on: each response's Set-Cookie is saved and replayed on the
