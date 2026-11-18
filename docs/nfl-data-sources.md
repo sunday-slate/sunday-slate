@@ -13,30 +13,14 @@ Not required for Sunday Slate, but useful on gameday. The app considers Nflverse
 
 ## Published Snapshot and Official Results
 
-Official results read precomputed scores from the published snapshot. Live and
-provisional results score raw rows using the same `nfl-data::scoring` rules and
-`WeekStats` type; Sunday Slate retains live coverage, identity, staleness, and
-ranking policy.
-
-For attachment and availability construction, each snapshot build reads player
-and team rows once per distinct salary-backed week, shared across its slates.
-The separate season-average pass also reads historical weeks. A locked slate
-uses official results when both teams' rows cover every slate game, unless a
-registered development feed takes precedence. Missing player attachments score
-zero without blocking availability. Missing game-side team rows leave results
-provisional if a live snapshot exists, or unavailable otherwise.
-
-New or corrected nflverse rows affect official results only after successful
-snapshot publication; a failed build leaves the previous snapshot in place.
+Official stats are from nflverse. They're added to the nfl-data Snapshot along with
+scoring.
 
 ## Injury Designations
 
 With `SUNDAY_SLATE__TANK01_API_KEY` configured, `nfl-data` polls Tank01 injuries
-and publishes the latest designations on the greatest populated slate's
-salaried players, resolving identities through the stored ESPN-to-GSIS links.
-These are current reports, not historical game statuses. Sunday Slate renders
-the attached designation in player selection, the editor, the saved pre-kickoff
-lineup preview, and the scored lineup; rows without a designation have no badge.
+and publishes the latest injury designations on the SalariedPlayers for the
+current week's slate.
 
 ## Fresh Cache Setup
 
