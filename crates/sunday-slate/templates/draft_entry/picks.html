@@ -58,7 +58,7 @@
          data-name="{{ c.info.name()|lower }}" x-show="$el.dataset.name.includes(needle)">
       {% call info::pick_media(c.info) %}{% endcall %}
       <div class="pick-body">
-        {% call info::pick_header_with_chip("bg-primary/15 text-primary", c, c.over_cap) %}{% endcall %}
+        {% call info::pick_header("bg-primary/15 text-primary", c.info.badge(), c.info, c.over_cap) %}{% endcall %}
         {% call info::info_columns(c.info) %}{% endcall %}
       </div>
       {# `contents` keeps the form out of layout, so the icon sits exactly
@@ -76,7 +76,7 @@
       <button type="submit" class="pick-row w-full text-left hover:bg-base-200">
         {% call info::pick_media(c.info) %}{% endcall %}
         <div class="pick-body">
-          {% call info::pick_header_with_chip("bg-base-300 text-base-content/70", c, c.over_cap) %}{% endcall %}
+          {% call info::pick_header("bg-base-300 text-base-content/70", c.info.badge(), c.info, c.over_cap) %}{% endcall %}
           {% call info::info_columns(c.info) %}{% endcall %}
         </div>
         <div class="grid place-items-center self-center px-3 text-primary">

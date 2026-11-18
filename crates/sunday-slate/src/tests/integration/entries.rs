@@ -212,6 +212,96 @@ async fn non_owner_before_kickoff_sees_note_not_picks(pool: SqlitePool) {
 }
 
 #[sqlx::test]
+async fn current_injury_reaches_the_saved_lineup_preview(pool: SqlitePool) {
+    use nfl_data::{InjuryDesignation, NflData, NflDataConfig, Tank01Config};
+    use nfl_model::NflPlayerId;
+    use std::time::Duration;
+    use utils::Secret;
+    use wiremock::{
+        Mock, ResponseTemplate,
+        matchers::{method, path},
+    };
+
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/getNFLInjuriesByDate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "statusCode": 200,
+            "body": {
+                "injList": [{
+                    "playerID": "ESPN-ALPHA",
+                    "longName": "Alpha Runner",
+                    "team": "KC",
+                    "pos": "RB",
+                    "designation": "Q"
+                }],
+                "injDate": "20250907"
+            }
+        })))
+        .mount(&server)
+        .await;
+    let nfl = Arc::new(
+        NflData::connect(NflDataConfig {
+            nflverse_database_url: "sqlite::memory:".into(),
+            fanduel_database_url: "sqlite::memory:".into(),
+            database_url: "sqlite::memory:".into(),
+            season: Season(2025),
+            github_api_base: server.uri(),
+            tank01: Some(
+                Tank01Config::new(Secret::new("test-injury-key"))
+                    .with_base_url(server.uri())
+                    .with_rapidapi_host("mock.rapidapi.example"),
+            ),
+            ..Default::default()
+        })
+        .await
+        .unwrap(),
+    );
+    let app = TestApp::from_pool_with_nfl_at(pool.clone(), nfl, BEFORE_KICKOFF).await;
+    let owner = factories::team(&pool, TeamOptions::default()).await;
+    let mut players = lineup_players("00-A");
+    players[0].espn_id = Some("ESPN-ALPHA".into());
+    let slate = publish_slate(&app, week1(), &[scheduled_game()], &players).await;
+    let entry = factories::full_entry(&pool, slate, owner.team.id, "00-A").await;
+    app.login_as(&owner.owner).await;
+
+    let designation = r#"title="Questionable" aria-label="Questionable""#;
+    let before = app.get(&format!("/entries/{entry}")).await;
+    before.assert_status_ok();
+    assert!(!before.text().contains(designation));
+
+    app.nfl.start_background_tasks();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if app
+                .nfl
+                .snapshot()
+                .player(&slate, &NflPlayerId("00-A".into()))
+                .is_some_and(|player| player.injury == Some(InjuryDesignation::Questionable))
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("injury report reaches the published salary row");
+
+    for url in [
+        format!("/contests/{}/draft-entry", slate.0),
+        format!("/contests/{}/draft-entry/RB1", slate.0),
+        format!("/entries/{entry}"),
+    ] {
+        let response = app.get(&url).await;
+        response.assert_status_ok();
+        assert!(
+            response.text().contains(designation),
+            "injury missing from {url}"
+        );
+    }
+}
+
+#[sqlx::test]
 async fn rank_badge_hidden_before_results(pool: SqlitePool) {
     // Rank and picks come from one branch, so the only viewer without a rank
     // is the one without picks: a non-owner before kickoff.

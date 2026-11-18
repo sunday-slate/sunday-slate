@@ -8,7 +8,7 @@ use nfl_data::DfsPosition;
 use nfl_data::salaried_players::SalariedPlayer;
 use nfl_data::slates::{Slate, SlateId};
 use nfl_data::snapshot::Snapshot;
-use nfl_model::{DfsPositionSlotType, InjuryDesignation};
+use nfl_model::DfsPositionSlotType;
 use strum::IntoEnumIterator;
 use time::OffsetDateTime;
 
@@ -164,12 +164,6 @@ pub async fn editor_page(
         .collect();
     let avatars = crate::avatars::by_id(&state.db, &player_dst_ids).await?;
 
-    let injuries_by_player_id = state
-        .injuries
-        .report(&ctx.slate.season_week)
-        .map(|slate_injuries| slate_injuries.by_gsis)
-        .unwrap_or_default();
-
     let roster_slots: Vec<EditorSlotRow> = RosterSlot::iter()
         .map(|roster_slot| {
             let player_dst_id = draft_entry.get(roster_slot);
@@ -177,11 +171,7 @@ pub async fn editor_page(
                 .as_ref()
                 .and_then(|pd_id| ctx.salaried_player(pd_id));
             let avatar = player_dst_id.as_ref().and_then(|pd_id| avatars.get(pd_id));
-            let injury = match player_dst_id.as_ref() {
-                Some(PlayerOrDefenseId::Player(id)) => injuries_by_player_id.get(id).copied(),
-                _ => None,
-            };
-            build_slot_row(roster_slot, player, avatar, injury)
+            build_slot_row(roster_slot, player, avatar)
         })
         .collect();
 
@@ -243,10 +233,6 @@ pub async fn choices(
     let values: Vec<PlayerOrDefenseId> = visible.iter().map(|player| value_of(player)).collect();
     let avatars = crate::avatars::by_id(&state.db, &values).await?;
 
-    let injuries_by_gsis = state
-        .injuries
-        .report(&ctx.slate.season_week)
-        .map(|report| report.by_gsis);
     let same_player = match draft.get(slot) {
         Some(PlayerOrDefenseId::Player(id)) => Some(id),
         _ => None,
@@ -258,18 +244,12 @@ pub async fn choices(
         .map(|player| {
             let value = value_of(player);
             let media = avatars.get(&value);
-            let (is_picked, injury) = match player.id.as_ref() {
-                Some(id) => (
-                    same_player.as_ref() == Some(id),
-                    injuries_by_gsis
-                        .as_ref()
-                        .and_then(|map| map.get(id))
-                        .copied(),
-                ),
-                None => (same_defense == Some(player.team), None),
+            let is_picked = match player.id.as_ref() {
+                Some(id) => same_player.as_ref() == Some(id),
+                None => same_defense == Some(player.team),
             };
             SlotChoice {
-                info: PickInfo::new(player.clone(), media, injury),
+                info: PickInfo::new(player.clone(), media),
                 is_picked,
                 over_cap: i64::from(player.salary) > budget,
             }
@@ -553,11 +533,10 @@ fn build_slot_row(
     slot: RosterSlot,
     player: Option<&SalariedPlayer>,
     avatar: Option<&Media>,
-    injury: Option<InjuryDesignation>,
 ) -> EditorSlotRow {
     EditorSlotRow {
         slot,
-        info: player.map(|player| PickInfo::new(player.clone(), avatar, injury)),
+        info: player.map(|player| PickInfo::new(player.clone(), avatar)),
     }
 }
 

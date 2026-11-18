@@ -14,7 +14,6 @@ pub struct AppState {
     pub nfl: Arc<NflData>,
     pub avatar_runner: Arc<AvatarFetchRunner>,
     pub live: Arc<crate::live::LiveContestHub>,
-    pub injuries: Arc<crate::injuries::InjuryReports>,
 }
 
 impl AppState {

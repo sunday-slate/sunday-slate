@@ -2,11 +2,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use ::time::{Date, OffsetDateTime};
-use nfl_data::{
-    Game, InjuryEntry, InjuryProvider, LiveGame, LiveScoreProvider, LiveSlate, ProviderOutcome,
-    SeasonWeek, TeamAbbr,
-};
+use ::time::Date;
+use nfl_data::{Game, LiveGame, LiveScoreProvider, LiveSlate, ProviderOutcome, SeasonWeek};
 use tank01_data::{PollEvent, SlatePoller};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -51,17 +48,6 @@ pub(crate) struct FeedReplay {
     scoreboard_response: Option<Arc<PollEvent>>,
     boxes: HashMap<String, BoxReplay>,
     terminal: FeedTerminal,
-}
-
-struct InjuryWindow {
-    first: OffsetDateTime,
-    last: OffsetDateTime,
-}
-
-struct InjuryTarget {
-    window: Option<InjuryWindow>,
-    teams: Vec<TeamAbbr>,
-    contests: BTreeSet<SlateId>,
 }
 
 impl FeedReplay {
@@ -198,7 +184,7 @@ pub async fn run_coordinator(state: AppState, tank01: tank01_data::Tank01Client)
 
 pub async fn run_coordinator_with_provider<P>(state: AppState, provider: P)
 where
-    P: LiveScoreProvider + InjuryProvider + Clone + 'static,
+    P: LiveScoreProvider + Clone + 'static,
 {
     let mut shutdown = state.live.shutdown_receiver();
     let mut reconcile = time::interval(RECONCILE_INTERVAL);
@@ -251,7 +237,7 @@ async fn reconcile_once<P>(
     coordinator: &mut CoordinatorState,
 ) -> Result<(), AppError>
 where
-    P: LiveScoreProvider + InjuryProvider + Clone + 'static,
+    P: LiveScoreProvider + Clone + 'static,
 {
     let now = state.now_eastern();
     let snapshot = state.nfl.snapshot();
@@ -264,7 +250,6 @@ where
     let mut discovered = BTreeMap::<FeedKey, (LiveSlate, BTreeSet<SlateId>)>::new();
     let mut contest_updates =
         BTreeMap::<SlateId, (Vec<Game>, Arc<LiveIdentityIndex>, Vec<FeedKey>)>::new();
-    let mut targets = HashMap::<SeasonWeek, InjuryTarget>::new();
 
     for slate in snapshot.slates() {
         let games = snapshot.games_for_slate(&slate.id);
@@ -294,10 +279,6 @@ where
                 .zip(last)
                 .is_some_and(|(first, last)| first > now || last < now - STARTUP_RECOVERY)
         {
-            if last.is_some_and(|last| last < now - STARTUP_RECOVERY) {
-                continue;
-            }
-            capture_injury_target(&mut targets, games, season_week, &teams, slate.id);
             continue;
         }
 
@@ -308,8 +289,6 @@ where
             state.live.notify(slate.id);
             continue;
         }
-
-        capture_injury_target(&mut targets, games, season_week, &teams, slate.id);
 
         let identity_key = (
             season_week,
@@ -491,175 +470,9 @@ where
         state.live.notify(slate.id);
     }
 
-    refresh_injuries(state, provider, coordinator, &targets, now).await?;
     Ok(())
 }
 
-fn injury_ttl(now: OffsetDateTime, window: Option<&InjuryWindow>) -> ::time::Duration {
-    const SHARP: ::time::Duration = ::time::Duration::minutes(5);
-    const IDLE: ::time::Duration = ::time::Duration::minutes(30);
-    const MARGIN: ::time::Duration = ::time::Duration::hours(4);
-    let Some(window) = window else {
-        return IDLE;
-    };
-    if (window.first - MARGIN) <= now && now <= (window.last + MARGIN) {
-        SHARP
-    } else {
-        IDLE
-    }
-}
-
-fn capture_injury_target(
-    targets: &mut HashMap<SeasonWeek, InjuryTarget>,
-    games: &[Game],
-    week: SeasonWeek,
-    teams: &[TeamAbbr],
-    contest: SlateId,
-) {
-    let entry = targets.entry(week).or_insert_with(|| InjuryTarget {
-        window: None,
-        teams: teams.to_vec(),
-        contests: BTreeSet::new(),
-    });
-    entry.contests.insert(contest);
-    for game in games {
-        if let Some(kickoff) = game.kickoff_eastern() {
-            let window = entry.window.get_or_insert(InjuryWindow {
-                first: kickoff,
-                last: kickoff,
-            });
-            window.first = window.first.min(kickoff);
-            window.last = window.last.max(kickoff);
-        }
-    }
-}
-
-async fn refresh_injuries<P>(
-    state: &AppState,
-    provider: &P,
-    coordinator: &mut CoordinatorState,
-    targets: &HashMap<SeasonWeek, InjuryTarget>,
-    now: OffsetDateTime,
-) -> Result<(), AppError>
-where
-    P: InjuryProvider,
-{
-    let stale: Vec<(&SeasonWeek, &InjuryTarget)> = targets
-        .iter()
-        .filter(|(key, target)| {
-            state
-                .injuries
-                .needs_refresh(key, now, injury_ttl(now, target.window.as_ref()))
-        })
-        .collect();
-    if stale.is_empty() {
-        tracing::debug!(
-            targets = targets.len(),
-            "injury refresh: nothing stale (no slate games, all fresh, or off-window)"
-        );
-        return Ok(());
-    }
-    tracing::info!(
-        slates = stale.len(),
-        keys = %stale.iter().map(|(key, _)| format!("{:?}", key)).collect::<Vec<_>>().join(", "),
-        "injury refresh: fetching"
-    );
-
-    let response = provider.current_injuries().await;
-    match &response.outcome {
-        ProviderOutcome::Value(report) => {
-            for (key, target) in stale {
-                let identity_key = (
-                    *key,
-                    target
-                        .teams
-                        .iter()
-                        .map(|team| team.as_str().to_owned())
-                        .collect::<Vec<_>>(),
-                );
-                let index = match coordinator.identity.get(&identity_key) {
-                    Some(index) => index.clone(),
-                    None => {
-                        let index = Arc::new(
-                            LiveIdentityIndex::build(&state.nfl, *key, &target.teams).await?,
-                        );
-                        coordinator.identity.insert(identity_key, index.clone());
-                        index
-                    }
-                };
-                let by_gsis = report
-                    .entries
-                    .iter()
-                    .filter_map(|entry: &InjuryEntry| {
-                        match index.resolve(
-                            entry.espn_id.as_ref(),
-                            Some(&entry.name),
-                            entry.team.as_ref(),
-                            entry.position.as_deref(),
-                        ) {
-                            crate::live::identity::IdentityMatch::Matched(gsis) => {
-                                Some((gsis, entry.designation))
-                            }
-                            _ => None,
-                        }
-                    })
-                    .collect::<HashMap<_, _>>();
-                let matched = by_gsis.len();
-                state.injuries.publish(
-                    *key,
-                    crate::injuries::SlateInjuries {
-                        by_gsis,
-                        report_date: report.report_date,
-                        attempted_at: Some(now),
-                    },
-                );
-                tracing::info!(
-                    season = %key.season.0,
-                    week = %key.week.0,
-                    report_date = ?report.report_date,
-                    entries = report.entries.len(),
-                    matched,
-                    "injury refresh: report published"
-                );
-                notify_contests(state, &target.contests);
-            }
-        }
-        ProviderOutcome::Pregame { message } => {
-            for (key, target) in stale {
-                tracing::info!(
-                    season = %key.season.0,
-                    week = %key.week.0,
-                    message = %message,
-                    "injury refresh: provider had no report"
-                );
-                state.injuries.publish(
-                    *key,
-                    crate::injuries::SlateInjuries {
-                        attempted_at: Some(now),
-                        ..Default::default()
-                    },
-                );
-                notify_contests(state, &target.contests);
-            }
-        }
-        ProviderOutcome::Error(error) => {
-            tracing::warn!(error = %error, "injury refresh failed; keeping prior report");
-            for (key, target) in stale {
-                let mut previous = state.injuries.report(key).unwrap_or_default();
-                previous.attempted_at = Some(now);
-                state.injuries.publish(*key, previous);
-                notify_contests(state, &target.contests);
-            }
-        }
-    }
-    Ok(())
-}
-
-fn notify_contests(state: &AppState, contests: &BTreeSet<SlateId>) {
-    for contest in contests {
-        state.live.notify(*contest);
-    }
-}
 async fn stop_feed(runner: FeedRunner) {
     runner.handle.abort();
     let _ = runner.handle.await;
@@ -764,7 +577,7 @@ mod tests {
     use time::OffsetDateTime;
     use time::macros::datetime;
 
-    use super::{FeedKey, injury_ttl};
+    use super::FeedKey;
     use crate::live::tank01_game_id;
     use crate::tests::factories;
 
@@ -790,84 +603,5 @@ mod tests {
         washington.home_team = TeamAbbr::PHI;
         washington.away_team = TeamAbbr::WAS;
         assert_eq!(tank01_game_id(&washington), Some("20260913_WSH@PHI".into()));
-    }
-
-    #[test]
-    fn injury_ttl_sharpens_around_the_slate_window() {
-        let sharp = ::time::Duration::minutes(5);
-        let idle = ::time::Duration::minutes(30);
-        let now = datetime!(2025-09-07 17:00 UTC);
-        let at = |offset: ::time::Duration| now + offset;
-        let window =
-            |first: OffsetDateTime, last: OffsetDateTime| Some(super::InjuryWindow { first, last });
-
-        // Single-game window: sharp from 4h before kickoff.
-        let single = window(now, now).expect("single-game window");
-        assert_eq!(
-            injury_ttl(at(::time::Duration::hours(-3)), Some(&single)),
-            sharp,
-            "3h before kickoff is sharp"
-        );
-        assert_eq!(
-            injury_ttl(
-                at(-::time::Duration::hours(4)) + ::time::Duration::seconds(1),
-                Some(&single)
-            ),
-            sharp,
-            "boundary one second inside the margin is sharp"
-        );
-        assert_eq!(
-            injury_ttl(at(::time::Duration::hours(-5)), Some(&single)),
-            idle,
-            "5h before kickoff is idle"
-        );
-        assert_eq!(
-            injury_ttl(
-                at(::time::Duration::hours(3) + ::time::Duration::minutes(59)),
-                Some(&single)
-            ),
-            sharp,
-            "3h59 after kickoff is still sharp"
-        );
-        assert_eq!(
-            injury_ttl(
-                at(::time::Duration::hours(4) + ::time::Duration::seconds(1)),
-                Some(&single)
-            ),
-            idle,
-            "4h+1s after kickoff is idle"
-        );
-
-        // Two-game window: the tail boundary keys off the LAST kickoff.
-        let two_game = window(
-            at(::time::Duration::hours(-2)),
-            at(::time::Duration::hours(9)),
-        )
-        .expect("two-game window");
-        assert_eq!(
-            injury_ttl(at(::time::Duration::hours(-6)), Some(&two_game)),
-            sharp,
-            "exact 4h margin from the earlier game"
-        );
-        assert_eq!(
-            injury_ttl(
-                at(::time::Duration::hours(9)) + ::time::Duration::minutes(3 * 60 + 59),
-                Some(&two_game)
-            ),
-            sharp,
-            "3h59 after the last kickoff is still sharp"
-        );
-        assert_eq!(
-            injury_ttl(
-                at(::time::Duration::hours(9)
-                    + ::time::Duration::hours(4)
-                    + ::time::Duration::seconds(1)),
-                Some(&two_game)
-            ),
-            idle,
-            "4h+1s after the last kickoff is idle"
-        );
-
-        assert_eq!(injury_ttl(now, None), idle, "no kickoffs means idle");
     }
 }
