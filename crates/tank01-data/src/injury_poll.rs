@@ -176,7 +176,7 @@ mod tests {
     use std::time::Duration;
 
     use nfl_model::{ProviderOutcome, ProviderResponse};
-    use tokio::sync::mpsc;
+    use tokio::sync::{mpsc, oneshot};
     use utils::Secret;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -210,7 +210,7 @@ mod tests {
         })
     }
 
-    async fn mount(server: &MockServer, delay: Duration) -> Arc<AtomicUsize> {
+    async fn mount(server: &MockServer) -> Arc<AtomicUsize> {
         let count = Arc::new(AtomicUsize::new(0));
         let observed = Arc::clone(&count);
         Mock::given(method("GET"))
@@ -219,7 +219,6 @@ mod tests {
                 observed.fetch_add(1, Ordering::SeqCst);
                 ResponseTemplate::new(200)
                     .insert_header("content-type", "application/json")
-                    .set_delay(delay)
                     .set_body_json(body())
             })
             .mount(server)
@@ -231,23 +230,13 @@ mod tests {
         count.load(Ordering::SeqCst)
     }
 
-    // Awaiting a channel here could auto-advance paused time to a client timeout.
-    async fn wait_for_requests(count: &AtomicUsize, expected: usize) {
-        for _ in 0..200_000 {
-            if request_count(count) >= expected {
-                return;
-            }
-            tokio::task::yield_now().await;
-        }
-        panic!("mock server never saw request {expected}");
-    }
-
     async fn spin(ticks: usize) {
         for _ in 0..ticks {
             tokio::task::yield_now().await;
         }
     }
 
+    // Keep paused time from auto-advancing to a client timeout while HTTP I/O runs.
     async fn response(
         reports: &mut mpsc::UnboundedReceiver<ProviderResponse<InjuryReport>>,
     ) -> ProviderResponse<InjuryReport> {
@@ -275,7 +264,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn start_polls_immediately_and_every_five_minutes() {
         let server = MockServer::start().await;
-        let count = mount(&server, Duration::ZERO).await;
+        let count = mount(&server).await;
         let (sender, mut reports) = mpsc::unbounded_channel();
         let poller = InjuryPoller::new(client(&server), sender);
 
@@ -318,18 +307,42 @@ mod tests {
 
     #[tokio::test]
     async fn stop_and_restart_during_a_fetch_never_overlap() {
+        const WAIT: Duration = Duration::from_secs(5);
         let server = MockServer::start().await;
-        // The mock server runs its own runtime, so this delay is real time.
-        let count = mount(&server, Duration::from_millis(300)).await;
+        let (started, first_request) = oneshot::channel();
+        let (release, wait_for_release) = std::sync::mpsc::channel();
+        let first_gate = Mutex::new(Some((started, wait_for_release)));
+        Mock::given(method("GET"))
+            .and(path("/getNFLInjuriesByDate"))
+            .respond_with(move |_: &wiremock::Request| {
+                if let Some((started, wait_for_release)) = first_gate.lock().unwrap().take() {
+                    // Wiremock runs on a separate thread. Dropping `release` also
+                    // unblocks it if the test panics before sending.
+                    let _ = started.send(());
+                    let _ = wait_for_release.recv();
+                }
+                ResponseTemplate::new(200).set_body_json(body())
+            })
+            .mount(&server)
+            .await;
         let (sender, mut reports) = mpsc::unbounded_channel();
         let poller = InjuryPoller::new(client(&server), sender);
 
         assert!(poller.start());
-        wait_for_requests(&count, 1).await;
+        tokio::time::timeout(WAIT, first_request)
+            .await
+            .expect("mock server never saw the first request")
+            .expect("request notification channel closed");
 
         assert!(poller.stop());
         assert!(poller.start(), "a stop followed by a start while fetching");
-        let first = response(&mut reports).await;
+        release
+            .send(())
+            .expect("mock server dropped the response gate");
+        let first = tokio::time::timeout(WAIT, reports.recv())
+            .await
+            .expect("no injury response after releasing the first request")
+            .expect("report channel closed");
         assert!(
             matches!(
                 &first.outcome,
@@ -338,24 +351,31 @@ mod tests {
             "unexpected outcome: {:?}",
             first.outcome
         );
-        assert_silent(&mut reports).await;
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), reports.recv())
+                .await
+                .is_err(),
+            "no injury report was expected before an idle restart"
+        );
         assert_eq!(
-            request_count(&count),
+            server.received_requests().await.unwrap().len(),
             1,
             "the restart did not begin a parallel fetch"
         );
 
         assert!(poller.stop());
         assert!(poller.start(), "restart resumes polling");
-        wait_for_requests(&count, 2).await;
-        response(&mut reports).await;
-        assert_eq!(request_count(&count), 2);
+        tokio::time::timeout(WAIT, reports.recv())
+            .await
+            .expect("no injury response after restarting from idle")
+            .expect("report channel closed");
+        assert_eq!(server.received_requests().await.unwrap().len(), 2);
     }
 
     #[tokio::test(start_paused = true)]
     async fn a_closed_report_channel_terminates_and_blocks_restart() {
         let server = MockServer::start().await;
-        let count = mount(&server, Duration::ZERO).await;
+        let count = mount(&server).await;
         let (sender, mut reports) = mpsc::unbounded_channel();
         let poller = InjuryPoller::new(client(&server), sender);
         assert!(poller.start());
@@ -391,7 +411,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn drop_aborts_the_worker() {
         let server = MockServer::start().await;
-        let count = mount(&server, Duration::ZERO).await;
+        let count = mount(&server).await;
         let (sender, mut reports) = mpsc::unbounded_channel();
         let poller = InjuryPoller::new(client(&server), sender);
         assert!(poller.start());

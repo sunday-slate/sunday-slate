@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT gsis_player_id AS \"gsis_player_id!: NflPlayerId\"\n               FROM player_links WHERE espn_player_id IS NULL ORDER BY gsis_player_id",
+  "describe": {
+    "columns": [
+      {
+        "name": "gsis_player_id!: NflPlayerId",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "player_links",
+            "name": "gsis_player_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "524d5572129df784f61e5f5946e4711599c412abe1f653003a924e3e3a9f123a"
+}

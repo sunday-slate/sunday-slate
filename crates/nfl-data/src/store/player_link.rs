@@ -1,7 +1,8 @@
 use crate::NflDataError;
 use crate::store::Store;
+use nfl_model::NflPlayerId;
 use sqlx::{Sqlite, SqliteConnection};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// A confirmed link between a FanDuel player and its GSIS identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,6 +92,82 @@ where
     .fetch_all(ex)
     .await?;
     Ok(rows.into_iter().map(|row| row.gsis_player_id).collect())
+}
+
+pub(crate) async fn count_missing_espn_ids(store: &Store) -> Result<i64, NflDataError> {
+    Ok(sqlx::query_scalar!(
+        r#"SELECT COUNT(*) AS "count!: i64" FROM player_links WHERE espn_player_id IS NULL"#
+    )
+    .fetch_one(store.reader())
+    .await?)
+}
+
+/// GSIS ids of every saved link without an ESPN id, sorted.
+pub(crate) async fn gsis_ids_missing_espn(store: &Store) -> Result<Vec<NflPlayerId>, NflDataError> {
+    let rows = sqlx::query!(
+        r#"SELECT gsis_player_id AS "gsis_player_id!: NflPlayerId"
+               FROM player_links WHERE espn_player_id IS NULL ORDER BY gsis_player_id"#
+    )
+    .fetch_all(store.reader())
+    .await?;
+    Ok(rows.into_iter().map(|row| row.gsis_player_id).collect())
+}
+
+/// Fill only unambiguous claims on blank links and return the number changed.
+pub(crate) async fn update_espn_ids(
+    store: &Store,
+    updates: &HashMap<NflPlayerId, String>,
+) -> Result<u64, NflDataError> {
+    if updates.is_empty() {
+        return Ok(0);
+    }
+    store
+        .write_tx(async |conn| {
+            let rows = sqlx::query!(
+                r#"SELECT gsis_player_id AS "gsis_player_id!: String",
+                          espn_player_id AS "espn_player_id?: String"
+                   FROM player_links"#
+            )
+            .fetch_all(&mut *conn)
+            .await?;
+            let blank: HashSet<&str> = rows
+                .iter()
+                .filter(|row| row.espn_player_id.is_none())
+                .map(|row| row.gsis_player_id.as_str())
+                .collect();
+            let occupied: HashSet<&str> = rows
+                .iter()
+                .filter_map(|row| row.espn_player_id.as_deref())
+                .collect();
+            // Count claims against the pre-write state so no competing claim wins by order.
+            let eligible = |gsis: &str, espn: &str| blank.contains(gsis) && !occupied.contains(espn);
+            let mut claims: HashMap<&str, usize> = HashMap::new();
+            for (gsis_player_id, espn_player_id) in updates {
+                let gsis = gsis_player_id.0.as_str();
+                let espn = espn_player_id.as_str();
+                if eligible(gsis, espn) {
+                    *claims.entry(espn).or_default() += 1;
+                }
+            }
+            let mut updated = 0u64;
+            for (gsis_player_id, espn_player_id) in updates {
+                let gsis = gsis_player_id.0.as_str();
+                let espn = espn_player_id.as_str();
+                if !eligible(gsis, espn) || claims.get(espn).copied() != Some(1) {
+                    continue;
+                }
+                let result = sqlx::query!(
+                    "UPDATE player_links SET espn_player_id = ? WHERE gsis_player_id = ? AND espn_player_id IS NULL",
+                    espn,
+                    gsis,
+                )
+                .execute(&mut *conn)
+                .await?;
+                updated += result.rows_affected();
+            }
+            Ok(updated)
+        })
+        .await
 }
 
 /// Upsert each link keyed on the GSIS id; empty set writes nothing. A link
@@ -309,6 +386,47 @@ mod tests {
             links(store.reader()).await.unwrap().is_empty(),
             "the whole batch rolled back, including the first insert"
         );
+    }
+
+    #[tokio::test]
+    async fn espn_fill_skips_stale_and_conflicting_claims() {
+        let store = store().await;
+        save_links(
+            &store,
+            &[
+                link(1, "00-stale", Some("999")),
+                link(2, "00-owner", Some("888")),
+                link(3, "00-a", None),
+                link(4, "00-b", None),
+                link(5, "00-taken", None),
+                link(6, "00-good", None),
+            ],
+        )
+        .await
+        .unwrap();
+
+        let updates = HashMap::from([
+            (NflPlayerId("00-stale".into()), "123".to_owned()),
+            (NflPlayerId("00-a".into()), "777".to_owned()),
+            (NflPlayerId("00-b".into()), "777".to_owned()),
+            (NflPlayerId("00-taken".into()), "888".to_owned()),
+            (NflPlayerId("00-good".into()), "123".to_owned()),
+            (NflPlayerId("00-missing".into()), "123".to_owned()),
+        ]);
+        assert_eq!(
+            update_espn_ids(&store, &updates).await.unwrap(),
+            1,
+            "only the unambiguous, blank, untaken claim writes"
+        );
+        assert_eq!(
+            links_by_espn(store.reader()).await.unwrap(),
+            HashMap::from([
+                ("999".to_owned(), "00-stale".to_owned()),
+                ("888".to_owned(), "00-owner".to_owned()),
+                ("123".to_owned(), "00-good".to_owned()),
+            ])
+        );
+        assert_eq!(update_espn_ids(&store, &updates).await.unwrap(), 0);
     }
 
     #[tokio::test]

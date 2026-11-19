@@ -1,7 +1,7 @@
 //! Background refresh lifecycle and post-sync reconciliation.
 
-use std::collections::BTreeMap;
-use std::sync::{Arc, Weak};
+use std::collections::{BTreeMap, HashMap};
+use std::sync::{Arc, Weak, atomic::Ordering};
 use std::time::Instant;
 
 use nflverse_data::{Dataset, SyncEvent};
@@ -10,6 +10,7 @@ use tracing::Instrument;
 use crate::slates::{self, Slate, SlateId};
 use crate::snapshot::Snapshot;
 use crate::store;
+use crate::store::player_link;
 use crate::{NflData, NflDataError, Season};
 
 /// Identity fallback can read weekly rosters from any season.
@@ -177,6 +178,28 @@ impl NflData {
         self.build_and_publish().await
     }
 
+    /// Retry publication after a failed build, even if the next fill changes no rows.
+    pub(crate) async fn apply_espn_id_fill(
+        &self,
+        updates: &HashMap<nfl_model::NflPlayerId, String>,
+    ) -> Result<u64, NflDataError> {
+        let span = self.snapshot_update_span("fill_missing_espn_ids");
+        async {
+            let _publication = self.publication.lock().await;
+            let updated = player_link::update_espn_ids(&self.store, updates).await?;
+            if updated > 0 {
+                self.espn_fill_publish_pending
+                    .store(true, Ordering::Relaxed);
+            }
+            if self.espn_fill_publish_pending.load(Ordering::Relaxed) {
+                self.build_and_publish().await?;
+            }
+            Ok(updated)
+        }
+        .instrument(span)
+        .await
+    }
+
     /// Rebuild the snapshot and publish it. A failed build keeps the snapshot
     /// readers already hold; the next request to rebuild tries again.
     pub(crate) async fn rebuild_snapshot(&self) -> Result<(), NflDataError> {
@@ -204,8 +227,9 @@ impl NflData {
                 return Err(error);
             }
         };
-        // The atomic store is the publication boundary.
         self.snapshot.store(Arc::new(snapshot));
+        self.espn_fill_publish_pending
+            .store(false, Ordering::Relaxed);
         tracing::info!(
             duration_ms = started.elapsed().as_millis() as u64,
             "snapshot published"

@@ -3,7 +3,7 @@ use nflverse_data::DatasetFreshness;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use utils::background::{LastRun, RunnerState};
 
-use crate::{NflData, web::error::AdminError};
+use crate::{NflData, store::player_link, web::error::AdminError};
 
 #[derive(Template)]
 #[template(
@@ -17,10 +17,29 @@ pub(crate) struct NflverseTemplate {
     rows: Vec<DatasetRow>,
     last_run: Option<LastRunView>,
     scheduler_line: Option<String>,
+    fill_missing: i64,
+    pub(super) fill_updated: Option<u64>,
+}
+
+#[derive(Template)]
+#[template(
+    path = "admin/nflverse_fill_result.html",
+    config = "src/web/askama.toml"
+)]
+pub(super) struct NflverseFillResult {
+    pub(super) fill_missing: i64,
+    pub(super) fill_updated: Option<u64>,
 }
 
 impl NflverseTemplate {
     pub(crate) async fn load(nfl: &NflData) -> Result<Self, AdminError> {
+        let fill_missing = player_link::count_missing_espn_ids(&nfl.store).await?;
+        let mut page = Self::load_panel(nfl).await?;
+        page.fill_missing = fill_missing;
+        Ok(page)
+    }
+
+    pub(super) async fn load_panel(nfl: &NflData) -> Result<Self, AdminError> {
         let status = nfl.nflverse.refresh_status();
         if let RunnerState::Running {
             started_at,
@@ -30,8 +49,7 @@ impl NflverseTemplate {
             return Ok(Self::running(started_at, progress));
         }
 
-        // Recheck state after freshness I/O so a newly-started refresh is not
-        // knowingly rendered as idle.
+        // A refresh can start during the freshness read.
         let freshness = nfl
             .nflverse
             .freshness()
@@ -63,6 +81,8 @@ impl NflverseTemplate {
             rows: dataset_rows(freshness),
             last_run: last.map(last_run_view),
             scheduler_line,
+            fill_missing: 0,
+            fill_updated: None,
         }
     }
 
@@ -76,6 +96,8 @@ impl NflverseTemplate {
             rows: dataset_rows(freshness),
             last_run: None,
             scheduler_line: None,
+            fill_missing: 0,
+            fill_updated: None,
         }
     }
 }

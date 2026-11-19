@@ -47,6 +47,10 @@ where
             axum::routing::get(nflverse::show).post(nflverse::start),
         )
         .route(
+            "/nflverse/fill-missing-espn-ids",
+            axum::routing::post(nflverse::fill_missing_espn_ids),
+        )
+        .route(
             "/static/{*path}",
             axum::routing::get(assets::serve).head(assets::serve),
         )
