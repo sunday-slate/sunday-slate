@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE player_links SET espn_player_id = ? WHERE gsis_player_id = ? AND espn_player_id IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "012fe2be0a94991c4843e9b9916efb36e7955b0f6503d7786a19af9bb8115d0f"
+}

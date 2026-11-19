@@ -116,6 +116,19 @@ async fn nflverse_setup_errors_are_generic_500_responses() {
             },
         ),
     ));
+    let fill = server
+        .post("/nfl-data-admin/nflverse/fill-missing-espn-ids")
+        .add_header("HX-Request", "true")
+        .await;
+    assert_eq!(
+        fill.status_code(),
+        StatusCode::OK,
+        "the HTMX fill response never reads the broken freshness tables"
+    );
+    assert_eq!(
+        fill.text().trim(),
+        "<span>Missing ESPN IDs: 0</span> <span>Updated: 0</span>"
+    );
     for response in [
         server.get("/nfl-data-admin/nflverse").await,
         server.post("/nfl-data-admin/nflverse").await,

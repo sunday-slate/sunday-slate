@@ -10,6 +10,8 @@ pub(super) enum AdminError {
     Domain(#[from] crate::NflDataError),
     #[error(transparent)]
     Render(#[from] askama::Error),
+    #[error(transparent)]
+    Join(#[from] tokio::task::JoinError),
 }
 
 impl IntoResponse for AdminError {

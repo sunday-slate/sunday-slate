@@ -55,6 +55,8 @@ pub struct NflData {
     pub(crate) season: Season,
     /// Serializes slate reconciliation, builds, and publication.
     pub(crate) publication: tokio::sync::Mutex<()>,
+    /// A committed fill needs publication. Access under `publication` after initialization.
+    pub(crate) espn_fill_publish_pending: std::sync::atomic::AtomicBool,
     /// Receive end of the nflverse source's sync events, taken once by
     /// [`Self::start_background_tasks`].
     pub(crate) sync_events: Mutex<Option<mpsc::UnboundedReceiver<SyncEvent>>>,
@@ -113,6 +115,7 @@ impl NflData {
             season: config.season,
             snapshot: ArcSwap::from_pointee(Snapshot::default()),
             publication: tokio::sync::Mutex::new(()),
+            espn_fill_publish_pending: std::sync::atomic::AtomicBool::new(false),
             sync_events: Mutex::new(Some(sync_events_receiver)),
             update_worker: Mutex::new(None),
             injuries,
@@ -150,6 +153,7 @@ impl NflData {
             season: Season::default(),
             snapshot: ArcSwap::from_pointee(Snapshot::default()),
             publication: tokio::sync::Mutex::new(()),
+            espn_fill_publish_pending: std::sync::atomic::AtomicBool::new(false),
             sync_events: Mutex::new(None),
             update_worker: Mutex::new(None),
             injuries: injuries::InjuryState::default(),

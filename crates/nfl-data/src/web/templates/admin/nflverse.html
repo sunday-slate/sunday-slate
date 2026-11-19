@@ -70,5 +70,18 @@
     {% endif %}
   </div>
   {% endblock %}
+
+  <div class="mt-4">
+    <div id="nfl-espn-fill-result" role="status" class="text-sm text-base-content/60">{% include "admin/nflverse_fill_result.html" %}</div>
+    <form method="post" action="/nfl-data-admin/nflverse/fill-missing-espn-ids" hx-post="/nfl-data-admin/nflverse/fill-missing-espn-ids" hx-target="#nfl-espn-fill-result" hx-swap="innerHTML" hx-disable="find button" class="group mt-2">
+      <button type="submit" class="btn btn-primary btn-sm">
+        <span class="group-[.htmx-request]:hidden">Fill Missing ESPN IDs</span>
+        <span class="hidden items-center gap-2 group-[.htmx-request]:inline-flex">
+          <span class="loading loading-spinner loading-sm" aria-hidden="true"></span>
+          Filling ESPN IDs...
+        </span>
+      </button>
+    </form>
+  </div>
 </div>
 {% endblock %}
