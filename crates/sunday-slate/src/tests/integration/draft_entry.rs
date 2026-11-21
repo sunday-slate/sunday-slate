@@ -85,15 +85,12 @@ async fn resume_and_save_a_draft_by_slate_id(pool: SqlitePool) {
     let (app, team_id, slate) = setup(&pool, BEFORE_KICKOFF).await;
     assert_eq!(slate.0, 20260011);
 
-    // A partial draft resumes through the same slate key.
-    let response = app
-        .post(
-            &format!("/contests/{}/draft-entry/QB", slate.0),
-            "value=00-Q",
-        )
-        .await;
+    let editor_path = format!("/contests/{}/draft-entry", slate.0);
+    let qb_path = format!("{editor_path}/QB");
+    let response = app.post(&qb_path, "value=00-Q").await;
     response.assert_status(axum::http::StatusCode::SEE_OTHER);
-    let editor = app.get(&format!("/contests/{}/draft-entry", slate.0)).await;
+    assert_eq!(response.header("location"), editor_path.as_str());
+    let editor = app.get(&editor_path).await;
     editor.assert_status_ok();
     assert!(
         editor.text().contains("Week 1"),
@@ -101,7 +98,20 @@ async fn resume_and_save_a_draft_by_slate_id(pool: SqlitePool) {
         editor.text()
     );
 
-    for (slot, value) in PICKS.iter().skip(1) {
+    let cleared = app.post(&format!("{qb_path}/clear"), "").await;
+    cleared.assert_status(axum::http::StatusCode::SEE_OTHER);
+    assert_eq!(cleared.header("location"), editor_path.as_str());
+    let qb: Option<String> = sqlx::query_scalar(
+        "SELECT qb_gsis_id FROM draft_entries WHERE fantasy_team_id = ?1 AND slate_id = ?2",
+    )
+    .bind(team_id)
+    .bind(slate.0)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(qb, None, "native clear empties the slot");
+
+    for (slot, value) in PICKS.iter() {
         app.post(
             &format!("/contests/{}/draft-entry/{slot}", slate.0),
             &format!("value={value}"),
