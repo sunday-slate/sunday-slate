@@ -52,7 +52,7 @@ impl SalariedPlayers {
 async fn annotate_injuries(
     nfl: &NflData,
     built: &mut HashMap<SlateId, SalariedPlayersBySlot>,
-    current_id: SlateId,
+    current_week_slate_ids: &[SlateId],
 ) -> Result<(), NflDataError> {
     let Some(report) = nfl
         .injury_report()
@@ -60,9 +60,11 @@ async fn annotate_injuries(
     else {
         return Ok(());
     };
-    let eligible_rows = built
-        .get(&current_id)
-        .is_some_and(|by_slot| by_slot.values().flatten().any(|row| row.id.is_some()));
+    let eligible_rows = current_week_slate_ids.iter().any(|slate_id| {
+        built
+            .get(slate_id)
+            .is_some_and(|by_slot| by_slot.values().flatten().any(|row| row.id.is_some()))
+    });
     if !eligible_rows {
         return Ok(());
     }
@@ -96,20 +98,43 @@ async fn annotate_injuries(
         return Ok(());
     }
 
-    if let Some(by_slot) = built.get_mut(&current_id) {
-        // Annotate flex copies before building direct indexes.
-        for row in by_slot.values_mut().flatten() {
-            if let Some(id) = &row.id {
-                row.injury = designations.get(id).copied().flatten();
+    for slate_id in current_week_slate_ids {
+        if let Some(by_slot) = built.get_mut(slate_id) {
+            for row in by_slot.values_mut().flatten() {
+                if let Some(id) = &row.id {
+                    row.injury = designations.get(id).copied().flatten();
+                }
             }
         }
     }
     Ok(())
 }
 
+// Input is ordered by SlateId.
+fn select_current_slate_id<'a>(
+    slates: impl Iterator<Item = &'a Slate>,
+    now: time::OffsetDateTime,
+) -> Option<SlateId> {
+    let mut last_known = None;
+    let mut greatest = None;
+    for slate in slates {
+        greatest = Some(slate.id);
+        if slate.kickoff.is_none() {
+            continue;
+        }
+        last_known = Some(slate.id);
+        if !slate.finished(now) {
+            return Some(slate.id);
+        }
+    }
+    last_known.or(greatest)
+}
+
 #[derive(Debug, Default)]
 pub struct Snapshot {
     slates: BTreeMap<SlateId, Slate>,
+    current_week_slate_ids: Vec<SlateId>,
+    current_slate_id: Option<SlateId>,
     games: HashMap<SlateId, Vec<Game>>,
     salaried_players: HashMap<SlateId, SalariedPlayers>,
     stats_available: HashSet<SlateId>,
@@ -119,6 +144,10 @@ impl Snapshot {
     /// Build from the handle: the configured season's stored slates, then the
     /// salaried players that resolve for them.
     pub(crate) async fn build(nfl: &NflData) -> Result<Self, NflDataError> {
+        Self::build_at(nfl, time::OffsetDateTime::now_utc()).await
+    }
+
+    async fn build_at(nfl: &NflData, now: time::OffsetDateTime) -> Result<Self, NflDataError> {
         let all_slates: Vec<Slate> = slates::all(nfl).await?.into_iter().collect();
 
         // Every stored slate's games, resolved at build time; independent of
@@ -128,31 +157,36 @@ impl Snapshot {
             games.insert(slate.id, slates::games(nfl, &slate.id).await?);
         }
 
-        let (built, available) =
+        let (mut built, available) =
             salaried_players::build_salaried_players(nfl, all_slates.as_slice(), &games).await?;
-
-        let current_id = built
-            .iter()
-            .filter(|(_, by_slot)| !by_slot.is_empty())
-            .map(|(slate_id, _)| *slate_id)
-            .max();
-        let mut built = built;
-        if let Some(current_id) = current_id {
-            annotate_injuries(nfl, &mut built, current_id).await?;
-        }
-
-        // stored slates exist for every week, even those without games or
-        // salaries; only the ones that resolve to players belong in a snapshot
-        let salaried: HashMap<SlateId, SalariedPlayers> = built
-            .into_iter()
-            .filter(|(_, by_slot)| !by_slot.is_empty())
-            .map(|(slate_id, by_slot)| (slate_id, SalariedPlayers::new(by_slot)))
-            .collect();
+        built.retain(|_, by_slot| !by_slot.is_empty());
 
         let slates: BTreeMap<SlateId, Slate> = all_slates
             .into_iter()
-            .filter(|slate| salaried.contains_key(&slate.id))
+            .filter(|slate| built.contains_key(&slate.id))
             .map(|slate| (slate.id, slate))
+            .collect();
+
+        // SlateId groups slates by week.
+        let current_week_slate_ids: Vec<SlateId> = match slates.last_key_value() {
+            Some((_, latest)) => {
+                let mut ids: Vec<SlateId> = slates
+                    .values()
+                    .rev()
+                    .take_while(|slate| slate.season_week == latest.season_week)
+                    .map(|slate| slate.id)
+                    .collect();
+                ids.reverse();
+                ids
+            }
+            None => Vec::new(),
+        };
+
+        annotate_injuries(nfl, &mut built, &current_week_slate_ids).await?;
+
+        let salaried: HashMap<SlateId, SalariedPlayers> = built
+            .into_iter()
+            .map(|(slate_id, by_slot)| (slate_id, SalariedPlayers::new(by_slot)))
             .collect();
 
         let stats_available = available
@@ -160,8 +194,17 @@ impl Snapshot {
             .filter(|slate_id| slates.contains_key(slate_id))
             .collect();
 
+        let current_slate_id = select_current_slate_id(
+            current_week_slate_ids
+                .iter()
+                .filter_map(|slate_id| slates.get(slate_id)),
+            now,
+        );
+
         Ok(Self {
             slates,
+            current_week_slate_ids,
+            current_slate_id,
             games,
             salaried_players: salaried,
             stats_available,
@@ -178,9 +221,18 @@ impl Snapshot {
         self.slates.values()
     }
 
-    /// Greatest populated slate id; `None` when empty. ID order, not kickoff.
+    /// Latest populated week's slates in ID order. Only these carry injuries.
+    pub fn current_week_slates(&self) -> impl Iterator<Item = &Slate> + '_ {
+        self.current_week_slate_ids
+            .iter()
+            .filter_map(|slate_id| self.slates.get(slate_id))
+    }
+
+    /// Current slate, fixed at build time.
     pub fn current_slate(&self) -> Option<&Slate> {
-        self.slates.last_key_value().map(|(_, slate)| slate)
+        self.current_slate_id
+            .as_ref()
+            .and_then(|slate_id| self.slates.get(slate_id))
     }
 
     /// The slate with this id, or `None` when it has no salaried players.
