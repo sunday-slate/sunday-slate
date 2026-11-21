@@ -32,18 +32,27 @@
 <div id="entry-{{ entry_id }}-{{ row.dom_id() }}-points" class="pick-pts {% if row.has_points() %}text-base-content{% else %}text-base-content/50{% endif %}"><span class="pick-pts-text{{ row.score_flash_class() }}"><span class="pick-pts-whole">{{ row.points_whole() }}</span><span class="pick-pts-dec">{{ row.points_dec() }}</span></span><span class="pick-pts-delta{{ row.score_flash_class() }}">{{ row.score_delta() }}</span></div>
 {% endmacro %}
 
+{% macro row_injury(entry_id, row, oob) %}
+<span id="entry-{{ entry_id }}-{{ row.dom_id() }}-injury" class="entry-score-injury inline-flex shrink-0"{% if oob %} hx-swap-oob="true"{% endif %}>{% if let Some(chip) = row.injury() %}{% call injuries::chip(chip) %}{% endcall %}{% endif %}</span>
+{% endmacro %}
+
 {% macro row_summary(entry_id, row) %}
 {% call info::pick_media(row) %}{% endcall %}
-<div class="pick-body">
-  <div class="pick-header">
-    {% call info::pick_name("bg-base-300 text-base-content/70", row.slot, row) %}{% endcall %}
-    <span id="entry-{{ entry_id }}-{{ row.dom_id() }}-injury" class="inline-flex shrink-0">{% match row.injury() %}{% when Some with (c) %}{% call injuries::chip(c) %}{% endcall %}{% when None %}{% endmatch %}</span>
+<div class="pick-body entry-score-pick-body">
+  <div class="min-w-0">
+    <div class="pick-header entry-score-pick-header">
+      {% call info::pick_name("bg-base-300 text-base-content/70", row.slot, row) %}{% endcall %}
+      {% call row_injury(entry_id, row, false) %}{% endcall %}
+      <i class="ph ph-caret-down pick-expand-icon ml-1 inline-block text-xs" aria-hidden="true"></i>
+    </div>
+    {% call row_game(entry_id, row) %}{% endcall %}
   </div>
-  {% call row_game(entry_id, row) %}{% endcall %}
-  {% call row_stats(entry_id, row) %}{% endcall %}
-  {% call row_status(entry_id, row) %}{% endcall %}
+  {% call row_points(entry_id, row) %}{% endcall %}
+  <div class="entry-score-pick-stats">
+    {% call row_stats(entry_id, row) %}{% endcall %}
+    {% call row_status(entry_id, row) %}{% endcall %}
+  </div>
 </div>
-{% call row_points(entry_id, row) %}{% endcall %}
 {% endmacro %}
 
 {% macro row_breakdown(entry_id, row) %}
@@ -122,7 +131,7 @@
       {% for row in picks.rows %}
       <div hx-swap-oob="outerHTML:#entry-{{ entry_id }}-{{ row.dom_id() }}-game">{% call row_game(entry_id, row) %}{% endcall %}</div>
       <div hx-swap-oob="outerHTML:#entry-{{ entry_id }}-{{ row.dom_id() }}-stats">{% call row_stats(entry_id, row) %}{% endcall %}</div>
-      <span id="entry-{{ entry_id }}-{{ row.dom_id() }}-injury" class="inline-flex shrink-0" hx-swap-oob="outerHTML:#entry-{{ entry_id }}-{{ row.dom_id() }}-injury">{% match row.injury() %}{% when Some with (c) %}{% call injuries::chip(c) %}{% endcall %}{% when None %}{% endmatch %}</span>
+      {% call row_injury(entry_id, row, true) %}{% endcall %}
       <div hx-swap-oob="outerHTML:#entry-{{ entry_id }}-{{ row.dom_id() }}-status">{% call row_status(entry_id, row) %}{% endcall %}</div>
       <div hx-swap-oob="outerHTML:#entry-{{ entry_id }}-{{ row.dom_id() }}-points">{% call row_points(entry_id, row) %}{% endcall %}</div>
       <div hx-swap-oob="outerHTML:#entry-{{ entry_id }}-{{ row.dom_id() }}-breakdown">{% call row_breakdown(entry_id, row) %}{% endcall %}</div>

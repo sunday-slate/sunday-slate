@@ -1,5 +1,13 @@
 /* Domain utilities DaisyUI has no primitive for. */
 
+nav[aria-label="Primary"] :is(a, summary):active,
+a.list-row:active, a[data-navigation-link]:active,
+.pick > summary:active, .pick-list form button:active {
+  background-color: var(--color-base-200);
+}
+.pick-expand-icon { color: var(--color-base-content); opacity: .5; }
+.pick[open] .pick-expand-icon { rotate: 180deg; }
+
 @utility tnum {
   font-feature-settings: "tnum", "lnum", "ss01";
   font-variant-numeric: tabular-nums lining-nums;
@@ -36,10 +44,9 @@ details.dropdown:not([open]) > .dropdown-content {
 /* Entry "Lineup Scores" page — full-bleed pick list with tap-to-expand. */
 .pick-list { background: var(--color-base-100); }
 .pick { border-bottom: 1px solid var(--color-base-300); }
-.pick > summary { list-style: none; cursor: pointer; }
-/* .pick-row: the pre-kickoff preview shares the pick grid without the expander. */
-.pick > summary, .pick-row {
-  display: grid; grid-template-columns: 62px 1fr auto; align-items: stretch; }
+.pick > summary { list-style: none; cursor: pointer;
+  display: grid; grid-template-columns: 62px minmax(0, 1fr); align-items: stretch; }
+.pick-row { display: grid; grid-template-columns: 62px 1fr auto; align-items: stretch; }
 .pick > summary::-webkit-details-marker { display: none; }
 .pick-shot { width: 62px; align-self: stretch; overflow: hidden;
   background: var(--color-base-300); display: grid; place-items: center; }
@@ -48,13 +55,18 @@ details.dropdown:not([open]) > .dropdown-content {
 .pick-shot--logo img { object-fit: contain; padding: 11px; }
 .pick-body { padding: 10px 12px 11px; align-self: center; min-width: 0; }
 .pick-header { container-type: inline-size; font-size: 17px; }
+.entry-score-pick-body { display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 8px; padding-right: 16px; }
+.entry-score-pick-stats { grid-column: 1 / -1; overflow-wrap: anywhere; }
+.entry-score-pick-header .pick-name { overflow-wrap: anywhere; }
+.entry-score-injury:empty { display: none; }
 .pick-name-abbr { display: none; }
 .pick-name--long .pick-name-full { display: none; }
 .pick-name--long .pick-name-abbr { display: inline; }
 @container (max-width: 13em) {
   .pick-name-full { display: none; }
   .pick-name-abbr { display: inline; }
-  .pick-name {
+  .pick-header:not(.entry-score-pick-header) .pick-name {
     white-space: normal;
     overflow-wrap: break-word;
     overflow: hidden;
@@ -64,7 +76,7 @@ details.dropdown:not([open]) > .dropdown-content {
     line-clamp: 2;
   }
 }
-.pick-pts { align-self: center; padding: 0 16px 0 8px; text-align: right;
+.pick-pts { align-self: start; text-align: right; line-height: 1.2;
   white-space: nowrap; font-weight: 700; letter-spacing: -0.02em; }
 @keyframes score-flash {
   0%, 65% { color: var(--score-flash-color); }
@@ -86,7 +98,7 @@ details.dropdown:not([open]) > .dropdown-content {
   0%, 65% { color: var(--score-flash-color); opacity: 1; }
   100% { color: inherit; opacity: 0; }
 }
-.pick-pts-delta { display: block; height: 14px; font-size: 12px; text-align: right; }
+.pick-pts-delta { display: block; min-height: 14px; font-size: 12px; text-align: right; }
 .pick-pts-delta.score-flash-increase,
 .pick-pts-delta.score-flash-decrease { animation: score-delta 700ms ease-out forwards; }
 @media (prefers-reduced-motion: reduce) {

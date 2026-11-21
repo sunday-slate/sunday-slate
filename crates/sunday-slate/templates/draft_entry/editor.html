@@ -65,7 +65,7 @@
         {% call info::info_columns(n) %}{% endcall %}
       </div>
       {% if !page.locked %}
-      <a href="/contests/{{ contest_id }}/draft-entry/{{ row.slot }}"
+      <a href="/contests/{{ contest_id }}/draft-entry/{{ row.slot }}" data-navigation-link
          class="grid place-items-center self-center px-3" aria-label="Swap {{ row.slot.position_label() }}">
         <i class="ph ph-arrows-left-right text-2xl text-base-content/60"></i>
       </a>
@@ -75,7 +75,7 @@
     </div>
     {% else %}
     {% if !page.locked %}
-    <a href="/contests/{{ contest_id }}/draft-entry/{{ row.slot }}"
+    <a href="/contests/{{ contest_id }}/draft-entry/{{ row.slot }}" data-navigation-link
        class="pick pick-row w-full text-left hover:bg-base-200">
       {% call info::empty_slot_body(row.avatar_url(), row.slot.position_label(), false) %}{% endcall %}
       <i class="ph ph-plus self-center pr-4 text-xl text-base-content/40"></i>
