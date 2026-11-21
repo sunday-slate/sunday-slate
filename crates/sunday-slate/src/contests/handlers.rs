@@ -31,8 +31,6 @@ use nfl_data::slates::{SlateId, SlateStatus};
 #[template(path = "contests/index.html")]
 struct ContestListPage {
     chrome: Chrome,
-    /// The Current Contest while it is live or upcoming, rendered above the
-    /// finished ones.
     current: Vec<ContestRow>,
     finished: Vec<ContestRow>,
 }
@@ -44,9 +42,11 @@ pub async fn index(
     let snapshot = state.nfl.snapshot();
     let now = state.now_eastern();
 
-    let contests = snapshot.slates().cloned().collect::<Vec<_>>();
-    let current = snapshot.current_slate().map(|slate| slate.id);
-    let slate_contests = contests_service::listed_contests(contests, current, now);
+    let current_week = snapshot
+        .current_week_slates()
+        .next()
+        .map(|slate| slate.season_week);
+    let slate_contests = contests_service::listed_contests(snapshot.slates(), current_week, now);
     let teams = standings_service::scored_teams(&state, league.id).await?;
 
     let mut rows = contests_service::contest_list(&slate_contests, &teams, now);

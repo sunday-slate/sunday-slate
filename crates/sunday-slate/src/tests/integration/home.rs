@@ -46,7 +46,7 @@ async fn a_contest_less_preseason_lands_on_standings() {
 }
 
 #[sqlx::test]
-async fn current_redirects_to_the_snapshot_maximum_slate(pool: sqlx::SqlitePool) {
+async fn current_redirects_to_the_latest_populated_week(pool: sqlx::SqlitePool) {
     let nfl = std::sync::Arc::new(nfl_data::NflData::in_memory().await.unwrap());
     let app = TestApp::from_pool_with_nfl_at(
         pool.clone(),
@@ -57,7 +57,6 @@ async fn current_redirects_to_the_snapshot_maximum_slate(pool: sqlx::SqlitePool)
     let team = factories::team(&pool, TeamOptions::default()).await;
     app.login_as(&team.owner).await;
 
-    // Week 1 is live at the pinned clock; week 2 is populated and upcoming.
     let week1 = week(1);
     let week2 = week(2);
     let wk1 = publish_slate(
@@ -88,7 +87,7 @@ async fn current_redirects_to_the_snapshot_maximum_slate(pool: sqlx::SqlitePool)
     assert_eq!(
         resp.header("location").to_str().unwrap(),
         format!("/contests/{}", wk2.0),
-        "Current is the greatest populated slate id, not the live kickoff"
+        "the started week does not displace the latest populated week"
     );
 
     let current = app.get(&format!("/contests/{}", wk2.0)).await;
@@ -277,14 +276,12 @@ async fn upcoming_utc_kickoff_renders_eastern_header_and_countdown(pool: sqlx::S
     );
 }
 
-/// The catalog is every published snapshot slate: a holiday slate and a
-/// postseason slate appear alongside their week's main slate.
 #[sqlx::test]
-async fn catalog_includes_holiday_and_postseason_slates(pool: sqlx::SqlitePool) {
+async fn catalog_keeps_started_slates_and_shows_the_current_week(pool: sqlx::SqlitePool) {
     let nfl = std::sync::Arc::new(nfl_data::NflData::in_memory().await.unwrap());
     let app = TestApp::from_pool_with_nfl_at(
         pool.clone(),
-        nfl,
+        nfl.clone(),
         time::macros::datetime!(2027-01-20 12:00 UTC),
     )
     .await;
@@ -308,6 +305,23 @@ async fn catalog_includes_holiday_and_postseason_slates(pool: sqlx::SqlitePool) 
     );
     publish_slate(&app, holiday_week, &[thanksgiving, sunday], &[]).await;
 
+    let before_kickoff = TestApp::from_pool_with_nfl_at(
+        pool.clone(),
+        nfl,
+        time::macros::datetime!(2026-11-26 16:00 UTC),
+    )
+    .await;
+    before_kickoff.login_as(&team.owner).await;
+    let list = before_kickoff.get("/contests").await;
+    list.assert_status_ok();
+    let body = list.text();
+    for name in ["Week 12", "Thanksgiving"] {
+        assert!(
+            body.contains(name),
+            "{name} is in the upcoming catalog: {body}"
+        );
+    }
+
     let wild_card = nfl_data::SeasonWeek {
         season: nfl_data::Season(2026),
         week: nfl_data::Week(19),
@@ -322,6 +336,14 @@ async fn catalog_includes_holiday_and_postseason_slates(pool: sqlx::SqlitePool) 
         away_score: None,
     };
     publish_slate(&app, wild_card, &[saturday], &[]).await;
+
+    let list = before_kickoff.get("/contests").await;
+    list.assert_status_ok();
+    let body = list.text();
+    assert!(body.contains("Wild Card"), "the new current week is listed");
+    for name in ["Week 12", "Thanksgiving"] {
+        assert!(!body.contains(name), "{name} is still upcoming: {body}");
+    }
 
     let list = app.get("/contests").await;
     list.assert_status_ok();

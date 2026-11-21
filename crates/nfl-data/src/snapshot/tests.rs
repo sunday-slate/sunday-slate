@@ -12,7 +12,7 @@ use time::OffsetDateTime;
 use time::macros::datetime;
 use utils::background::RunnerState;
 
-use super::{SalariedPlayers, Snapshot};
+use super::{SalariedPlayers, Snapshot, select_current_slate_id};
 use crate::salaried_players::{SalariedPlayer, SalariedPlayersBySlot, WeeklyStats};
 use crate::scoring::{score_defense, score_player};
 use crate::slates::{self, Slate, SlateId};
@@ -806,8 +806,19 @@ async fn same_week_slates_become_available_independently() {
         season: SEASON,
         week: Week(12),
     };
+    const WEEK_13: SeasonWeek = SeasonWeek {
+        season: SEASON,
+        week: Week(13),
+    };
+    // Midnight Eastern is 05:00 UTC here.
+    const THANKSGIVING_BUILD: OffsetDateTime = datetime!(2026-11-27 04:59 UTC);
+    const FRIDAY_BUILD: OffsetDateTime = datetime!(2026-11-27 05:00 UTC);
+    const FINISHED_BUILD: OffsetDateTime = datetime!(2026-11-30 05:00 UTC);
+
     let nfl = NflData::in_memory().await.expect("in-memory handle");
-    let games = vec![
+    let mut games = seeded_games();
+    games.retain(|game| game.season_week == SEASON_WEEK_5);
+    games.extend([
         Game {
             game_id: "2026_12_BUF_KC".into(),
             season_week: WEEK_12,
@@ -823,72 +834,192 @@ async fn same_week_slates_become_available_independently() {
             kickoff: Some(datetime!(2026-11-26 21:25 UTC)),
             home_team: TeamAbbr::DET,
             away_team: TeamAbbr::GB,
+            home_score: Some(24),
+            away_score: Some(17),
+        },
+        Game {
+            game_id: "2026_13_BUF_KC".into(),
+            season_week: WEEK_13,
+            kickoff: Some(datetime!(2026-12-06 18:00 UTC)),
+            home_team: TeamAbbr::KC,
+            away_team: TeamAbbr::BUF,
             home_score: None,
             away_score: None,
         },
+    ]);
+    let players = [
+        player("00-MACK", "Mack Runner", "RB", TeamAbbr::KC),
+        player("00-HOLIDAY", "Holly Runner", "RB", TeamAbbr::DET),
     ];
-    nfl.seed_for_test(&[], &games).await.expect("seed games");
+    nfl.seed_for_test(&players, &games)
+        .await
+        .expect("seed nflverse");
+    let week_5_id = main_slate_id(SEASON);
+    let rows = salaries::parse_fanduel_csv(&nfl.fanduel, SEASON_WEEK_5, SALARIES_CSV.as_bytes())
+        .expect("parse week 5 salaries");
+    salaries::save_fanduel_salaries(&nfl.fanduel, &rows)
+        .await
+        .expect("save week 5 salaries");
+    player_link::save_links(
+        &nfl.store,
+        &[
+            PlayerLink {
+                fd_player_id: 1,
+                gsis_player_id: "00-MACK".into(),
+                espn_player_id: Some("ESPN-MACK".into()),
+            },
+            PlayerLink {
+                fd_player_id: 6,
+                gsis_player_id: "00-HOLIDAY".into(),
+                espn_player_id: Some("ESPN-HOLIDAY".into()),
+            },
+        ],
+    )
+    .await
+    .expect("save links");
+    slates::populate_at(&nfl.nflverse, &nfl.store, SEASON, PINNED_NOW)
+        .await
+        .expect("populate slates");
+
+    let snapshot = Snapshot::build_at(&nfl, THANKSGIVING_BUILD)
+        .await
+        .expect("build before week 12 salaries");
+    assert_eq!(
+        snapshot
+            .current_week_slates()
+            .map(|slate| slate.id)
+            .collect::<Vec<_>>(),
+        [week_5_id],
+        "a lone finished week is still the latest populated week"
+    );
+    assert_eq!(
+        snapshot.current_slate().map(|slate| slate.id),
+        Some(week_5_id)
+    );
+
     let csv = "\
 Id,Position,First Name,Nickname,Last Name,FPPG,Played,Salary,Game,Team,Opponent,Injury Indicator,Injury Details,Tier,,,Roster Position
-9201-1,D,Kansas,Kansas City Chiefs,Chiefs,,0,4800,KC@BUF,KC,BUF,,,,,,DEF
-9202-2,D,Buffalo,Buffalo Bills,Bills,,0,4700,KC@BUF,BUF,KC,,,,,,DEF
-9203-3,D,Detroit,Detroit Lions,Lions,,0,4600,GB@DET,DET,GB,,,,,,DEF
-9204-4,D,Green Bay,Green Bay Packers,Packers,,0,4500,GB@DET,GB,DET,,,,,,DEF
+9001-1,RB,Mack,Mack Runner,Runner,,0,9000,KC@BUF,KC,BUF,,,,,,RB/FLEX
+9205-6,RB,Holly,Holly Runner,Runner,,0,9000,GB@DET,DET,GB,,,,,,RB/FLEX
 ";
     let rows =
         salaries::parse_fanduel_csv(&nfl.fanduel, WEEK_12, csv.as_bytes()).expect("parse salaries");
     salaries::save_fanduel_salaries(&nfl.fanduel, &rows)
         .await
         .expect("save salaries");
-    slates::populate_at(&nfl.nflverse, &nfl.store, SEASON, PINNED_NOW)
-        .await
-        .expect("populate slates");
+
+    nfl.retain_injury_report_for_test(injury_report(vec![
+        injury_entry(Some("ESPN-MACK"), "Mack Runner", InjuryDesignation::Out),
+        injury_entry(Some("ESPN-HOLIDAY"), "Holly Runner", InjuryDesignation::Out),
+    ]));
 
     let main_id = SlateId(i64::from(WEEK_12.encode()) * 10 + 1);
     let thanksgiving_id = SlateId(i64::from(WEEK_12.encode()) * 10);
+    let week_13_id = SlateId(i64::from(WEEK_13.encode()) * 10 + 1);
 
     let week_12 = |team, opponent, game_id: &str| TeamWeekStats {
         game_id: game_id.into(),
         ..team_stats(team, opponent, 12)
     };
-    nfl.seed_week_stats_for_test(
-        SEASON,
-        &[],
-        &[
-            week_12(TeamAbbr::KC, TeamAbbr::BUF, "2026_12_BUF_KC"),
-            week_12(TeamAbbr::BUF, TeamAbbr::KC, "2026_12_BUF_KC"),
-        ],
-    )
-    .await
-    .expect("seed the Sunday game");
-    nfl.rebuild_snapshot().await.expect("rebuild");
-
-    let snapshot = nfl.snapshot();
-    assert!(
-        snapshot.stats_available(&main_id),
-        "the Sunday slate's game is covered"
-    );
-    assert!(
-        !snapshot.stats_available(&thanksgiving_id),
-        "the same week's other slate has none of its own rows"
-    );
-
     let teams = [
-        week_12(TeamAbbr::KC, TeamAbbr::BUF, "2026_12_BUF_KC"),
-        week_12(TeamAbbr::BUF, TeamAbbr::KC, "2026_12_BUF_KC"),
+        kc_week_stats(12),
+        buf_week_stats(12),
         week_12(TeamAbbr::DET, TeamAbbr::GB, "2026_12_GB_DET"),
         week_12(TeamAbbr::GB, TeamAbbr::DET, "2026_12_GB_DET"),
     ];
+    nfl.seed_week_stats_for_test(SEASON, &[], &teams[..2])
+        .await
+        .expect("seed the Sunday game");
+
+    let thursday = Snapshot::build_at(&nfl, THANKSGIVING_BUILD)
+        .await
+        .expect("thanksgiving build");
+    assert!(thursday.stats_available(&main_id));
+    assert!(!thursday.stats_available(&thanksgiving_id));
+    assert_eq!(
+        thursday
+            .current_week_slates()
+            .map(|slate| slate.id)
+            .collect::<Vec<_>>(),
+        [thanksgiving_id, main_id],
+        "the latest week's slates come back in ascending id order"
+    );
+    assert_eq!(
+        thursday.current_slate().map(|slate| slate.id),
+        Some(thanksgiving_id),
+        "Thursday Eastern selects Thanksgiving"
+    );
+    assert!(
+        thursday.slate(&week_5_id).is_some(),
+        "earlier populated weeks stay accessible"
+    );
+    assert!(
+        thursday.slate(&week_13_id).is_none(),
+        "the unpopulated main slate is not exposed"
+    );
+    assert_eq!(
+        thursday.games_for_slate(&week_13_id).len(),
+        1,
+        "its stored games are still captured"
+    );
+
+    let mack = NflPlayerId("00-MACK".into());
+    let holly = NflPlayerId("00-HOLIDAY".into());
+    for (slate_id, id) in [(thanksgiving_id, &holly), (main_id, &mack)] {
+        assert_eq!(
+            thursday.player(&slate_id, id).unwrap().injury,
+            Some(InjuryDesignation::Out)
+        );
+        let flex = thursday.salaried_players_for_position(&slate_id, &DfsPositionSlotType::Flex);
+        assert_eq!(
+            flex.iter()
+                .find(|row| row.id.as_ref() == Some(id))
+                .unwrap()
+                .injury,
+            Some(InjuryDesignation::Out)
+        );
+    }
+    assert_eq!(
+        thursday.player(&week_5_id, &mack).unwrap().injury,
+        None,
+        "an earlier week is not annotated"
+    );
+
+    let friday = Snapshot::build_at(&nfl, FRIDAY_BUILD)
+        .await
+        .expect("friday build");
+    assert_eq!(
+        friday.current_slate().map(|slate| slate.id),
+        Some(main_id),
+        "Friday Eastern selects the main slate"
+    );
+    assert_eq!(
+        thursday.current_slate().map(|slate| slate.id),
+        Some(thanksgiving_id),
+        "an earlier snapshot keeps the selection it published"
+    );
+
+    let finished = Snapshot::build_at(&nfl, FINISHED_BUILD)
+        .await
+        .expect("finished build");
+    assert_eq!(
+        finished.current_slate().map(|slate| slate.id),
+        Some(main_id),
+        "the latest week's last slate stays current after it finishes"
+    );
+
     nfl.seed_week_stats_for_test(SEASON, &[], &teams)
         .await
         .expect("seed both games");
-    nfl.rebuild_snapshot().await.expect("rebuild");
-
-    let snapshot = nfl.snapshot();
-    assert!(snapshot.stats_available(&main_id));
-    assert!(
-        snapshot.stats_available(&thanksgiving_id),
-        "the Thanksgiving slate's own game is now covered"
+    let scored = Snapshot::build_at(&nfl, THANKSGIVING_BUILD)
+        .await
+        .expect("thanksgiving build with stats");
+    assert!(scored.stats_available(&main_id));
+    assert!(scored.stats_available(&thanksgiving_id));
+    assert_eq!(
+        scored.current_slate().map(|slate| slate.id),
+        Some(thanksgiving_id),
+        "scores do not move the selection"
     );
 }
 
@@ -990,20 +1121,60 @@ fn salaried(
 }
 
 #[test]
-fn current_slate_is_the_greatest_populated_id() {
-    assert!(
-        Snapshot::default().current_slate().is_none(),
-        "an empty snapshot has no current slate"
+fn default_snapshot_has_no_current_week_or_current_slate() {
+    let snapshot = Snapshot::default();
+    assert_eq!(snapshot.current_week_slates().count(), 0);
+    assert!(snapshot.current_slate().is_none());
+}
+
+#[test]
+fn current_slate_selection_scans_the_latest_week_in_id_order() {
+    let unfinished = datetime!(2026-10-04 16:00 UTC);
+    let finished = datetime!(2026-10-05 04:00 UTC);
+    let select = |slates: &[Slate], now| select_current_slate_id(slates.iter(), now);
+    let unknown = |id| Slate {
+        kickoff: None,
+        ..accessor_slate(id, "Unknown")
+    };
+    let known = |id| accessor_slate(id, "Week 5");
+
+    assert_eq!(
+        select_current_slate_id(std::iter::empty(), unfinished),
+        None,
+        "an empty index has no current slate"
     );
 
-    let later = accessor_slate(2, "Week 2");
-    let mut snapshot = Snapshot::default();
-    snapshot
-        .slates
-        .insert(SlateId(1), accessor_slate(1, "Week 1"));
-    snapshot.slates.insert(later.id, later.clone());
+    assert_eq!(select(&[unknown(1)], unfinished), Some(SlateId(1)));
 
-    assert_eq!(snapshot.current_slate(), Some(&later));
+    assert_eq!(
+        select(&[unknown(1), unknown(2)], unfinished),
+        Some(SlateId(2)),
+        "two unknown kickoffs keep the greater id"
+    );
+
+    assert_eq!(
+        select(&[unknown(1), known(2)], unfinished),
+        Some(SlateId(2)),
+        "an earlier unknown does not displace a known slate"
+    );
+
+    assert_eq!(
+        select(&[known(1), unknown(2)], unfinished),
+        Some(SlateId(1)),
+        "a later unknown does not displace a known slate"
+    );
+    assert_eq!(select(&[known(1), unknown(2)], finished), Some(SlateId(1)));
+
+    assert_eq!(
+        select(&[known(1), known(2)], unfinished),
+        Some(SlateId(1)),
+        "equal kickoffs select the smaller id while unfinished"
+    );
+    assert_eq!(
+        select(&[known(1), known(2)], finished),
+        Some(SlateId(2)),
+        "once all known slates finish the last id stays current"
+    );
 }
 
 #[test]
@@ -1137,7 +1308,7 @@ fn injury_report(entries: Vec<InjuryEntry>) -> InjuryReport {
 }
 
 #[tokio::test]
-async fn current_slate_carries_report_designations_by_persisted_espn_link() {
+async fn latest_populated_week_uses_persisted_espn_links_for_injuries() {
     let nfl = two_populated_slates().await;
     let earlier = main_slate_id(SEASON);
     let current = SlateId(wild_card_slate());
@@ -1149,17 +1320,11 @@ async fn current_slate_carries_report_designations_by_persisted_espn_link() {
     ]));
     let snapshot = Snapshot::build(&nfl).await.expect("build");
     assert_eq!(
-        snapshot.current_slate().map(|slate| slate.id),
-        Some(current),
-        "the wild-card slate is the greatest populated slate"
-    );
-    assert_eq!(
         snapshot
             .player(&current, &NflPlayerId("00-MACK".into()))
             .unwrap()
             .injury,
-        Some(InjuryDesignation::Out),
-        "the greatest populated slate resolves the direct lookup"
+        Some(InjuryDesignation::Out)
     );
     for slot in [
         DfsPositionSlotType::Position(DfsPosition::Rb),
@@ -1179,7 +1344,7 @@ async fn current_slate_carries_report_designations_by_persisted_espn_link() {
             .unwrap()
             .injury,
         None,
-        "an earlier populated slate is not eligible"
+        "players on earlier weeks are not annotated"
     );
     assert_eq!(
         snapshot

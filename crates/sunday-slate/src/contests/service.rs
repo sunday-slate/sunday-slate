@@ -5,9 +5,9 @@ use crate::entries::Lineup;
 use crate::scoring::service as scoring_service;
 #[cfg(test)]
 use crate::{entries::NflPlayerId, live::identity::LiveIdentityIndex, tests as test_support};
-use nfl_data::Snapshot;
 #[cfg(test)]
-use nfl_data::{Player, SeasonWeek};
+use nfl_data::Player;
+use nfl_data::{SeasonWeek, Snapshot};
 use std::cmp::Ordering;
 use std::cmp::Reverse;
 use std::collections::HashSet;
@@ -44,17 +44,14 @@ pub async fn official_contest_weeks(state: &AppState) -> Result<OfficialResults,
     Ok(OfficialResults { snapshot, slates })
 }
 
-/// The contests the Contests tab lists: every contest that has started (live
-/// or finished) plus the Current Contest while it is still upcoming. Later
-/// contests stay hidden until one of them becomes current.
-pub fn listed_contests(
-    contests: Vec<Slate>,
-    current: Option<SlateId>,
+pub fn listed_contests<'a>(
+    contests: impl Iterator<Item = &'a Slate>,
+    current_week: Option<SeasonWeek>,
     now: OffsetDateTime,
 ) -> Vec<Slate> {
     contests
-        .into_iter()
-        .filter(|slate| !slate.upcoming(now) || current == Some(slate.id))
+        .filter(|slate| !slate.upcoming(now) || current_week == Some(slate.season_week))
+        .cloned()
         .collect()
 }
 
@@ -423,28 +420,29 @@ mod contest_list_tests {
     }
 
     #[test]
-    fn lists_started_contests_plus_the_current_one() {
-        let at = datetime!(2025 - 09 - 10 12:00 UTC);
+    fn lists_started_contests_and_all_current_week_slates() {
+        let at = datetime!(2025 - 09 - 10 18:00 UTC);
         let past = one_day(1, "Week 1", date!(2025 - 09 - 07));
-        let current = one_day(2, "Week 2", date!(2025 - 09 - 14));
-        let later = one_day(3, "Week 3", date!(2025 - 09 - 21));
-        let current_id = current.id;
+        let live = one_day(2, "Live", date!(2025 - 09 - 10));
+        let current_week = SeasonWeek {
+            week: Week(2),
+            ..past.season_week
+        };
+        let holiday = Slate {
+            season_week: current_week,
+            ..one_day(3, "Holiday", date!(2025 - 09 - 11))
+        };
+        let main = Slate {
+            season_week: current_week,
+            ..one_day(4, "Week 2", date!(2025 - 09 - 14))
+        };
+        let other = one_day(5, "Other week", date!(2025 - 09 - 21));
+        let contests = [past, live, holiday, main, other];
 
-        let listed = listed_contests(vec![past, current, later], Some(current_id), at);
+        let listed = listed_contests(contests.iter(), Some(current_week), at);
         assert_eq!(
             listed.iter().map(|c| c.id).collect::<Vec<_>>(),
-            vec![SlateId(1), SlateId(2)],
-            "finished and current contests show; later ones wait"
-        );
-
-        let live = one_day(4, "Week 3", date!(2025 - 09 - 10));
-        let upcoming = one_day(5, "Week 4", date!(2025 - 09 - 21));
-        let live_id = live.id;
-        let listed = listed_contests(vec![live, upcoming], Some(live_id), at);
-        assert_eq!(
-            listed.iter().map(|c| c.id).collect::<Vec<_>>(),
-            vec![SlateId(4)],
-            "a live contest stays listed"
+            vec![SlateId(1), SlateId(2), SlateId(3), SlateId(4)]
         );
     }
 
