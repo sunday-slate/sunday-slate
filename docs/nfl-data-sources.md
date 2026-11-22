@@ -45,10 +45,15 @@ just db-migrate
 just nfl-sync --earliest-season 2025
 ```
 
-The new cache uses a single baseline migration; no legacy-cache conversion is
-supported. Only the nflverse cache may be removed and recreated; never delete
-the application database to refresh NFL data. SQLx preparation and the database
-browser use `NFLVERSE_DATABASE_URL` and `storage/nflverse-cache.db`.
+No legacy-cache conversion is supported. Only the nflverse cache may be removed
+and recreated; never delete the application database to refresh NFL data. SQLx
+preparation and the database browser use `NFLVERSE_DATABASE_URL` and
+`storage/nflverse-cache.db`.
+
+The schedule cache preserves a game's `kickoff` when `kickoff_override` is
+true. Schedule sync still refreshes the game's other fields, including final
+scores. Clear the flag to return that game to normal replacement on the next
+schedule import.
 
 ## Application Settings
 
