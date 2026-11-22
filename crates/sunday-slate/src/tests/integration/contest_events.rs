@@ -20,6 +20,7 @@ use crate::live::identity::LiveIdentityIndex;
 use crate::tests::TestApp;
 use crate::tests::factories::{self, TeamOptions};
 use crate::tests::publish_slate;
+use crate::tests::utils::list_item_containing;
 
 fn week(number: u8) -> nfl_data::SeasonWeek {
     nfl_data::SeasonWeek {
@@ -164,6 +165,9 @@ async fn score_region_updates_for_one_slate_and_not_another(pool: sqlx::SqlitePo
         &format!("contest-{}-entries", slate.0),
     )
     .await;
+    assert!(first_text.contains("<template data-rankings-snapshot="));
+    assert!(first_text.contains(&format!("data-entry-id=\"{entry_id}\"")));
+    assert!(!first_text.contains("hx-swap-oob=\"innerHTML:#contest-"));
     assert!(
         first_text.contains(&format!("entry-{}-score", entry_id)),
         "initial fragment carries the score region: {first_text}"
@@ -277,12 +281,20 @@ async fn score_region_updates_for_one_slate_and_not_another(pool: sqlx::SqlitePo
         .live
         .publish_event(slate, &event, std::slice::from_ref(&live));
 
-    let mut changed_text = first_text;
+    let mut changed_text = String::new();
     next_fragment(&mut first_body, &mut changed_text, "23.00").await;
-    assert!(
-        changed_text.contains(&format!("contest-{}-entry-{entry_id}-score", slate.0)),
-        "the changed score region belongs to the subscribed slate: {changed_text}"
+    let target = format!(
+        "<template data-rankings-snapshot=\"contest-{}-entries\">",
+        slate.0
     );
+    let rankings = changed_text
+        .split_once(&target)
+        .and_then(|(_, rest)| rest.split_once("</template>"))
+        .map(|(rankings, _)| rankings)
+        .expect("changed event carries the subscribed contest's rankings snapshot");
+    let row = list_item_containing(rankings, &format!("data-entry-id=\"{entry_id}\""));
+    assert!(row.contains("<span data-ranking-points>23.00</span>"));
+    assert!(!changed_text.contains("hx-swap-oob=\"innerHTML:#contest-"));
 
     let untouched = tokio::time::timeout(Duration::from_millis(400), second_body.frame()).await;
     assert!(

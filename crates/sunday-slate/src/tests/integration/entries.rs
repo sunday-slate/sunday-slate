@@ -738,13 +738,8 @@ fn contest_entry_score(html: &str, slate: SlateId, entry: i64) -> String {
         &format!(r#"id="contest-{}-entry-{entry}-score""#, slate.0),
         "</a>",
     );
-    let value = text_after(region, r#"class="text-lg font-semibold tnum">"#, "</div>");
-    value
-        .rsplit('>')
-        .next()
-        .unwrap_or_default()
-        .trim()
-        .to_string()
+    let value = text_after(region, "<span data-ranking-points>", "</span>");
+    value.trim().to_string()
 }
 
 fn contest_list_row(html: &str, slate: SlateId) -> &str {
