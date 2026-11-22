@@ -42,7 +42,7 @@ pub(crate) async fn replace(
 ) -> Result<u64, NflDataError> {
     store
         .write_tx(async |conn| {
-            sqlx::query!("DELETE FROM games")
+            sqlx::query("DELETE FROM games WHERE NOT kickoff_override")
                 .execute(&mut *conn)
                 .await?;
             for g in games {
@@ -51,6 +51,25 @@ pub(crate) async fn replace(
                 } else {
                     SeasonType::Reg
                 };
+                let updated = sqlx::query(
+                    r#"UPDATE games SET season = ?, week = ?, season_type = ?,
+                         home_team = ?, away_team = ?, home_score = ?, away_score = ?
+                       WHERE game_id = ? AND kickoff_override"#,
+                )
+                .bind(g.season_week.season)
+                .bind(g.season_week.week)
+                .bind(season_type)
+                .bind(g.home_team)
+                .bind(g.away_team)
+                .bind(g.home_score)
+                .bind(g.away_score)
+                .bind(&g.game_id)
+                .execute(&mut *conn)
+                .await?;
+                if updated.rows_affected() != 0 {
+                    continue;
+                }
+
                 sqlx::query!(
                     r#"INSERT INTO games
                        (game_id, season, week, season_type, kickoff,
@@ -177,6 +196,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn replace_preserves_overridden_kickoffs_and_updates_scores() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&format!("sqlite://{}/t.db", dir.path().display()))
+            .await
+            .unwrap();
+        let asset = SyncedAsset {
+            release_tag: "schedules",
+            asset_name: "games.csv",
+            updated_at: "2026-11-22T14:36:26Z",
+        };
+        let mut jax = game("2026_11_JAX_NYG", 11);
+        jax.season_week.season = Season(2026);
+        jax.home_team = TeamAbbr::NYG;
+        jax.away_team = TeamAbbr::JAX;
+        jax.kickoff = Some(datetime!(2026-11-22 18:00 UTC));
+        replace(&store, &asset, &[jax]).await.unwrap();
+
+        let games = for_season(store.reader(), Season(2026)).await.unwrap();
+        let jax = games
+            .iter()
+            .find(|g| g.game_id == "2026_11_JAX_NYG")
+            .unwrap();
+        assert_eq!(jax.kickoff, Some(datetime!(2026-11-22 21:25 UTC)));
+        assert_eq!((jax.home_score, jax.away_score), (Some(23), Some(26)));
+        let pit = games
+            .iter()
+            .find(|g| g.game_id == "2026_11_PIT_PHI")
+            .unwrap();
+        assert_eq!(pit.kickoff, Some(datetime!(2026-11-22 18:00 UTC)));
+    }
+
+    #[tokio::test]
     async fn for_season_round_trips_canonical_week_18_and_week_22() {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(&format!("sqlite://{}/t.db", dir.path().display()))
@@ -210,7 +261,7 @@ mod tests {
 
         // The stored classification column stays consistent with the absolute week.
         let stored: Vec<(String, i64)> = sqlx::query_as(
-            "SELECT game_id, CAST(season_type AS INTEGER) FROM games ORDER BY game_id",
+            "SELECT game_id, CAST(season_type AS INTEGER) FROM games WHERE season = 2025 ORDER BY game_id",
         )
         .fetch_all(store.reader())
         .await
