@@ -16,8 +16,9 @@
 {% endmacro %}
 
 {% macro entry_score(row) %}
+{% let points = row.points_str() %}
 <div class="text-lg font-semibold tnum">
-  {% if let Some(points) = row.points_str() %}{% if row.winner %}<i class="ph-fill ph-trophy align-[-0.1em] text-warning"></i> {% endif %}{{ points }}{% endif %}
+  {% if let Some(value) = points %}{% if row.winner %}<i class="ph-fill ph-trophy align-[-0.1em] text-warning mr-1" aria-hidden="true"></i>{% endif %}<span data-ranking-points>{{ value }}</span>{% else %}<span data-ranking-points></span>{% endif %}
 </div>
 {% endmacro %}
 
@@ -37,7 +38,8 @@
 {% endblock %}
 {% block content %}
 <div id="contest-{{ contest_id }}-live">
-  <div id="contest-{{ contest_id }}-live-stream"{% if let Some(url) = score.events_url %} hx-ext="sse" hx-sse:connect="{{ url }}" hx-swap="innerHTML" hx-on::after:sse:connection="document.getElementById('contest-{{ contest_id }}-live-indicator').classList.remove('hidden')" hx-on::sse:error="document.getElementById('contest-{{ contest_id }}-live-indicator').classList.add('hidden')" hx-on::sse:close="document.getElementById('contest-{{ contest_id }}-live-indicator').classList.add('hidden')"{% endif %}></div>
+  {% if score.events_url.is_some() %}<script src="{{ crate::assets::versioned("/static/js/live-rankings.js") }}" defer></script>{% endif %}
+  <div id="contest-{{ contest_id }}-live-stream" data-rankings-inbox{% if let Some(url) = score.events_url %} hx-ext="sse" hx-sse:connect="{{ url }}" hx-swap="innerHTML" hx-on::after:sse:connection="document.getElementById('contest-{{ contest_id }}-live-indicator').classList.remove('hidden')" hx-on::sse:error="document.getElementById('contest-{{ contest_id }}-live-indicator').classList.add('hidden')" hx-on::sse:close="document.getElementById('contest-{{ contest_id }}-live-indicator').classList.add('hidden')"{% endif %}></div>
 
   {% if let Some(up) = upcoming %}
   <div class="mb-3 px-1">
@@ -53,11 +55,11 @@
   {% endif %}
 
   {% block score_regions %}
-  <div id="contest-{{ contest_id }}-entries"{% if fragment %} hx-swap-oob="innerHTML:#contest-{{ contest_id }}-entries"{% endif %}>
+  {% if fragment %}<template data-rankings-snapshot="contest-{{ contest_id }}-entries">{% else %}<div id="contest-{{ contest_id }}-entries">{% endif %}
   {% if !rows.is_empty() %}
-  <ul class="list list-card">
+  <ul class="list list-card" data-rankings-list>
     {% for row in rows %}
-    <li class="{% if row.mine %}bg-primary/10{% endif %}">
+    <li class="{% if row.mine %}bg-primary/10{% endif %}" data-entry-id="{{ row.id.0 }}">
       {% if upcoming.is_some() && row.mine %}
       <a href="/entries/{{ row.id.0 }}" class="list-row items-center hover:bg-primary/20">
         {% call identity(row) %}{% endcall %}
@@ -92,7 +94,7 @@
     </div>
   </div>
   {% endif %}
-  </div>
+  {% if fragment %}</template>{% else %}</div>{% endif %}
   {% endblock %}
 </div>
 
